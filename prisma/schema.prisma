@@ -18,3 +18,13 @@ model Goal {
   updatedAt    DateTime  @updatedAt
   completedAt  DateTime?
 }
+
+model WorldConfig {
+  id              Int      @id @default(autoincrement())
+  worldId         String   @unique
+  anchors         Json
+  defaultTreeType String?
+  defaultGrowth   Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
