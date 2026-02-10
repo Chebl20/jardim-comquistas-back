@@ -149,37 +149,7 @@ export class WorldsController {
     }
   }
 
-  @Put(':id/config')
-  async putConfig(@Param('id') id: string, @Body() body: any, @Res() res: Response) {
-    const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
-    const { anchors, defaultTreeType, defaultGrowth } = body || {};
-    if (defaultGrowth !== undefined && !(Number.isInteger(defaultGrowth) && defaultGrowth >= 1 && defaultGrowth <= 6)) {
-      throw new BadRequestException('defaultGrowth must be integer between 1 and 6');
-    }
-    try {
-      const saved = await this.configService.upsert(safeId, { anchors, defaultTreeType, defaultGrowth });
-      return res.status(HttpStatus.OK).json(saved);
-    } catch (err) {
-      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: String(err) });
-    }
-  }
 
-  @Patch(':id/config')
-  async patchConfig(@Param('id') id: string, @Body() body: any, @Res() res: Response) {
-    const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
-    const { anchors, defaultTreeType, defaultGrowth } = body || {};
-    if (defaultGrowth !== undefined && !(Number.isInteger(defaultGrowth) && defaultGrowth >= 1 && defaultGrowth <= 6)) {
-      throw new BadRequestException('defaultGrowth must be integer between 1 and 6');
-    }
-    try {
-      const saved = await this.configService.patch(safeId, { anchors, defaultTreeType, defaultGrowth });
-      return res.status(HttpStatus.OK).json(saved);
-    } catch (err) {
-      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: String(err) });
-    }
-  }
 
   @Patch(':id/config/node')
   async patchNode(@Param('id') id: string, @Body() body: any, @Res() res: Response) {

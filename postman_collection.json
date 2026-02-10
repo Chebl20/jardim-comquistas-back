@@ -1,0 +1,147 @@
+{
+  "info": {
+    "_postman_id": "jardim-conquistas-backend-rotas",
+    "name": "Jardim das Conquistas - Worlds API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "GET /api/worlds/:id/svg",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/svg",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "svg"]
+        }
+      }
+    },
+    {
+      "name": "POST /api/worlds/:id/svg",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"svg\": \"<svg>...</svg>\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/svg",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "svg"]
+        }
+      }
+    },
+    {
+      "name": "GET /api/worlds/:id/anchors-config",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/anchors-config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "anchors-config"]
+        }
+      }
+    },
+    {
+      "name": "POST /api/worlds/:id/anchors-config/regenerate",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/anchors-config/regenerate",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "anchors-config", "regenerate"]
+        }
+      }
+    },
+    {
+      "name": "GET /api/worlds/:id/config",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "config"]
+        }
+      }
+    },
+    {
+      "name": "PUT /api/worlds/:id/config",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"anchors\": [],\n  \"defaultTreeType\": \"\",\n  \"defaultGrowth\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "config"]
+        }
+      }
+    },
+    {
+      "name": "PATCH /api/worlds/:id/config",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"anchors\": [],\n  \"defaultTreeType\": \"\",\n  \"defaultGrowth\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/config",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "config"]
+        }
+      }
+    },
+    {
+      "name": "PATCH /api/worlds/:id/config/node",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"layer\": \"\",\n  \"slot\": \"\",\n  \"x\": 0,\n  \"y\": 0,\n  \"treeType\": \"\",\n  \"growth\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/worlds/:id/config/node",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "worlds", ":id", "config", "node"]
+        }
+      }
+    },
+    {
+      "name": "GET /",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/",
+          "host": ["{{baseUrl}}"],
+          "path": [""]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    }
+  ]
+}
