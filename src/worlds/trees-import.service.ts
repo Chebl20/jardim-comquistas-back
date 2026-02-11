@@ -69,7 +69,14 @@ export class TreesImportService {
     const skipped: any[] = [];
     const already: any[] = [];
     const catalogsOutput: any[] = [];
-const explicitFamily = folderNorm.includes('/') ? folderNorm.split('/').pop() : undefined;
+    const explicitFamily = folderNorm.includes('/') ? folderNorm.split('/').pop() : undefined;
+    const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/g, '');
+    const makePublicUrl = (p?: string) => {
+      if (!p) return undefined;
+      // ensure no leading slash on path
+      const path = p.replace(/^\/+/, '');
+      return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
+    };
     for (const fam of targetFamilies) {
       const stages = familyMap[fam].stages || {};
       const stageNums = Object.keys(stages).map((s) => Number(s)).filter(Boolean).sort((a, b) => a - b);
@@ -93,33 +100,42 @@ const explicitFamily = folderNorm.includes('/') ? folderNorm.split('/').pop() : 
 
       // Build a single TreeCatalog for this family with stages as JSON and handle duplicates
       const catalogStages = stages; // Record<number, {svg?, png?}>
+      // build stages mapped to public URLs (to persist in DB)
+      const stagesWithUrlsForDb: Record<number, any> = {};
+      for (const k of Object.keys(catalogStages || {})) {
+        const num = Number(k);
+        const rec = (catalogStages as any)[k] || {};
+        stagesWithUrlsForDb[num] = {};
+        if (rec.png) stagesWithUrlsForDb[num].png = makePublicUrl(rec.png);
+        if (rec.svg) stagesWithUrlsForDb[num].svg = makePublicUrl(rec.svg);
+      }
+
       if ((prisma as any).treeCatalog) {
         const existing = await (prisma as any).treeCatalog.findFirst({ where: { family: fam } });
         if (existing) {
-          // compare existing stages with new stages
+          // compare stored stages with new public-url stages
           try {
             const existingJson = JSON.stringify(existing.stages || {});
-            const newJson = JSON.stringify(catalogStages || {});
+            const newJson = JSON.stringify(stagesWithUrlsForDb || {});
             if (existingJson === newJson) {
-              // already imported identical catalog
               already.push({ family: fam, id: existing.id });
-              catalogsOutput.push({ family: fam, stages: catalogStages, maxStage, catalogId: existing.id, status: 'already' });
+              catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: existing.id, status: 'already' });
               continue;
             }
           } catch (e) {
             // fallthrough to update if comparison fails
           }
-          // different content -> update
-          const up = await (prisma as any).treeCatalog.update({ where: { id: existing.id }, data: { stages: catalogStages } });
+          // different content -> update DB with public URLs
+          const up = await (prisma as any).treeCatalog.update({ where: { id: existing.id }, data: { stages: stagesWithUrlsForDb } });
           updated.push({ family: fam, id: up.id });
-          catalogsOutput.push({ family: fam, stages: catalogStages, maxStage, catalogId: up.id, status: 'updated' });
+          catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: up.id, status: 'updated' });
         } else {
-          const createdRow = await (prisma as any).treeCatalog.create({ data: { family: fam, stages: catalogStages } });
+          const createdRow = await (prisma as any).treeCatalog.create({ data: { family: fam, stages: stagesWithUrlsForDb } });
           created.push({ family: fam, id: createdRow.id });
-          catalogsOutput.push({ family: fam, stages: catalogStages, maxStage, catalogId: createdRow.id, status: 'created' });
+          catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: createdRow.id, status: 'created' });
         }
       } else {
-        catalogsOutput.push({ family: fam, stages: catalogStages, maxStage, catalogId: null, status: 'noop' });
+        catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: null, status: 'noop' });
       }
     }
 

@@ -7,7 +7,7 @@ import { TreesImportService } from './trees-import.service';
 export class WorldsEventsController {
   constructor(private readonly configService: WorldsConfigService, private readonly importService: TreesImportService) {}
 
-  @Get(':id/trees/:anchorId/progression')
+  @Get(':id/trees/:anchorId')
   async getTreeProgression(@Param('id') id: string, @Param('anchorId') anchorId: string) {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
@@ -67,57 +67,6 @@ export class WorldsEventsController {
     if (!aid) throw new BadRequestException('invalid anchor id in body');
 
     return this.getTreeProgression(id, aid);
-  }
-
-  @Post(':id/trees/:anchorId/events')
-  async createGrowthEvent(
-    @Param('id') id: string,
-    @Param('anchorId') anchorId: string,
-    @Body() body: { treeCatalogId?: string; family?: string; title?: string; description?: string },
-  ) {
-    const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) throw new BadRequestException('invalid world id');
-    const aid = String(anchorId || '').trim();
-    if (!aid) throw new BadRequestException('invalid anchor id');
-
-    const { treeCatalogId, family, title, description } = body || {};
-
-    const out = await (prisma as any).$transaction(async (tx: any) => {
-      let catalog: any = null;
-      if (treeCatalogId) catalog = await tx.treeCatalog.findUnique({ where: { id: treeCatalogId } });
-      else if (family) catalog = await tx.treeCatalog.findUnique({ where: { family } });
-      if (!catalog) throw new BadRequestException('treeCatalog not found (provide treeCatalogId or family)');
-
-      let planted = await tx.plantedTree.findFirst({ where: { worldId: safeId, anchorId: aid } });
-      let wasNewPlanted = false;
-      if (!planted) {
-        planted = await tx.plantedTree.create({ data: { worldId: safeId, anchorId: aid, treeCatalogId: catalog.id, actualStage: 1 } });
-        wasNewPlanted = true;
-      }
-
-      const targetStage = planted.actualStage || 1;
-
-      const existingCount = await tx.growthEvent.count({ where: { plantedTreeId: planted.id, stage: targetStage } });
-      const progressIndex = existingCount + 1;
-
-      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: title || '', description: description || '' } });
-
-      let required = 1;
-      try {
-        const stagesObj = catalog.stages || {};
-        required = (stagesObj && stagesObj[String(targetStage)] && stagesObj[String(targetStage)].requiredEvents) || 1;
-      } catch {
-        required = 1;
-      }
-
-      if (!wasNewPlanted && progressIndex >= required) {
-        await tx.plantedTree.update({ where: { id: planted.id }, data: { actualStage: targetStage + 1 } });
-      }
-
-      return created;
-    });
-
-    return this.getTreeProgression(id, anchorId);
   }
 
   @Post(':id/trees/events')
@@ -191,99 +140,79 @@ export class WorldsEventsController {
     return this.getTreeProgression(id, out.anchorId);
   }
 
-  @Get(':id/trees/events')
-  async listGrowthEvents(@Param('id') id: string) {
-    const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) throw new BadRequestException('invalid world id');
-    const planted = await (prisma as any).plantedTree.findMany({
-      where: { worldId: safeId },
-      include: { treeCatalog: true, growthEvents: { orderBy: { createdAt: 'asc' } } },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    const out = planted.map((p: any) => ({
-      id: p.id,
-      worldId: p.worldId,
-      anchorId: p.anchorId,
-      treeCatalog: p.treeCatalog ? { id: p.treeCatalog.id, family: p.treeCatalog.family } : undefined,
-      actualStage: p.actualStage,
-      events: (p.growthEvents || []).map((e: any) => ({ id: e.id, createdAt: e.createdAt, stage: e.stage, progressIndex: e.progressIndex, title: e.title, description: e.description })),
-    }));
-
-    return { events: out };
-  }
-
-  @Post(':id/trees/:anchorId/events/new')
-  async createNewPlantedTreeWithEvent(
+  @Post(':id/planted-trees/progress')
+  async progressPlantedTreeByBody(
     @Param('id') id: string,
-    @Param('anchorId') anchorId: string,
-    @Body() body: { treeCatalogId?: string; family?: string; title?: string; description?: string },
+    @Body() body: { plantedTreeId?: string; title?: string; description?: string },
   ) {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
-    const aid = String(anchorId || '').trim();
-    if (!aid) throw new BadRequestException('invalid anchor id');
-
-    const { treeCatalogId, family, title, description } = body || {};
-    if (!treeCatalogId && !family) throw new BadRequestException('provide treeCatalogId or family in body');
 
     const out = await (prisma as any).$transaction(async (tx: any) => {
-      let catalog: any = null;
-      if (treeCatalogId) catalog = await tx.treeCatalog.findUnique({ where: { id: treeCatalogId } });
-      else if (family) catalog = await tx.treeCatalog.findUnique({ where: { family } });
-      if (!catalog) throw new BadRequestException('treeCatalog not found');
+      const providedPlantedId = String(body?.plantedTreeId || '').trim();
+      if (!providedPlantedId) throw new BadRequestException('invalid plantedTree id in body');
 
-      const planted = await tx.plantedTree.create({ data: { worldId: safeId, anchorId: aid, treeCatalogId: catalog.id, actualStage: 1 } });
+      const planted = await tx.plantedTree.findUnique({ where: { id: providedPlantedId } });
+      if (!planted) throw new BadRequestException('planted tree not found');
+      if (planted.worldId !== safeId) throw new BadRequestException('planted tree does not belong to this world');
 
-      const targetStage = 1;
-      const existingCount = await tx.growthEvent.count({ where: { plantedTreeId: planted.id, stage: targetStage } });
-      const progressIndex = existingCount + 1;
+      // Buscar todos os growthEvents desse plantedTree
+      const events = await tx.growthEvent.findMany({
+        where: { plantedTreeId: planted.id },
+        orderBy: { createdAt: 'asc' }
+      });
 
-      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: title || '', description: description || '' } });
+      let targetStage: number;
+      let progressIndex: number;
 
-      return { created, plantedId: planted.id, anchorId: aid };
-    });
+      if (!events || events.length === 0) {
+        targetStage = planted.actualStage || 1;
+        progressIndex = 1;
+      } else {
+        const lastEvent = events[events.length - 1];
+        targetStage = lastEvent.stage;
+        progressIndex = lastEvent.progressIndex + 1;
+      }
 
-    return this.getTreeProgression(id, out.anchorId);
-  }
-
-  @Post(':id/events/:eventId/progress')
-  async progressEventById(
-    @Param('id') id: string,
-    @Param('eventId') eventId: string,
-    @Body() body: { title?: string; description?: string },
-  ) {
-    const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) throw new BadRequestException('invalid world id');
-    const eid = String(eventId || '').trim();
-    if (!eid) throw new BadRequestException('invalid event id');
-
-    const out = await (prisma as any).$transaction(async (tx: any) => {
-      const ev = await tx.growthEvent.findUnique({ where: { id: eid }, include: { plantedTree: true } });
-      if (!ev) throw new BadRequestException('event not found');
-      const planted = ev.plantedTree;
-      if (!planted) throw new BadRequestException('planted tree not found for event');
-      if (planted.worldId !== safeId) throw new BadRequestException('event does not belong to this world');
-
-      const targetStage = ev.stage;
-
-      const existingCount = await tx.growthEvent.count({ where: { plantedTreeId: planted.id, stage: targetStage } });
-      const progressIndex = existingCount + 1;
-
-      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: body?.title ?? ev.title ?? '', description: body?.description ?? ev.description ?? '' } });
-
+      // Buscar o catalog e requiredEvents para esse stage
       const catalog = await tx.treeCatalog.findUnique({ where: { id: planted.treeCatalogId } });
       let required = 1;
       try {
-        const stagesObj = catalog && catalog.stages ? catalog.stages : {};
-        required = (stagesObj && stagesObj[String(targetStage)] && stagesObj[String(targetStage)].requiredEvents) || 1;
+        const stagesObj = catalog?.stages || {};
+        required = stagesObj[String(targetStage)]?.requiredEvents || 1;
       } catch {
         required = 1;
       }
 
-      if (progressIndex >= required) {
-        await tx.plantedTree.update({ where: { id: planted.id }, data: { actualStage: targetStage + 1 } });
+      // Se já atingiu o requiredEvents, sobe de stage e reseta progressIndex
+      if (progressIndex > required) {
+        targetStage += 1;
+        progressIndex = 1;
+        await tx.plantedTree.update({ where: { id: planted.id }, data: { actualStage: targetStage } });
       }
+
+      // Não permitir criar estágio maior que o disponível no catálogo (número de imagens)
+      try {
+        const stagesObjAll = catalog?.stages || {};
+        const stageKeys = Object.keys(stagesObjAll).map((k) => Number(k)).filter((n) => !Number.isNaN(n));
+        if (stageKeys.length > 0) {
+          const maxAllowed = Math.max(...stageKeys);
+          if (targetStage > maxAllowed) throw new BadRequestException(`cannot create stage ${targetStage}: max stage is ${maxAllowed}`);
+        }
+      } catch (err) {
+        if (err instanceof BadRequestException) throw err;
+        // ignore other errors and proceed (fallback)
+      }
+
+      const created = await tx.growthEvent.create({
+        data: {
+          plantedTreeId: planted.id,
+          stage: targetStage,
+          progressIndex,
+          title: body?.title ?? '',
+          description: body?.description ?? ''
+        }
+      });
 
       return { created };
     });
@@ -291,111 +220,6 @@ export class WorldsEventsController {
     return { ok: true, result: out };
   }
 
-  @Post(':id/events/progress')
-  async progressEventByBody(@Param('id') id: string, @Body() body: { eventId?: string; title?: string; description?: string }) {
-    const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) throw new BadRequestException('invalid world id');
-    const eid = String(body?.eventId || '').trim();
-    if (!eid) throw new BadRequestException('invalid event id in body');
-
-    const out = await (prisma as any).$transaction(async (tx: any) => {
-      const ev = await tx.growthEvent.findUnique({ where: { id: eid }, include: { plantedTree: true } });
-      if (!ev) throw new BadRequestException('event not found');
-      const planted = ev.plantedTree;
-      if (!planted) throw new BadRequestException('planted tree not found for event');
-      if (planted.worldId !== safeId) throw new BadRequestException('event does not belong to this world');
-
-      const targetStage = ev.stage;
-
-      const existingCount = await tx.growthEvent.count({ where: { plantedTreeId: planted.id, stage: targetStage } });
-      const progressIndex = existingCount + 1;
-
-      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: body?.title ?? ev.title ?? '', description: body?.description ?? ev.description ?? '' } });
-
-      const catalog = await tx.treeCatalog.findUnique({ where: { id: planted.treeCatalogId } });
-      let required = 1;
-      try {
-        const stagesObj = catalog && catalog.stages ? catalog.stages : {};
-        required = (stagesObj && stagesObj[String(targetStage)] && stagesObj[String(targetStage)].requiredEvents) || 1;
-      } catch {
-        required = 1;
-      }
-
-      if (progressIndex >= required) {
-        await tx.plantedTree.update({ where: { id: planted.id }, data: { actualStage: targetStage + 1 } });
-      }
-
-      return { created };
-    });
-
-    return { ok: true, result: out };
-  }
-
-  @Delete(':id/events/:eventId')
-  async deleteEventById(@Param('id') id: string, @Param('eventId') eventId: string) {
-    const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) throw new BadRequestException('invalid world id');
-    const eid = String(eventId || '').trim();
-    if (!eid) throw new BadRequestException('invalid event id');
-
-    const out = await (prisma as any).$transaction(async (tx: any) => {
-      const ev = await tx.growthEvent.findUnique({ where: { id: eid }, include: { plantedTree: true } });
-      if (!ev) throw new BadRequestException('event not found');
-      const planted = ev.plantedTree;
-      if (!planted) throw new BadRequestException('planted tree not found for event');
-      if (planted.worldId !== safeId) throw new BadRequestException('event does not belong to this world');
-
-      await tx.growthEvent.delete({ where: { id: eid } });
-      return { ok: true, deletedId: eid };
-    });
-
-    return out;
-  }
-
-  @Get(':id/events/:eventId')
-  async getEventById(@Param('id') id: string, @Param('eventId') eventId: string) {
-    const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) throw new BadRequestException('invalid world id');
-    const eid = String(eventId || '').trim();
-    if (!eid) throw new BadRequestException('invalid event id');
-
-    const ev = await (prisma as any).growthEvent.findUnique({ where: { id: eid }, include: { plantedTree: { include: { treeCatalog: true } } } });
-    if (!ev) throw new BadRequestException('event not found');
-    const planted = ev.plantedTree;
-    if (!planted) throw new BadRequestException('planted tree not found for event');
-    if (planted.worldId !== safeId) throw new BadRequestException('event does not belong to this world');
-
-    return {
-      id: ev.id,
-      createdAt: ev.createdAt,
-      stage: ev.stage,
-      progressIndex: ev.progressIndex,
-      title: ev.title,
-      description: ev.description,
-      plantedTree: planted ? { id: planted.id, worldId: planted.worldId, anchorId: planted.anchorId, actualStage: planted.actualStage, treeCatalog: planted.treeCatalog ? { id: planted.treeCatalog.id, family: planted.treeCatalog.family } : undefined } : undefined,
-    };
-  }
-
-  @Delete(':id/events')
-  async deleteEventByBody(@Param('id') id: string, @Body() body: { eventId?: string }) {
-    const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
-    if (!safeId) throw new BadRequestException('invalid world id');
-    const eid = String(body?.eventId || '').trim();
-    if (!eid) throw new BadRequestException('invalid event id in body');
-
-    const out = await (prisma as any).$transaction(async (tx: any) => {
-      const ev = await tx.growthEvent.findUnique({ where: { id: eid }, include: { plantedTree: true } });
-      if (!ev) throw new BadRequestException('event not found');
-      const planted = ev.plantedTree;
-      if (!planted) throw new BadRequestException('planted tree not found for event');
-      if (planted.worldId !== safeId) throw new BadRequestException('event does not belong to this world');
-
-      await tx.growthEvent.delete({ where: { id: eid } });
-      return { ok: true, deletedId: eid };
-    });
-
-    return out;
-  }
 }
 
 export default WorldsEventsController;
