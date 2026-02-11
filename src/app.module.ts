@@ -10,10 +10,11 @@ import { WorldsAnchorsController } from './worlds/worlds.anchors.controller';
 import { WorldsTreesController } from './worlds/worlds.trees.controller';
 import { WorldsPlantedController } from './worlds/worlds.planted.controller';
 import { WorldsEventsController } from './worlds/worlds.events.controller';
+import { WorldsGateway } from './worlds/worlds.gateway';
 
 @Module({
   imports: [],
   controllers: [AppController, WorldsSvgController, WorldsAnchorsController, WorldsTreesController, WorldsPlantedController, WorldsEventsController, TestSupabaseController],
-  providers: [AppService, WorldsConfigService, SupabaseService, TreesImportService],
+  providers: [AppService, WorldsConfigService, SupabaseService, TreesImportService, WorldsGateway],
 })
 export class AppModule {}

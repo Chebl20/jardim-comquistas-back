@@ -2,10 +2,15 @@ import { Controller, Get, Post, Delete, Param, Body, BadRequestException, Query 
 import { prisma } from '../prisma/client';
 import { WorldsConfigService } from './worlds-config.service';
 import { TreesImportService } from './trees-import.service';
+import { WorldsGateway } from './worlds.gateway';
 
 @Controller('api/worlds')
 export class WorldsEventsController {
-  constructor(private readonly configService: WorldsConfigService, private readonly importService: TreesImportService) {}
+  constructor(
+    private readonly configService: WorldsConfigService,
+    private readonly importService: TreesImportService,
+    private readonly gateway: WorldsGateway,
+  ) {}
 
   @Get(':id/trees/:anchorId')
   async getTreeProgression(@Param('id') id: string, @Param('anchorId') anchorId: string) {
@@ -137,6 +142,19 @@ export class WorldsEventsController {
       return { created, plantedId: planted.id, anchorId: aid };
     });
 
+    // fetch planted full record for payload and emit after commit
+    try {
+      const plantedFull = await (prisma as any).plantedTree.findUnique({ where: { id: out.plantedId }, include: { treeCatalog: true } });
+      if (plantedFull) {
+        this.gateway.emitTreePlanted(safeId, plantedFull);
+      }
+      if (out.created) {
+        this.gateway.emitTreeProgress(safeId, out.plantedId, out.created.stage, undefined, null);
+      }
+    } catch (e) {
+      // emit failures shouldn't block response
+    }
+
     return this.getTreeProgression(id, out.anchorId);
   }
 
@@ -216,6 +234,17 @@ export class WorldsEventsController {
 
       return { created };
     });
+
+    // after commit emit progress to room
+    try {
+      const created = out.created;
+      // fetch planted to ensure worldId and other info if needed
+      const planted = await (prisma as any).plantedTree.findUnique({ where: { id: String(created.plantedTreeId) } });
+      const world = planted?.worldId || safeId;
+      this.gateway.emitTreeProgress(world, String(created.plantedTreeId), created.stage, undefined, null);
+    } catch (e) {
+      // ignore emit errors
+    }
 
     return { ok: true, result: out };
   }
