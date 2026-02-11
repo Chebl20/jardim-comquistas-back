@@ -7,18 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Goal {
-  id           Int       @id @default(autoincrement())
-  title        String
-  year         Int
-  description  String?
-  completed    Boolean   @default(false)
-  progress     Int       @default(0)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  completedAt  DateTime?
-}
-
 model WorldConfig {
   id              Int      @id @default(autoincrement())
   worldId         String   @unique
@@ -27,4 +15,37 @@ model WorldConfig {
   defaultGrowth   Int?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+model TreeCatalog {
+  id           String        @id @default(uuid())
+  family       String        @unique
+  stages       Json
+  createdAt    DateTime      @default(now())
+  plantedTrees PlantedTree[]
+}
+
+model PlantedTree {
+  id            String   @id @default(uuid())
+  worldId       String
+  anchorId      String
+  treeCatalogId String
+  actualStage   Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  treeCatalog  TreeCatalog   @relation(fields: [treeCatalogId], references: [id])
+  growthEvents GrowthEvent[]
+}
+
+model GrowthEvent {
+  id            String   @id @default(uuid())
+  plantedTreeId String
+  stage         Int
+  progressIndex Int
+  title         String
+  description   String
+  createdAt     DateTime @default(now())
+
+  plantedTree PlantedTree @relation(fields: [plantedTreeId], references: [id])
 }

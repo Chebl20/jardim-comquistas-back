@@ -29,6 +29,8 @@ export function transformPoint(
   };
 }
 
+import { createHash } from 'crypto';
+
 export type SlotAnchor = {
   layer: string; // L1, L2, L3...
   slot: string; // 1, 2, 3...
@@ -44,6 +46,8 @@ export type SlotAnchor = {
   svgLine?: string;
   /** Tipo de árvore (ex: "a", "b"). */
   treeType?: string;
+  /** Identificador determinístico da âncora (opcional). */
+  anchorId?: string;
 };
 
 /**
@@ -84,8 +88,30 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
     if (renderer && typeof renderer.renderSVGLayout === 'function') {
       try {
         const out = await renderer.renderSVGLayout(svgText);
-        // adiciona meta básico
-        return { anchors: out.anchors || [], viewBox: out.viewBox || { minX: 0, minY: 0, width: 0, height: 0 } };
+        const anchorsFromRenderer = out.anchors || [];
+        // garante anchorId determinísticos mesmo quando o renderer retorna as anchors
+        const anchorsWithIds = anchorsFromRenderer.map((a: any) => {
+          if (a && a.anchorId) return a;
+          try {
+            const norm = {
+              layer: a?.layer,
+              slot: a?.slot,
+              x: Number(a?.x || 0).toFixed(3),
+              y: Number(a?.y || 0).toFixed(3),
+              width: Number(a?.width || 0).toFixed(3),
+              height: Number(a?.height || 0).toFixed(3),
+              spriteAnchorX: a?.spriteAnchorX != null ? Number(a.spriteAnchorX).toFixed(6) : null,
+              spriteAnchorY: a?.spriteAnchorY != null ? Number(a.spriteAnchorY).toFixed(6) : null,
+              svgLine: a?.svgLine || '',
+            };
+            const s = JSON.stringify(norm);
+            const h = createHash('sha1').update(s).digest('hex');
+            return { ...a, anchorId: h };
+          } catch {
+            return a;
+          }
+        });
+        return { anchors: anchorsWithIds, viewBox: out.viewBox || { minX: 0, minY: 0, width: 0, height: 0 } };
       } catch (e) {
         // renderer falhou — fallback para parser interno
       }
@@ -428,6 +454,26 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
       svgLine,
       treeType: el.getAttribute("data-treeType") || undefined,
     };
+
+    // gera um id determinístico baseado no conteúdo essencial da âncora
+    try {
+      const norm = {
+        layer: anchor.layer,
+        slot: anchor.slot,
+        x: Number(anchor.x).toFixed(3),
+        y: Number(anchor.y).toFixed(3),
+        width: Number(anchor.width).toFixed(3),
+        height: Number(anchor.height).toFixed(3),
+        spriteAnchorX: anchor.spriteAnchorX != null ? Number(anchor.spriteAnchorX).toFixed(6) : null,
+        spriteAnchorY: anchor.spriteAnchorY != null ? Number(anchor.spriteAnchorY).toFixed(6) : null,
+        svgLine: anchor.svgLine || '',
+      };
+      const s = JSON.stringify(norm);
+      const h = createHash('sha1').update(s).digest('hex');
+      anchor.anchorId = h; // 40-char sha1 hex
+    } catch {
+      // ignore id generation failures
+    }
 
     return anchor;
   });
