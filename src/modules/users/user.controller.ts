@@ -11,9 +11,10 @@ export class UserController {
     return this.userService.createUser(body.name, body.email, body.password);
   }
 
-  @Get(':id')
-  async getById(@Param('id') id: string) {
-    return this.userService.getUserById(id);
+  @Get(':id/telegram-linked')
+  async isTelegramLinked(@Param('id') id: string) {
+    const user = await this.userService.getUserById(id);
+    return { linked: !!user?.telegramId };
   }
 
   @Post('login')
