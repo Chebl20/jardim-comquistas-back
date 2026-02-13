@@ -1,9 +1,11 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { prisma } from '../prisma/client';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { prisma } from '../../prisma/client';
 import { WorldsGateway } from '../worlds/worlds.gateway';
 
 @Injectable()
 export class UserGoalService {
+  private readonly logger = new Logger(UserGoalService.name);
+
   constructor(private readonly worldsGateway: WorldsGateway) {}
 
   /**
@@ -112,7 +114,7 @@ export class UserGoalService {
       }
     }
 
-    console.log('[DEBUG][UserGoal] Criando meta para userId:', data.userId);
+    this.logger.debug(`Criando meta para userId: ${data.userId}`);
     const userGoal = await prisma.userGoal.create({
       data: {
         userId: data.userId,

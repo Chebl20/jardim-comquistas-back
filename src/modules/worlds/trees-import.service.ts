@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
-import { SupabaseService } from '../supabase/supabase.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { SupabaseService } from '../../supabase/supabase.service';
 // Note: trees-state, anchor-key and utils were removed; keep import logic self-contained
-import { prisma } from '../prisma/client';
+import { prisma } from '../../prisma/client';
 
 @Injectable()
 export class TreesImportService {
+  private readonly logger = new Logger(TreesImportService.name);
+
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async importFromSupabase(worldId: string, bucket: string, folder: string, family?: string, debug?: boolean) {
@@ -156,7 +158,7 @@ export class TreesImportService {
       result.debug = { familiesFound: Object.keys(familyMap).length, itemsCount: items.length };
     }
 
-    console.log('trees.import', { worldId, bucket, folder, family, result });
+    this.logger.log(`trees.import: worldId=${worldId}, bucket=${bucket}, folder=${folder}, family=${family}, result=${JSON.stringify(result)}`);
     return result;
   }
 }

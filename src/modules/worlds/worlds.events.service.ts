@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { prisma } from '../prisma/client';
+import { prisma } from '../../prisma/client';
 import { WorldsConfigService } from './worlds-config.service';
 import { TreesImportService } from './trees-import.service';
 import { WorldsGateway } from './worlds.gateway';

@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { AiService } from '../ia/openIa/ai.service';
 import { IntentRouter } from '../ia/intent-router.service';
 import { UserLinkService } from '../users/user-link.service';
@@ -8,6 +8,7 @@ import { UserLinkService } from '../users/user-link.service';
 @Injectable()
 
 export class TelegramService implements OnModuleInit {
+  private readonly logger = new Logger(TelegramService.name);
   private bot: TelegramBot;
 
   constructor(
@@ -24,7 +25,7 @@ export class TelegramService implements OnModuleInit {
     this.bot.on('message', async (msg) => {
       const chatId = msg.chat.id;
       const text = msg.text;
-      console.log('[TELEGRAM]', chatId, text);
+      this.logger.log(`[TELEGRAM] chatId=${chatId}, text=${text}`);
       if (typeof text !== 'string') {
         this.bot.sendMessage(chatId, 'Envie uma mensagem de texto.');
         return;

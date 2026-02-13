@@ -1,5 +1,5 @@
 import { UserGoalService } from '../../goals/user-goal.service';
-import { SupabaseService } from '../../supabase/supabase.service';
+import { SupabaseService } from '../../../supabase/supabase.service';
 
 import { Module } from '@nestjs/common';
 import { AiService } from './ai.service';

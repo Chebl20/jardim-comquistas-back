@@ -1,6 +1,6 @@
 import { Controller, Post, Get, Param, Body, UnauthorizedException } from '@nestjs/common';
 import { UserService } from './user.service';
-import { signJwt } from '../auth/auth.guard';
+import { signJwt } from '../../auth/auth.guard';
 
 @Controller('api/users')
 export class UserController {

@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import { Injectable } from '@nestjs/common';
 import SYSTEM_PROMPT from '../SYSTEM_PROMPT';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { prisma } from '../../prisma/client';
+import { prisma } from '../../../prisma/client';
 type ChatMessage = ChatCompletionMessageParam;
 
 // Armazena o histórico de conversa por usuário em memória (pode ser substituído por Redis ou banco depois)

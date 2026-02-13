@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { UserGoalService } from '../goals/user-goal.service';
 import { WorldsEventsService } from '../worlds/worlds.events.service';
 import { AiService } from './openIa/ai.service';
 
 @Injectable()
 export class IntentRouter {
+  private readonly logger = new Logger(IntentRouter.name);
+
   constructor(
     private readonly userGoalService: UserGoalService,
     private readonly worldsEventsService: WorldsEventsService,
@@ -12,7 +14,7 @@ export class IntentRouter {
   ) {}
 
   async route(action: any) {
-    console.log('[IntentRouter] action received:', action?.intent, action?.data);
+    this.logger.log(`action received: intent=${action?.intent}, data=${JSON.stringify(action?.data)}`);
     switch (action.intent) {
       case 'CREATE_GOAL': {
         const { title, description, goalType, conquestType, frequency, reminderTime, userId, worldId, reply } = action.data || {};
@@ -21,7 +23,7 @@ export class IntentRouter {
           if (reply && typeof reply === 'function') {
             reply('Qual o melhor horário para te lembrar dessa meta? (Ex: 08:00, 20:30)');
           } else {
-            console.log('Perguntar ao usuário: Qual o melhor horário para te lembrar dessa meta?');
+            this.logger.log('Perguntar ao usuário: Qual o melhor horário para te lembrar dessa meta?');
           }
           break;
         }
@@ -37,7 +39,7 @@ export class IntentRouter {
             worldId: "mundo2",
           };
           const userGoal = await this.userGoalService.createUserGoalWithTree(payload);
-          console.log('Meta criada:', userGoal);
+          this.logger.log(`Meta criada: ${JSON.stringify(userGoal)}`);
         } catch (err) {
           if (err && typeof err === 'object') {
             if ('response' in err) {
@@ -54,7 +56,7 @@ export class IntentRouter {
         break;
       }
       case 'SET_TIME':
-        console.log('Definir horário', action.data);
+        this.logger.log(`Definir horário: ${JSON.stringify(action.data)}`);
         break;
       case 'MARK_DONE': {
         let { plantedTreeId, goalId, title, description, worldId, userId, reply } = action.data || {};
@@ -73,7 +75,7 @@ export class IntentRouter {
           }
 
           const out = await this.worldsEventsService.progressPlantedTree(wId, { plantedTreeId, goalId, title, description, userId });
-          console.log('Progresso registrado:', out);
+          this.logger.log(`Progresso registrado: ${JSON.stringify(out)}`);
           if (reply && typeof reply === 'function') reply('Progresso registrado com sucesso.');
         } catch (err) {
           console.error('Erro ao registrar progresso:', err);
@@ -82,7 +84,7 @@ export class IntentRouter {
         break;
       }
       case 'CANCEL_GOAL':
-        console.log('Cancelar');
+        this.logger.log('Cancelar');
         break;
     }
   }

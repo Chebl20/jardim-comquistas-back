@@ -1,6 +1,6 @@
 import { Controller, Get, Delete, Param, Query, BadRequestException, UseGuards, Req } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
-import { prisma } from '../prisma/client';
+import { AuthGuard } from '../../auth/auth.guard';
+import { prisma } from '../../prisma/client';
 
 @UseGuards(AuthGuard)
 @Controller('api/worlds')

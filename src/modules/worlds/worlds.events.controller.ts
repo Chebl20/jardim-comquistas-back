@@ -1,7 +1,9 @@
 import { Controller, Get, Post, Delete, Param, Body, BadRequestException, Query, UseGuards } from '@nestjs/common';
 import { Req } from '@nestjs/common';
-import { AuthGuard } from '../auth/auth.guard';
+import { AuthGuard } from '../../auth/auth.guard';
 import { WorldsEventsService } from './worlds.events.service';
+import { CreateGrowthEventDto } from './dto/create-growth-event.dto';
+import { ProgressPlantedTreeDto } from './dto/progress-planted-tree.dto';
 
 @UseGuards(AuthGuard)
 @Controller('api/worlds')
@@ -27,7 +29,7 @@ export class WorldsEventsController {
   @Post(':id/trees/events')
   async createGrowthEventByCatalog(
     @Param('id') id: string,
-    @Body() body: { treeCatalogId?: string; family?: string; title?: string; description?: string; anchorId?: string },
+    @Body() body: CreateGrowthEventDto,
     @Req() req: any,
   ) {
     // Extrai userId do JWT (AuthGuard garante req.user)
@@ -41,7 +43,7 @@ export class WorldsEventsController {
   @Post(':id/planted-trees/progress')
   async progressPlantedTreeByBody(
     @Param('id') id: string,
-    @Body() body: { plantedTreeId?: string; title?: string; description?: string },
+    @Body() body: ProgressPlantedTreeDto,
     @Req() req: any,
   ) {
     const userId = req?.user?.userId;

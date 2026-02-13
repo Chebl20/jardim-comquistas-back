@@ -1,5 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { prisma } from '../prisma/client';
+import { prisma } from '../../prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()

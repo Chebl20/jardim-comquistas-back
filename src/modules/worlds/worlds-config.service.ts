@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { prisma } from '../prisma/client';
+import { prisma } from '../../prisma/client';
 
 export type AnchorsConfig = {
   anchors?: any[];

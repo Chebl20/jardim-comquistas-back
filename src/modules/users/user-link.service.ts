@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { prisma } from '../prisma/client';
+import { prisma } from '../../prisma/client';
 import { randomBytes } from 'crypto';
 
 @Injectable()
