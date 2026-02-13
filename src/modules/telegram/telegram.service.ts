@@ -4,6 +4,7 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { AiService } from '../ia/openIa/ai.service';
 import { IntentRouter } from '../ia/intent-router.service';
 import { UserLinkService } from '../users/user-link.service';
+import { prisma } from '../../prisma/client';
 
 @Injectable()
 
@@ -51,15 +52,27 @@ export class TelegramService implements OnModuleInit {
 
       // Usuário já está vinculado, segue fluxo normal
       try {
-        const result = await this.ai.interpret(text, chatId, { userId: user.id });
+        const worldId = user.currentWorldId || 'mundo1'; // Mundo atual do usuário
+
+        // Buscar metas ativas do usuário para contexto
+        const userGoals = await prisma.userGoal.findMany({
+          where: { userId: user.id, completed: false },
+          include: { plantedTree: true },
+        });
+        const goalsContext = userGoals.length > 0
+          ? 'Suas metas ativas: ' + userGoals.map(g => `${g.title} (id: ${g.id}, mundo: ${g.plantedTree?.worldId || 'desconhecido'})`).join(', ') + '.'
+          : 'Você não tem metas ativas no momento.';
+
+        const result = await this.ai.interpret(text, chatId, { userId: user.id, worldId, goalsContext });
         await this.bot.sendMessage(chatId, result.say);
         // Garante que o userId real do banco está presente no action
         if (result.action && typeof result.action === 'object') {
           if (!result.action.data) result.action.data = {};
           result.action.data.userId = user.id;
           result.action.data.userName = user.name;
+          result.action.data.worldId = worldId; // Adiciona o worldId ao action
+          await this.intentRouter.route(result.action);
         }
-        await this.intentRouter.route(result.action);
       } catch (e) {
         this.bot.sendMessage(chatId, 'Erro ao processar sua mensagem.');
       }

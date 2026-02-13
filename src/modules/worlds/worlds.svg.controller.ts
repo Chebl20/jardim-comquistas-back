@@ -4,29 +4,39 @@ import { join } from 'path';
 import type { Response } from 'express';
 import { parseSVGLayout } from './svg-parser';
 import { WorldsConfigService } from './worlds-config.service';
+import { WorldsService } from './worlds.service';
 
 @Controller('api/worlds')
 export class WorldsSvgController {
-  constructor(private readonly configService: WorldsConfigService) {}
+  constructor(private readonly configService: WorldsConfigService, private readonly worldsService: WorldsService) {}
 
   @Get(':id/svg')
-  getSvg(@Param('id') id: string, @Res() res: Response) {
+  async getSvg(@Param('id') id: string, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
 
-    const candidatePaths = [
-      join(process.cwd(), 'src', 'assets', 'worlds', `${safeId}.svg`),
-      join(process.cwd(), 'dist', 'assets', 'worlds', `${safeId}.svg`),
-      join(__dirname, '..', 'assets', 'worlds', `${safeId}.svg`),
-    ];
+    const world = await this.worldsService.getWorldById(safeId);
+    if (!world) return res.status(HttpStatus.NOT_FOUND).send('world not found');
 
-    const svgPath = candidatePaths.find((p) => existsSync(p));
-    if (!svgPath) return res.status(HttpStatus.NOT_FOUND).send('svg not found');
+    const svgPath = join(process.cwd(), world.svgPath);
+    if (!existsSync(svgPath)) return res.status(HttpStatus.NOT_FOUND).send('svg file not found');
 
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     const stream = createReadStream(svgPath);
     stream.on('error', () => res.status(HttpStatus.INTERNAL_SERVER_ERROR).send('error reading file'));
     stream.pipe(res);
+  }
+
+  @Get()
+  async getWorlds() {
+    const worlds = await this.worldsService.getAllWorlds();
+    return worlds;
+  }
+
+  @Post('scan')
+  async scanWorlds() {
+    await this.worldsService.scanAndPopulateWorlds();
+    return { message: 'Worlds scanned and populated' };
   }
 
   @Post(':id/svg')
@@ -64,14 +74,11 @@ export class WorldsSvgController {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
 
-    const candidatePaths = [
-      join(process.cwd(), 'src', 'assets', 'worlds', `${safeId}.svg`),
-      join(process.cwd(), 'dist', 'assets', 'worlds', `${safeId}.svg`),
-      join(__dirname, '..', 'assets', 'worlds', `${safeId}.svg`),
-      join(process.cwd(), 'data', 'worlds', `${safeId}.svg`),
-    ];
-    const svgPath = candidatePaths.find((p) => existsSync(p));
-    if (!svgPath) return res.status(HttpStatus.NOT_FOUND).send('svg not found');
+    const world = await this.worldsService.getWorldById(safeId);
+    if (!world) return res.status(HttpStatus.NOT_FOUND).send('world not found');
+
+    const svgPath = join(process.cwd(), world.svgPath);
+    if (!existsSync(svgPath)) return res.status(HttpStatus.NOT_FOUND).send('svg file not found');
 
     try {
       const svgText = readFileSync(svgPath, 'utf8');

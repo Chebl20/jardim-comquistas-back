@@ -145,9 +145,20 @@ export class UserGoalService {
   async getActiveGoalsForReminders() {
     return prisma.userGoal.findMany({
       where: {
-        goalType: 'Contínua',
         completed: false,
         reminderTime: { not: null },
+      },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        description: true,
+        conquestType: true,
+        reminderTime: true,
+        lastReminderSentAt: true,
+        dailyStatus: true,
+        silenceUntil: true,
+        completed: true,
       },
     });
   }

@@ -7,7 +7,7 @@ export class UserService {
   async createUser(name: string, email: string, password: string) {
     const hashedPassword = await bcrypt.hash(password, 10);
     return prisma.user.create({
-      data: { name, email, password: hashedPassword },
+      data: { name, email, password: hashedPassword, currentWorldId: 'mundo2' },
     });
   }
 
@@ -22,11 +22,11 @@ export class UserService {
     return prisma.user.findUnique({ where: { email } });
   }
 
-  async updateUser(userId: string, data: Partial<{ name: string; email: string; password: string }>) {
-    if (data.password) {
-      data.password = await bcrypt.hash(data.password, 10);
-    }
-    return prisma.user.update({ where: { id: userId }, data });
+  async updateCurrentWorld(userId: string, currentWorldId: string) {
+    return prisma.user.update({
+      where: { id: userId },
+      data: { currentWorldId },
+    });
   }
 
   async deleteUser(userId: string) {

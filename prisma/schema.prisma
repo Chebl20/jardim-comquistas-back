@@ -5,11 +5,24 @@ model User {
   password   String
   linkCode   String?    @unique // código para vincular com o bot
   telegramId String?    @unique // id do usuário no Telegram
+  currentWorldId String? // mundo atual do usuário
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
   goals      UserGoal[]
 }
+
+model World {
+  id          String   @id @default(uuid())
+  worldId     String   @unique // identifier like 'mundo2'
+  name        String
+  svgPath     String   // relative path to SVG file
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  config      WorldConfig?
+}
+
 model UserGoal {
   id            String   @id @default(uuid())
   userId        String
@@ -19,6 +32,9 @@ model UserGoal {
   conquestType  String    // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
   frequency     Int?      // número de vezes por semana/dia (apenas para metas contínuas)
   reminderTime  DateTime? // horário do lembrete
+  lastReminderSentAt DateTime? // última vez que o lembrete foi enviado
+  dailyStatus   String? // PENDING | SENT | WAITING | DONE | SKIPPED
+  silenceUntil DateTime? // quando pode cobrar de novo
   completed     Boolean   @default(false)
   plantedTreeId String    // ligação com a árvore que representa a meta
   anchorId      String    // ligação direta com o anchor usado
@@ -45,6 +61,8 @@ model WorldConfig {
   defaultGrowth   Int?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  world           World?   @relation(fields: [worldId], references: [worldId])
 }
 
 model TreeCatalog {

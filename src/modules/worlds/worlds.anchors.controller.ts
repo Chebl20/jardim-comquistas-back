@@ -3,10 +3,11 @@ import type { Response } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { WorldsConfigService } from './worlds-config.service';
+import { WorldsService } from './worlds.service';
 
 @Controller('api/worlds')
 export class WorldsAnchorsController {
-  constructor(private readonly configService: WorldsConfigService) {}
+  constructor(private readonly configService: WorldsConfigService, private readonly worldsService: WorldsService) {}
 
   @Get(':id/anchors-config')
   async getAnchorsConfig(@Param('id') id: string, @Res() res: Response) {
@@ -18,6 +19,7 @@ export class WorldsAnchorsController {
       join(process.cwd(), 'dist', 'assets', 'worlds', `${safeId}.svg`),
       join(__dirname, '..', 'assets', 'worlds', `${safeId}.svg`),
       join(process.cwd(), 'data', 'worlds', `${safeId}.svg`),
+      join(process.cwd(), 'src', 'assets', 'worlds', 'ancoras', `${safeId}.svg`),
     ];
     const svgPath = candidatePaths.find((p) => existsSync(p));
     if (!svgPath) return res.status(HttpStatus.NOT_FOUND).send('svg not found');
@@ -89,6 +91,19 @@ export class WorldsAnchorsController {
 
       const out = await this.configService.patchNode(safeId, identifier, patch);
       return res.status(HttpStatus.OK).json(out);
+    } catch (err) {
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: String(err) });
+    }
+  }
+
+  @Post(':id/anchors-config/regenerate')
+  async regenerateAnchorsConfig(@Param('id') id: string, @Res() res: Response) {
+    const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
+    if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
+
+    try {
+      await this.worldsService.regenerateConfig(safeId);
+      return res.status(HttpStatus.OK).json({ message: 'Anchors config regenerated' });
     } catch (err) {
       return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: String(err) });
     }

@@ -4,6 +4,7 @@ import { AuthGuard } from '../../auth/auth.guard';
 import { WorldsEventsService } from './worlds.events.service';
 import { CreateGrowthEventDto } from './dto/create-growth-event.dto';
 import { ProgressPlantedTreeDto } from './dto/progress-planted-tree.dto';
+import { prisma } from '../../prisma/client';
 
 @UseGuards(AuthGuard)
 @Controller('api/worlds')
@@ -49,5 +50,26 @@ export class WorldsEventsController {
     const userId = req?.user?.userId;
     const bodyWithUser = { ...body, userId };
     return this.worldsEventsService.progressPlantedTree(id, bodyWithUser as any);
+  }
+
+  @Post('planted-trees/progress')
+  async progressPlantedTreeGlobal(
+    @Body() body: ProgressPlantedTreeDto,
+    @Req() req: any,
+  ) {
+    const userId = req?.user?.userId;
+    const { plantedTreeId } = body;
+    if (!plantedTreeId) throw new BadRequestException('plantedTreeId required');
+
+    const planted = await (prisma as any).plantedTree.findUnique({ where: { id: plantedTreeId } });
+    if (!planted) throw new BadRequestException('planted tree not found');
+
+    // Check if user owns it
+    const goal = await (prisma as any).userGoal.findFirst({ where: { plantedTreeId, userId } });
+    if (!goal) throw new BadRequestException('planted tree does not belong to user');
+
+    const worldId = planted.worldId;
+    const bodyWithUser = { ...body, userId };
+    return this.worldsEventsService.progressPlantedTree(worldId, bodyWithUser as any);
   }
 }
