@@ -1,11 +1,14 @@
-import { Controller, Get, Delete, Param, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Delete, Param, Query, BadRequestException, UseGuards, Req } from '@nestjs/common';
+import { AuthGuard } from '../auth/auth.guard';
 import { prisma } from '../prisma/client';
 
+@UseGuards(AuthGuard)
 @Controller('api/worlds')
 export class WorldsPlantedController {
   @Get(':id/planted-trees')
   async listPlantedTrees(
     @Param('id') id: string,
+    @Req() req: any,
     @Query('anchorId') anchorId?: string,
     @Query('treeCatalogId') treeCatalogId?: string,
     @Query('stage') stage?: string,
@@ -15,7 +18,13 @@ export class WorldsPlantedController {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
 
+
+    // Filtro por userId (cada usuário só vê suas árvores)
+    const userId = req?.user?.userId;
+    if (!userId) throw new BadRequestException('userId não encontrado no contexto da requisição');
+
     const where: any = { worldId: safeId };
+    where.userGoals = { some: { userId } };
     if (anchorId) where.anchorId = String(anchorId).trim();
     if (treeCatalogId) where.treeCatalogId = String(treeCatalogId).trim();
     if (stage !== undefined) {
@@ -51,6 +60,9 @@ export class WorldsPlantedController {
       if (!planted) throw new BadRequestException('planted tree not found');
       if (planted.worldId !== safeId) throw new BadRequestException('planted tree does not belong to this world');
 
+      // Deletar UserGoal associado antes de deletar a árvore
+      await tx.userGoal.deleteMany({ where: { plantedTreeId: pid } });
+
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: pid } });
       await tx.plantedTree.delete({ where: { id: pid } });
       return { ok: true, deletedPlantedTreeId: pid, deletedEvents: deletedEvents.count ?? deletedEvents };
@@ -71,6 +83,9 @@ export class WorldsPlantedController {
       const plantedRows = await tx.plantedTree.findMany({ where: { worldId: safeId }, select: { id: true } });
       const ids = (plantedRows || []).map((r: any) => r.id);
       if (!ids.length) return { ok: true, deletedPlantedTrees: 0, deletedEvents: 0 };
+
+      // Deletar UserGoal associados antes de deletar as árvores
+      await tx.userGoal.deleteMany({ where: { plantedTreeId: { in: ids } } });
 
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: { in: ids } } });
       const deletedPlanted = await tx.plantedTree.deleteMany({ where: { id: { in: ids } } });

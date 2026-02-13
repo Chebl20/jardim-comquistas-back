@@ -6,6 +6,6 @@ async function bootstrap() {
   // Habilita CORS em desenvolvimento para o frontend consumir o SVG
   app.enableCors();
 
-  await app.listen(process.env.PORT ?? 3000);
+  await app.listen(3000);
 }
 bootstrap();

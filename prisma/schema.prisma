@@ -1,3 +1,33 @@
+model User {
+  id         String     @id @default(uuid())
+  name       String
+  email      String     @unique
+  password   String
+  linkCode   String?    @unique // código para vincular com o bot
+  telegramId String?    @unique // id do usuário no Telegram
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  goals      UserGoal[]
+}
+model UserGoal {
+  id            String   @id @default(uuid())
+  userId        String
+  title         String
+  description   String?
+  goalType      String    // 'Pontual' ou 'Contínua'
+  conquestType  String    // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
+  frequency     Int?      // número de vezes por semana/dia (apenas para metas contínuas)
+  reminderTime  DateTime? // horário do lembrete
+  completed     Boolean   @default(false)
+  plantedTreeId String    // ligação com a árvore que representa a meta
+  anchorId      String    // ligação direta com o anchor usado
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  plantedTree PlantedTree @relation(fields: [plantedTreeId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+}
 generator client {
   provider = "prisma-client-js"
 }
@@ -36,6 +66,7 @@ model PlantedTree {
 
   treeCatalog  TreeCatalog   @relation(fields: [treeCatalogId], references: [id])
   growthEvents GrowthEvent[]
+  userGoals    UserGoal[]
 }
 
 model GrowthEvent {
