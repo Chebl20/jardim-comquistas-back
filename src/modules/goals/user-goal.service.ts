@@ -2,6 +2,8 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { prisma } from '../../prisma/client';
 import { WorldsGateway } from '../worlds/worlds.gateway';
 import { inferTypeFromPath } from '../worlds/infer-type-from-path.util';
+import { normalizeConquestType, CONQUEST_TYPES } from '../ia/conquest-type.enum';
+import { normalizeGoalType } from '../ia/goal-type.util';
 
 @Injectable()
 export class UserGoalService {
@@ -20,14 +22,19 @@ export class UserGoalService {
     description?: string;
     goalType: string;
     conquestType: string;
-    frequency?: number;
-    reminderTime?: Date;
+    frequency?: number | string;
+    reminderTime?: Date | string;
     worldId: string;
   }) {
-    // 1. Mapear conquestType para family conforme regra de pontual/contínua
+    // 1. Normalizar e validar conquestType recebido (garante consistência vindo de qualquer caminho)
+    const normalizedConquest = normalizeConquestType(data.conquestType);
+    if (!normalizedConquest) {
+      throw new BadRequestException(`conquestType inválido: '${data.conquestType}'. Opções válidas: ${CONQUEST_TYPES.join(', ')}`);
+    }
+    // 1b. Mapear conquestType para family conforme regra de pontual/contínua
     // Para pontuais: Espiritual → a, Corpo → b, Saúde → c, Água → d
     // Para contínuas: Corpo, Espiritual, Saúde, Água → 'a'; demais → 'b'
-    const conquest = (data.conquestType || '').toLowerCase();
+    const conquest = String(normalizedConquest).toLowerCase();
     let family = 'b';
     if (data.goalType && data.goalType.toLowerCase() === 'pontual') {
       // Novo mapeamento por switch (pontual)
@@ -57,11 +64,12 @@ export class UserGoalService {
     // Inferir o type a partir do contexto/pasta (exemplo: pode vir de data.path ou outro campo)
     // Aqui, como exemplo, se não houver path, assume 'continua' (mantém compatibilidade)
     // Se data tiver path, infere o type; senão, mantém 'continua'
-    // Determina o type a partir do goalType
+    // Determina o type a partir do goalType (normalizado em runtime)
     let type = 'continua';
-    if (data.goalType && data.goalType.toLowerCase() === 'pontual') {
-      type = 'pontual';
-    } else if ('path' in data && typeof (data as any).path === 'string') {
+    const ng = normalizeGoalType(data.goalType as any);
+    if (ng === 'Pontual') type = 'pontual';
+    else if (ng === 'Continua') type = 'continua';
+    else if ('path' in data && typeof (data as any).path === 'string') {
       type = inferTypeFromPath((data as any).path);
     }
     const treeCatalog = await prisma.treeCatalog.findFirst({ where: { family, type } });
@@ -103,8 +111,35 @@ export class UserGoalService {
       throw new BadRequestException('Não há anchors livres disponíveis para este usuário neste mundo');
     }
 
-    // 3. Criar a árvore (PlantedTree) e growthEvent inicial em transação
-    const plantedTree = await prisma.$transaction(async (tx) => {
+    // 3. Preparar validações finais e normalizações antes de criar
+    // Validação de userId
+    if (!data.userId || typeof data.userId !== 'string' || data.userId.length < 10) {
+      throw new Error('userId inválido ao criar meta: ' + String(data.userId));
+    }
+
+    // Validação/normalização de reminderTime
+    let reminderTime: Date | undefined = undefined;
+    if (data.reminderTime) {
+      const d = new Date(data.reminderTime as any);
+      if (!isNaN(d.getTime())) {
+        reminderTime = d;
+      } else {
+        console.warn('[UserGoal] reminderTime inválido:', data.reminderTime);
+      }
+    }
+
+    // Coerce frequency: expected Int? in Prisma. If incoming value is string non-numérico, ignore (store null).
+    let frequencyInt: number | undefined = undefined;
+    if (typeof data.frequency === 'number') {
+      frequencyInt = data.frequency as number;
+    } else if (typeof data.frequency === 'string') {
+      const n = parseInt(data.frequency.replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(n)) frequencyInt = n;
+      else frequencyInt = undefined;
+    }
+
+    // 4. Criar a árvore (PlantedTree), growthEvent inicial e UserGoal em transação
+    const txResult = await prisma.$transaction(async (tx) => {
       const planted = await tx.plantedTree.create({
         data: {
           worldId: data.worldId,
@@ -113,7 +148,7 @@ export class UserGoalService {
           actualStage: 1,
         },
       });
-      // Cria growthEvent inicial igual ao WorldsEventsService
+      // Cria growthEvent inicial
       await tx.growthEvent.create({
         data: {
           plantedTreeId: planted.id,
@@ -123,54 +158,33 @@ export class UserGoalService {
           description: data.description || '',
         },
       });
-      return planted;
+
+      // Criar a meta (UserGoal) associada à árvore dentro da mesma transação
+      const ug = await tx.userGoal.create({
+        data: {
+          userId: data.userId,
+          title: data.title,
+          description: data.description,
+          goalType: data.goalType,
+          conquestType: data.conquestType,
+          frequency: frequencyInt,
+          reminderTime,
+          plantedTreeId: planted.id,
+          anchorId: chosenAnchorId,
+        },
+      });
+
+      return { planted, userGoal: ug };
     });
 
-    // Buscar o plantedTree completo (com treeCatalog)
-    const plantedTreeFull = await prisma.plantedTree.findUnique({
-      where: { id: plantedTree.id },
-      include: { treeCatalog: true },
-    });
+    const plantedTreeFull = await prisma.plantedTree.findUnique({ where: { id: txResult.planted.id }, include: { treeCatalog: true } });
 
-    // Emitir evento socket para frontend atualizar quadro (payload igual WorldsEventsService)
+    // Emitir evento socket para frontend atualizar quadro
     this.worldsGateway.emitTreePlanted(data.worldId, plantedTreeFull);
+    // Emitir também o progresso inicial
+    this.worldsGateway.emitTreeProgress(data.worldId, txResult.planted.id, 1, undefined, data.userId);
 
-    // Emitir também o progresso inicial (opcional, igual WorldsEventsService)
-    this.worldsGateway.emitTreeProgress(data.worldId, plantedTree.id, 1, undefined, data.userId);
-
-    // 4. Criar a meta (UserGoal) associada à árvore
-    // Validação de userId
-    if (!data.userId || typeof data.userId !== 'string' || data.userId.length < 10) {
-      throw new Error('userId inválido ao criar meta: ' + String(data.userId));
-    }
-
-    // Validação de reminderTime
-    let reminderTime: Date | undefined = undefined;
-    if (data.reminderTime) {
-      const d = new Date(data.reminderTime);
-      if (!isNaN(d.getTime())) {
-        reminderTime = d;
-      } else {
-        console.warn('[UserGoal] reminderTime inválido:', data.reminderTime);
-      }
-    }
-
-    this.logger.debug(`Criando meta para userId: ${data.userId}`);
-    const userGoal = await prisma.userGoal.create({
-      data: {
-        userId: data.userId,
-        title: data.title,
-        description: data.description,
-        goalType: data.goalType,
-        conquestType: data.conquestType,
-        frequency: data.frequency,
-        reminderTime,
-        plantedTreeId: plantedTree.id,
-        anchorId: chosenAnchorId,
-      },
-    });
-
-    return userGoal;
+    return txResult.userGoal;
   }
 
   /**

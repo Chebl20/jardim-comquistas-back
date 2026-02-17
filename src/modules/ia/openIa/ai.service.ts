@@ -5,6 +5,9 @@ import { Injectable } from '@nestjs/common';
 import SYSTEM_PROMPT from '../SYSTEM_PROMPT';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { prisma } from '../../../prisma/client';
+import { logAiAudit } from '../ai-audit.service';
+import { CONQUEST_TYPES, inferConquestTypeWithConfidence } from '../conquest-type.enum';
+import { createAskInfo } from '../ask-info.util';
 import { MESSAGES, formatMessage } from '../messages';
 type ChatMessage = ChatCompletionMessageParam;
 
@@ -154,6 +157,12 @@ export class AiService {
         messages,
       });
       const content = completion.choices[0].message.content;
+      // audit: raw model output
+      try {
+        await logAiAudit({ chatId: key, prompt: messages.map(m=>({role:m.role, content: m.content})), raw: content });
+      } catch (e) {
+        // ignore audit errors
+      }
       if (!content) {
         throw new Error('Resposta da IA vazia.');
       }
@@ -163,7 +172,24 @@ export class AiService {
       if (chatHistories[key].length > 16) {
         chatHistories[key] = chatHistories[key].slice(-16);
       }
-      return JSON.parse(content);
+      // Tenta parsear e enriquecer ASK_INFO com opções padronizadas
+      try {
+        const parsed = JSON.parse(content);
+        if (parsed && parsed.action && parsed.action.intent === 'ASK_INFO' && parsed.action.data && parsed.action.data.missing === 'conquestType') {
+          // adicionar opções caso não existam
+          if (!parsed.action.data.options || !Array.isArray(parsed.action.data.options) || parsed.action.data.options.length === 0) {
+            parsed.action.data.options = CONQUEST_TYPES.slice();
+          }
+        }
+        // audit parsed
+        try {
+          await logAiAudit({ chatId: key, parsed });
+        } catch (e) {}
+        return parsed;
+      } catch (e) {
+        // se não for JSON, repassa erro para o handler externo
+        throw new Error('Resposta da IA não é JSON');
+      }
     } catch (e) {
       console.error('[AI ERROR]', e);
       throw e;
@@ -184,13 +210,23 @@ export class AiService {
         const minutes = parseInt(m[2], 10) || 0;
         if (minutes > 0 && title) {
           const reminder = new Date(now.getTime() + minutes * 60 * 1000).toISOString();
-          // inferir conquestType básico
+          // inferir conquestType básico com confidence
           const lower = title.toLowerCase();
           let conquestType = 'Corpo';
-          if (/(estud|ler|aprender)/i.test(lower)) conquestType = 'Mente';
-          else if (/(trabalh|projet|taref)/i.test(lower)) conquestType = 'Trabalho';
-          else if (/(financ|dinheir|pagar)/i.test(lower)) conquestType = 'Financeiro';
-          else if (/(espiritu|oração|medita)/i.test(lower)) conquestType = 'Espiritual';
+          let conquestConfidence = 0.6;
+          try {
+            const inf = inferConquestTypeWithConfidence(lower);
+            if (inf.type) {
+              conquestType = inf.type;
+              conquestConfidence = inf.confidence;
+            }
+          } catch (e) {
+            // fallback heuristics
+            if (/(estud|ler|aprender)/i.test(lower)) { conquestType = 'Mente'; conquestConfidence = 0.6; }
+            else if (/(trabalh|projet|taref)/i.test(lower)) { conquestType = 'Trabalho'; conquestConfidence = 0.6; }
+            else if (/(financ|dinheir|pagar)/i.test(lower)) { conquestType = 'Financeiro'; conquestConfidence = 0.6; }
+            else if (/(espiritu|oração|medita)/i.test(lower)) { conquestType = 'Espiritual'; conquestConfidence = 0.6; }
+          }
 
           return {
             say: `Beleza — vou criar sua meta pontual e te avisar em ${minutes} minutos.`,
@@ -201,6 +237,7 @@ export class AiService {
                 description: title ? `Lembrete: ${title}` : 'Lembrete rápido',
                 goalType: 'Pontual',
                 conquestType,
+                conquestConfidence,
                 reminderTime: reminder,
                 userId: userId || undefined,
               },
@@ -214,10 +251,10 @@ export class AiService {
       if (!m2) m2 = msg.match(/me\s+lembra(?:\s+em|\s+daqui\s+a)?\s+(\d+)\s*min/);
       if (m2) {
         const minutes = parseInt(m2[1], 10) || 0;
-        if (minutes > 0) {
+          if (minutes > 0) {
           return {
             say: `Sobre o que você quer ser lembrado em ${minutes} minutos? Qual o título da meta?`,
-            action: { intent: 'ASK_INFO', data: { missing: 'title' } },
+            action: createAskInfo('title', undefined, `Sobre o que você quer ser lembrado em ${minutes} minutos?`),
           };
         }
       }

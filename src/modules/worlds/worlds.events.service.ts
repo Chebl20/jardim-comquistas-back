@@ -155,29 +155,30 @@ export class WorldsEventsService {
       const stagesObj: any = treeCatalog?.stages || {};
       const currentStage = Number(planted.actualStage || 1);
 
-      // AVISO: sempre avançar um stage, preferencialmente, mas somente se a família suportar mais stages
+      // Decide avanço com base em requiredEvents do estágio alvo
       let targetStage = currentStage + 1;
 
-      // calcula máximo de stages disponíveis na família
       const stageKeys = Object.keys(stagesObj || {}).map((k) => Number(k)).filter((n) => !Number.isNaN(n));
       const maxStage = stageKeys.length ? Math.max(...stageKeys) : currentStage;
 
-      // Se targetStage ultrapassa o máximo, criaremos o evento no estágio máximo sem alterar actualStage
-      let willAdvance = false;
       if (targetStage > maxStage) {
-        targetStage = maxStage; // cria evento no stage máximo
-        willAdvance = false; // não atualiza planted.actualStage
-      } else if (targetStage > currentStage) {
-        willAdvance = true; // vamos avançar e atualizar actualStage
-      }
-
-      if (willAdvance) {
-        await tx.plantedTree.update({ where: { id: planted.id }, data: { actualStage: targetStage } });
+        // se não há próximo stage, mantemos o stage máximo e não avançamos
+        targetStage = maxStage;
       }
 
       // conta eventos já existentes no estágio alvo para definir progressIndex desse estágio
       const existingCountForTarget = await tx.growthEvent.count({ where: { plantedTreeId: planted.id, stage: targetStage } });
       const progressIndex = existingCountForTarget + 1;
+
+      // determina requiredEvents para o estágio alvo (default 1)
+      const requiredForTarget = (stagesObj && stagesObj[String(targetStage)] && (stagesObj[String(targetStage)].requiredEvents || stagesObj[String(targetStage)].requiredEvents === 0 ? stagesObj[String(targetStage)].requiredEvents : undefined)) ?? undefined;
+      const requiredEvents = typeof requiredForTarget === 'number' ? requiredForTarget : 1;
+
+      // só avançamos se o número de eventos depois de criar este atingir ou exceder requiredEvents
+      const willAdvance = targetStage > currentStage && (existingCountForTarget + 1) >= requiredEvents;
+      if (willAdvance) {
+        await tx.plantedTree.update({ where: { id: planted.id }, data: { actualStage: targetStage } });
+      }
 
       const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: title || '', description: description || '' } });
 

@@ -6,6 +6,9 @@ import { RulesService } from './rules.service';
 import { CommunicationService } from '../shared/communication.service';
 import { prisma } from '../../prisma/client';
 import { WorldsService } from '../worlds/worlds.service';
+import { normalizeConquestType, CONQUEST_TYPES } from './conquest-type.enum';
+import { normalizeGoalType, GOAL_TYPES } from './goal-type.util';
+import { createAskInfo } from './ask-info.util';
 
 @Injectable()
 export class IntentRouter {
@@ -55,15 +58,21 @@ export class IntentRouter {
           goalType = 'Pontual';
         }
 
-        // Se não houver goalType e não houver tempo, perguntar ao usuário se é pontual ou contínua
-        if (!goalType || String(goalType).trim() === '') {
+        // Normalizar e validar goalType em runtime (sem alterar Prisma)
+        const normalizedGoalType = normalizeGoalType(goalType);
+        if (!normalizedGoalType) {
+          // perguntar com opções padronizadas
           if (reply && typeof reply === 'function') {
-            reply('Essa meta é Pontual (única) ou Continua (recorrente)? Responda "Pontual" ou "Continua".');
-          } else {
-            this.logger.log('Perguntar ao usuário: Essa meta é Pontual ou Continua?');
+            reply(`Por favor escolha o tipo da meta: ${GOAL_TYPES.join(' / ')}`);
           }
+          // envia ASK_INFO padronizado
+          const ask = createAskInfo('goalType', GOAL_TYPES.slice(), 'Essa meta é Pontual (única) ou Continua (recorrente)?');
+          // se reply for função, também invocamos com o prompt
+          if (reply && typeof reply === 'function') reply(ask.data.prompt || 'Qual o tipo?');
+          // não prossegue com criação
           break;
         }
+        goalType = normalizedGoalType;
 
         // Se não houver horário calculado, pedir horário
         if (!calculatedReminderTime) {
@@ -74,6 +83,18 @@ export class IntentRouter {
           }
           break;
         }
+        // normalizar e validar conquestType
+        const normalizedConquest = normalizeConquestType(conquestType || '');
+        if (!normalizedConquest) {
+          if (reply && typeof reply === 'function') {
+            reply(`Qual o tipo dessa conquista? Escolha uma das opções: ${CONQUEST_TYPES.join(', ')}`);
+          } else {
+            this.logger.log('Perguntar ao usuário: escolha conquestType dentre opções.');
+          }
+          break;
+        }
+        conquestType = normalizedConquest;
+
         try {
           const user = await prisma.user.findUnique({ where: { id: userId } });
           const worldId = user?.currentWorldId || (await this.worldsService.getDefaultWorld())?.worldId || 'mundo2';
@@ -108,15 +129,65 @@ export class IntentRouter {
         const { goalId, frequency, reminderTime } = action.data || {};
         this.logger.log(`Tornar meta recorrente: goalId=${goalId}, frequency=${frequency}, reminderTime=${reminderTime}`);
         try {
-          await prisma.userGoal.update({
-            where: { id: goalId },
-            data: {
+          // Buscar meta atual
+          const existing = await prisma.userGoal.findUnique({ where: { id: goalId }, include: { plantedTree: true } });
+          if (!existing) {
+            this.logger.warn(`Meta não encontrada para tornar recorrente: ${goalId}`);
+            break;
+          }
+
+          const ngt = normalizeGoalType(existing.goalType);
+          // Se a meta atual for Pontual, NÃO a alteramos: em vez disso, criamos uma nova meta contínua baseada nela
+          if (ngt === 'Pontual') {
+            // Informar (se possível) que vamos criar uma nova meta contínua em vez de alterar a pontual
+            if (action.reply && typeof action.reply === 'function') {
+              action.reply('Essa meta é Pontual. Vou criar uma nova meta contínua baseada nela (não alterarei a meta original).');
+            } else {
+              this.logger.log('Criando nova meta contínua baseada em meta pontual (não alterando a original)');
+            }
+
+            // Coerce frequency for payload
+            let frequencyForCreate: number | string | undefined = undefined;
+            if (typeof frequency === 'number') frequencyForCreate = frequency;
+            else if (typeof frequency === 'string') {
+              const n = parseInt(frequency.replace(/[^0-9]/g, ''), 10);
+              frequencyForCreate = !isNaN(n) ? n : undefined;
+            }
+
+            const payload = {
+              userId: existing.userId,
+              title: existing.title || `Continua: ${existing.title || 'Nova meta'}`,
+              description: existing.description || existing.title || undefined,
               goalType: 'Continua',
-              frequency,
+              conquestType: existing.conquestType,
+              frequency: frequencyForCreate,
               reminderTime: reminderTime ? new Date(reminderTime) : undefined,
-            },
-          });
-          this.logger.log(`Meta ${goalId} tornada recorrente`);
+              worldId: existing.plantedTree?.worldId || (await this.worldsService.getDefaultWorld())?.worldId || 'mundo2',
+            } as any;
+
+            const newGoal = await this.userGoalService.createUserGoalWithTree(payload);
+            if (action.reply && typeof action.reply === 'function') action.reply(`Criei uma nova meta contínua: ${newGoal.id}`);
+            this.logger.log(`Nova meta contínua criada a partir de pontual: ${newGoal.id}`);
+          } else {
+            // Já é contínua — atualizamos os campos coerentemente
+            // Coerce frequency: accept number or string like '3' or '3x' -> 3. If non-numeric string, store null.
+            let frequencyInt: number | null = null;
+            if (typeof frequency === 'number') frequencyInt = frequency;
+            else if (typeof frequency === 'string') {
+              const n = parseInt(frequency.replace(/[^0-9]/g, ''), 10);
+              frequencyInt = !isNaN(n) ? n : null;
+            }
+
+            await prisma.userGoal.update({
+              where: { id: goalId },
+              data: {
+                goalType: 'Continua',
+                frequency: frequencyInt,
+                reminderTime: reminderTime ? new Date(reminderTime) : undefined,
+              },
+            });
+            this.logger.log(`Meta ${goalId} tornada/atualizada como recorrente`);
+          }
         } catch (err) {
           console.error('Erro ao tornar meta recorrente:', err);
         }
