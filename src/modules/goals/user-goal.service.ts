@@ -30,14 +30,23 @@ export class UserGoalService {
     const conquest = (data.conquestType || '').toLowerCase();
     let family = 'b';
     if (data.goalType && data.goalType.toLowerCase() === 'pontual') {
-      if (conquest.includes('espiritual')) {
-        family = 'a';
-      } else if (conquest.includes('corpo')) {
-        family = 'b';
-      } else if (conquest.includes('saúde') || conquest.includes('saude')) {
-        family = 'c';
-      } else if (conquest.includes('água') || conquest.includes('agua')) {
-        family = 'd';
+      // Novo mapeamento por switch (pontual)
+      switch (true) {
+        case conquest.includes('corpo'):
+          family = 'a';
+          break;
+        case conquest.includes('espiritual'):
+          family = 'b';
+          break;
+        case conquest.includes('financeiro') || conquest.includes('financeiro'):
+          family = 'c';
+          break;
+        case conquest.includes('hobby') || conquest.includes('lazer'):
+          family = 'd';
+          break;
+        default:
+          // mantém comportamento padrão para casos não mapeados
+          family = 'b';
       }
     } else {
       const familyA = ['Corpo', 'Espiritual', 'Saúde', 'Água'];
