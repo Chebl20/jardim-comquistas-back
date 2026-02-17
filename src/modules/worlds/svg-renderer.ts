@@ -106,6 +106,20 @@ export async function renderSVGLayout(svgText: string) {
           }
         }
 
+        function getInheritedAttribute(element: Element | null, name: string) {
+          let cur: any = element;
+          while (cur) {
+            try {
+              if (cur.getAttribute) {
+                const v = cur.getAttribute(name);
+                if (v != null) return v;
+              }
+            } catch {}
+            cur = cur.parentElement;
+          }
+          return undefined;
+        }
+
         return {
           layer: el.getAttribute('data-layer'),
           slot: el.getAttribute('data-slot'),
@@ -116,7 +130,7 @@ export async function renderSVGLayout(svgText: string) {
           svgLine: svgLine.replace(/\s+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g, ''),
           spriteAnchorX,
           spriteAnchorY,
-          treeType: el.getAttribute('data-treeType') || undefined,
+          treeType: getInheritedAttribute(el, 'data-type') || undefined,
         };
       });
 

@@ -12,34 +12,45 @@ export class TreesImportService {
   async importFromSupabase(worldId: string, bucket: string, folder: string, family?: string, debug?: boolean) {
     // Do NOT read world config or anchors here. Import-only: list files and build catalog.
 
-    // normalize folder prefix
-    let folderNorm = (folder || '').replace(/^\/+|\/+$/g, '');
+    // normalize folder prefix; default to 'assets' when not provided
+    const folderInput = (folder && String(folder).trim().length > 0) ? folder : 'assets';
+    let folderNorm = (folderInput || '').replace(/^\/+|\/+$/g, '');
     const basePrefix = folderNorm + (folderNorm ? '/' : '');
 
     const client = this.supabaseService.getClient();
 
-    // try listing whole bucket (then filter), fallback to listing the folder
-    let items: any[] = [];
-    try {
-      const allRes = await client.storage.from(bucket).list('', { limit: 100000 });
-      if (!allRes.error && Array.isArray(allRes.data)) {
-        items = (allRes.data as any[]).filter((it) => {
-          const p = it.name ?? it.path ?? it.id ?? '';
-          return p && p.startsWith(basePrefix);
-        }).map((it) => ({ path: it.name ?? it.path ?? it.id }));
+    // list files recursively under the basePrefix (handles folders like assets/continua)
+    const items: any[] = [];
+    const queue: string[] = [basePrefix];
+    const fileExtRegex = /\.(svg|png|jpg|jpeg)$/i;
+    while (queue.length > 0) {
+      const prefix = queue.shift() || '';
+      const listRes = await client.storage.from(bucket).list(prefix, { limit: 1000 });
+      if (listRes.error) {
+        // if listing this prefix fails, continue with others
+        continue;
       }
-    } catch (e) {
-      // ignore and fallback
-    }
-    if (!items || items.length === 0) {
-      const listRes = await client.storage.from(bucket).list(basePrefix, { limit: 1000 });
-      if (listRes.error) throw listRes.error;
-      items = (listRes.data || []).map((it: any) => ({ path: `${basePrefix}${it.name}` }));
+      const data = Array.isArray(listRes.data) ? listRes.data : [];
+      for (const it of data) {
+        const name = it.name ?? it.id ?? '';
+        if (!name) continue;
+        // if name looks like a file with extension, record it; else treat as folder and queue it
+        if (fileExtRegex.test(name)) {
+          const full = `${prefix}${name}`;
+          items.push({ path: full });
+        } else {
+          // queue deeper folder (ensure trailing slash)
+          const nextPrefix = `${prefix}${name}`.replace(/\\/g, '/') + '/';
+          queue.push(nextPrefix);
+        }
+      }
     }
 
     // build family -> stages map
-    const familyMap: Record<string, { stages: Record<number, { svg?: string; png?: string }> }> = {};
     const stageRegex = /^(\d+)\.(svg|png|jpg|jpeg)$/i;
+    // Novo: separar famílias por combinação {type, family}
+    type FamKey = string;
+    const famMap: Record<FamKey, { family: string, type: string, stages: Record<number, { svg?: string; png?: string }> } > = {};
     for (const it of items) {
       const p: string = it.path || it.name || it.file_name || '';
       if (!p) continue;
@@ -47,24 +58,51 @@ export class TreesImportService {
       const rel = p.startsWith(basePrefix) ? p.slice(basePrefix.length) : p;
       const segs = rel.split('/').filter(Boolean);
       if (segs.length === 0) continue;
-      // family is either explicit (folder included) or first segment
+      // determine type by path
+      let type = '';
+      if (segs.includes('continua')) type = 'continua';
+      else if (segs.includes('pontual')) type = 'pontual';
+      else type = 'desconhecido';
+      // determine family:
       const explicitFamily = folderNorm.includes('/') ? folderNorm.split('/').pop() : undefined;
-      const familyName = explicitFamily || segs[0];
+      let familyName: string | undefined = explicitFamily;
+      if (!familyName) {
+        const treesIdx = segs.indexOf('trees');
+        if (treesIdx >= 0 && treesIdx + 1 < segs.length - 0) {
+          familyName = segs[treesIdx + 1];
+        } else if (segs.length >= 2) {
+          familyName = segs[segs.length - 2];
+        } else {
+          familyName = segs[0];
+        }
+      }
+      if (!familyName) continue;
+      const famKey = `${type}||${familyName}`;
+      if (!famMap[famKey]) famMap[famKey] = { family: familyName, type, stages: {} };
       const filename = segs[segs.length - 1];
       const m = filename.match(stageRegex);
       if (!m) continue;
       const num = Number(m[1]);
       const ext = m[2].toLowerCase();
-      familyMap[familyName] = familyMap[familyName] || { stages: {} };
-      const fullPath = `${basePrefix}${segs.join('/')}`;
-      familyMap[familyName].stages[num] = familyMap[familyName].stages[num] || {};
-      if (ext === 'svg') familyMap[familyName].stages[num].svg = fullPath;
-      else familyMap[familyName].stages[num].png = fullPath;
+      famMap[famKey].stages[num] = famMap[famKey].stages[num] || {};
+      if (ext === 'svg') famMap[famKey].stages[num].svg = `${basePrefix}${segs.join('/')}`;
+      else famMap[famKey].stages[num].png = `${basePrefix}${segs.join('/')}`;
+    }
+    // converte famMap para familyMap/familyTypeMap
+    const familyMap: Record<string, { stages: Record<number, { svg?: string; png?: string }> }> = {};
+    const familyTypeMap: Record<string, string> = {};
+    const famKeyToFam: Record<string, { family: string, type: string }> = {};
+    for (const k of Object.keys(famMap)) {
+      const { family, type, stages } = famMap[k];
+      // chave única: type||family
+      familyMap[k] = { stages };
+      familyTypeMap[k] = type;
+      famKeyToFam[k] = { family, type };
     }
 
     // optionally restrict to a single family param
     const families = Object.keys(familyMap).filter(Boolean).sort();
-    const targetFamilies = family ? families.filter((f) => String(f) === String(family)) : families;
+    const targetFamilies = families;
 
     const created: any[] = [];
     const updated: any[] = [];
@@ -79,11 +117,12 @@ export class TreesImportService {
       const path = p.replace(/^\/+/, '');
       return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
     };
-    for (const fam of targetFamilies) {
-      const stages = familyMap[fam].stages || {};
+    for (const famKey of targetFamilies) {
+      const { family, type } = famKeyToFam[famKey];
+      const stages = familyMap[famKey].stages || {};
       const stageNums = Object.keys(stages).map((s) => Number(s)).filter(Boolean).sort((a, b) => a - b);
       if (stageNums.length === 0) {
-        skipped.push({ family: fam, reason: 'no stages found' });
+        skipped.push({ family, type, reason: 'no stages found' });
         continue;
       }
       const maxStage = stageNums[stageNums.length - 1];
@@ -100,7 +139,7 @@ export class TreesImportService {
       }
       const assetsByStage: any = { stages: stagesArray, currentStage: maxStage };
 
-      // Build a single TreeCatalog for this family with stages as JSON and handle duplicates
+      // Build a single TreeCatalog para cada combinação {family, type}
       const catalogStages = stages; // Record<number, {svg?, png?}>
       // build stages mapped to public URLs (to persist in DB)
       const stagesWithUrlsForDb: Record<number, any> = {};
@@ -113,31 +152,32 @@ export class TreesImportService {
       }
 
       if ((prisma as any).treeCatalog) {
-        const existing = await (prisma as any).treeCatalog.findFirst({ where: { family: fam } });
+        // Busca por family+type
+        const existing = await (prisma as any).treeCatalog.findFirst({ where: { family, type } });
         if (existing) {
           // compare stored stages with new public-url stages
           try {
             const existingJson = JSON.stringify(existing.stages || {});
             const newJson = JSON.stringify(stagesWithUrlsForDb || {});
-            if (existingJson === newJson) {
-              already.push({ family: fam, id: existing.id });
-              catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: existing.id, status: 'already' });
+            if (existingJson === newJson && existing.type === type) {
+              already.push({ family, type, id: existing.id });
+              catalogsOutput.push({ family, type, stages: stagesWithUrlsForDb, maxStage, catalogId: existing.id, status: 'already' });
               continue;
             }
           } catch (e) {
             // fallthrough to update if comparison fails
           }
-          // different content -> update DB with public URLs
-          const up = await (prisma as any).treeCatalog.update({ where: { id: existing.id }, data: { stages: stagesWithUrlsForDb } });
-          updated.push({ family: fam, id: up.id });
-          catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: up.id, status: 'updated' });
+          // different content or type -> update DB with public URLs and type
+          const up = await (prisma as any).treeCatalog.update({ where: { id: existing.id }, data: { stages: stagesWithUrlsForDb, type } });
+          updated.push({ family, type, id: up.id });
+          catalogsOutput.push({ family, type, stages: stagesWithUrlsForDb, maxStage, catalogId: up.id, status: 'updated' });
         } else {
-          const createdRow = await (prisma as any).treeCatalog.create({ data: { family: fam, stages: stagesWithUrlsForDb } });
-          created.push({ family: fam, id: createdRow.id });
-          catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: createdRow.id, status: 'created' });
+          const createdRow = await (prisma as any).treeCatalog.create({ data: { family, stages: stagesWithUrlsForDb, type } });
+          created.push({ family, type, id: createdRow.id });
+          catalogsOutput.push({ family, type, stages: stagesWithUrlsForDb, maxStage, catalogId: createdRow.id, status: 'created' });
         }
       } else {
-        catalogsOutput.push({ family: fam, stages: stagesWithUrlsForDb, maxStage, catalogId: null, status: 'noop' });
+        catalogsOutput.push({ family, type, stages: stagesWithUrlsForDb, maxStage, catalogId: null, status: 'noop' });
       }
     }
 
@@ -155,7 +195,7 @@ export class TreesImportService {
 
     const result: any = { ok: true, created, updated, skipped, families: catalogsOutput };
     if (debug) {
-      result.debug = { familiesFound: Object.keys(familyMap).length, itemsCount: items.length };
+      result.debug = { familiesFound: Object.keys(familyMap).length, itemsCount: items.length, sampleItems: items.slice(0, 50) };
     }
 
     this.logger.log(`trees.import: worldId=${worldId}, bucket=${bucket}, folder=${folder}, family=${family}, result=${JSON.stringify(result)}`);

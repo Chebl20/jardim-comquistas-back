@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { prisma } from '../../prisma/client';
 import { WorldsGateway } from '../worlds/worlds.gateway';
+import { inferTypeFromPath } from '../worlds/infer-type-from-path.util';
 
 @Injectable()
 export class UserGoalService {
@@ -23,17 +24,39 @@ export class UserGoalService {
     reminderTime?: Date;
     worldId: string;
   }) {
-    // 1. Mapear conquestType para family 'a' ou 'b'
-    // Exemplo: Corpo, Espiritual, Saúde, Água → 'a'; Mente, Trabalho, Social, etc → 'b'
-    const familyA = ['Corpo', 'Espiritual', 'Saúde', 'Água'];
+    // 1. Mapear conquestType para family conforme regra de pontual/contínua
+    // Para pontuais: Espiritual → a, Corpo → b, Saúde → c, Água → d
+    // Para contínuas: Corpo, Espiritual, Saúde, Água → 'a'; demais → 'b'
     const conquest = (data.conquestType || '').toLowerCase();
     let family = 'b';
-    if (familyA.some((t) => conquest.includes(t.toLowerCase()))) {
-      family = 'a';
+    if (data.goalType && data.goalType.toLowerCase() === 'pontual') {
+      if (conquest.includes('espiritual')) {
+        family = 'a';
+      } else if (conquest.includes('corpo')) {
+        family = 'b';
+      } else if (conquest.includes('saúde') || conquest.includes('saude')) {
+        family = 'c';
+      } else if (conquest.includes('água') || conquest.includes('agua')) {
+        family = 'd';
+      }
+    } else {
+      const familyA = ['Corpo', 'Espiritual', 'Saúde', 'Água'];
+      if (familyA.some((t) => conquest.includes(t.toLowerCase()))) {
+        family = 'a';
+      }
     }
-    // Buscar o TreeCatalog pelo family
-    const treeCatalog = await prisma.treeCatalog.findUnique({ where: { family } });
-    if (!treeCatalog) throw new BadRequestException(`Tipo de árvore (family='${family}') não encontrado no catálogo para conquestType '${data.conquestType}'`);
+    // Inferir o type a partir do contexto/pasta (exemplo: pode vir de data.path ou outro campo)
+    // Aqui, como exemplo, se não houver path, assume 'continua' (mantém compatibilidade)
+    // Se data tiver path, infere o type; senão, mantém 'continua'
+    // Determina o type a partir do goalType
+    let type = 'continua';
+    if (data.goalType && data.goalType.toLowerCase() === 'pontual') {
+      type = 'pontual';
+    } else if ('path' in data && typeof (data as any).path === 'string') {
+      type = inferTypeFromPath((data as any).path);
+    }
+    const treeCatalog = await prisma.treeCatalog.findFirst({ where: { family, type } });
+    if (!treeCatalog) throw new BadRequestException(`Tipo de árvore (family='${family}', type='${type}') não encontrado no catálogo para conquestType '${data.conquestType}'`);
 
     // 2. Buscar um anchorId livre no worldId
     const worldConfig = await prisma.worldConfig.findUnique({ where: { worldId: data.worldId } });
@@ -49,10 +72,16 @@ export class UserGoalService {
     } else if (worldConfig.anchors && typeof worldConfig.anchors === 'object' && 'anchors' in worldConfig.anchors && Array.isArray((worldConfig.anchors as any).anchors)) {
       anchorsArr = (worldConfig.anchors as any).anchors;
     }
+    const isPontual = type === 'pontual';
     let chosenAnchorId: string | null = null;
     for (const anchor of anchorsArr) {
       const aid = anchor && (anchor.anchorId || anchor.id || anchor.slot || '') ? String(anchor.anchorId || anchor.id || anchor.slot) : '';
       if (!aid) continue;
+      // Se é pontual, só aceitar anchors que tenham treeType === 'sky'
+      if (isPontual) {
+        const at = (anchor && (anchor.treeType || anchor.type || anchor.dataType)) ? String(anchor.treeType || anchor.type || anchor.dataType).toLowerCase() : '';
+        if (at !== 'sky') continue;
+      }
       // Agora filtra só pelas árvores do usuário no mundo
       const exists = await prisma.plantedTree.findFirst({ where: { worldId: data.worldId, anchorId: aid, userGoals: { some: { userId: data.userId } } } });
       if (!exists) {
@@ -60,7 +89,10 @@ export class UserGoalService {
         break;
       }
     }
-    if (!chosenAnchorId) throw new BadRequestException('Não há anchors livres disponíveis para este usuário neste mundo');
+    if (!chosenAnchorId) {
+      if (isPontual) throw new BadRequestException('Não há anchors livres do tipo "sky" disponíveis para este usuário neste mundo');
+      throw new BadRequestException('Não há anchors livres disponíveis para este usuário neste mundo');
+    }
 
     // 3. Criar a árvore (PlantedTree) e growthEvent inicial em transação
     const plantedTree = await prisma.$transaction(async (tx) => {

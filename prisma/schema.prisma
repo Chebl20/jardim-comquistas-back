@@ -28,9 +28,9 @@ model UserGoal {
   userId        String
   title         String
   description   String?
-  goalType      String    // 'Pontual' ou 'Contínua'
+  goalType      String    // 'Pontual' ou 'Continua'
   conquestType  String    // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
-  frequency     Int?      // número de vezes por semana/dia (apenas para metas contínuas)
+  frequency     Int?      // número de vezes por semana/dia (apenas para metas Continuas)
   reminderTime  DateTime? // horário do lembrete
   lastReminderSentAt DateTime? // última vez que o lembrete foi enviado
   dailyStatus   String? // PENDING | SENT | WAITING | DONE | SKIPPED
@@ -67,10 +67,13 @@ model WorldConfig {
 
 model TreeCatalog {
   id           String        @id @default(uuid())
-  family       String        @unique
+  family       String
+  type         String?
   stages       Json
   createdAt    DateTime      @default(now())
   plantedTrees PlantedTree[]
+
+  @@unique([family, type])
 }
 
 model PlantedTree {

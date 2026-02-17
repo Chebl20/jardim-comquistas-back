@@ -173,6 +173,58 @@ export class AiService {
   private async trySimpleRules(message: string, userId?: string): Promise<any | null> {
     const msg = message.toLowerCase().trim();
 
+    // Detecção rápida de lembretes do tipo "me lembre de X em N minutos" ou "me lembra em N minutos"
+    try {
+      const now = new Date();
+      // padrão: "me lembre de <titulo> em <n> minutos"
+      let m = msg.match(/me\s+lembre(?:\s+de)?\s+(.+?)\s+em\s+(\d+)\s*min/);
+      if (!m) m = msg.match(/me\s+lembra(?:\s+de)?\s+(.+?)\s+daqui\s+a\s+(\d+)\s*min/);
+      if (m) {
+        const title = (m[1] || '').trim();
+        const minutes = parseInt(m[2], 10) || 0;
+        if (minutes > 0 && title) {
+          const reminder = new Date(now.getTime() + minutes * 60 * 1000).toISOString();
+          // inferir conquestType básico
+          const lower = title.toLowerCase();
+          let conquestType = 'Corpo';
+          if (/(estud|ler|aprender)/i.test(lower)) conquestType = 'Mente';
+          else if (/(trabalh|projet|taref)/i.test(lower)) conquestType = 'Trabalho';
+          else if (/(financ|dinheir|pagar)/i.test(lower)) conquestType = 'Financeiro';
+          else if (/(espiritu|oração|medita)/i.test(lower)) conquestType = 'Espiritual';
+
+          return {
+            say: `Beleza — vou criar sua meta pontual e te avisar em ${minutes} minutos.`,
+            action: {
+              intent: 'CREATE_GOAL',
+              data: {
+                title: title.charAt(0).toUpperCase() + title.slice(1),
+                description: title ? `Lembrete: ${title}` : 'Lembrete rápido',
+                goalType: 'Pontual',
+                conquestType,
+                reminderTime: reminder,
+                userId: userId || undefined,
+              },
+            },
+          };
+        }
+      }
+
+      // padrão sem título: "me lembre em 5 minutos" -> perguntar título
+      let m2 = msg.match(/me\s+lembre(?:\s+em|\s+daqui\s+a)?\s+(\d+)\s*min/);
+      if (!m2) m2 = msg.match(/me\s+lembra(?:\s+em|\s+daqui\s+a)?\s+(\d+)\s*min/);
+      if (m2) {
+        const minutes = parseInt(m2[1], 10) || 0;
+        if (minutes > 0) {
+          return {
+            say: `Sobre o que você quer ser lembrado em ${minutes} minutos? Qual o título da meta?`,
+            action: { intent: 'ASK_INFO', data: { missing: 'title' } },
+          };
+        }
+      }
+    } catch (e) {
+      // ignore parsing errors
+    }
+
     // Pergunta sobre horário
     if (msg.includes('que horas') || msg.includes('horas são') || msg.includes('hora atual')) {
       const currentTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });

@@ -24,7 +24,7 @@ export class IntentRouter {
     this.logger.log(`action received: intent=${action?.intent}, data=${JSON.stringify(action?.data)}`);
     switch (action.intent) {
       case 'CREATE_GOAL': {
-        const { title, description, goalType, conquestType, frequency, reminderTime, time, userId, worldId, reply } = action.data || {};
+        let { title, description, goalType, conquestType, frequency, reminderTime, time, userId, worldId, reply } = action.data || {};
 
         let calculatedReminderTime = reminderTime;
         if (time && !reminderTime) {
@@ -50,6 +50,22 @@ export class IntentRouter {
           }
         }
 
+        // Regra de segurança: se a action vier com tempo/reminderTime mas sem goalType, assumir Pontual
+        if ((!goalType || goalType === undefined || goalType === null || String(goalType).trim() === '') && (calculatedReminderTime || reminderTime || time)) {
+          goalType = 'Pontual';
+        }
+
+        // Se não houver goalType e não houver tempo, perguntar ao usuário se é pontual ou contínua
+        if (!goalType || String(goalType).trim() === '') {
+          if (reply && typeof reply === 'function') {
+            reply('Essa meta é Pontual (única) ou Continua (recorrente)? Responda "Pontual" ou "Continua".');
+          } else {
+            this.logger.log('Perguntar ao usuário: Essa meta é Pontual ou Continua?');
+          }
+          break;
+        }
+
+        // Se não houver horário calculado, pedir horário
         if (!calculatedReminderTime) {
           if (reply && typeof reply === 'function') {
             reply('Qual o melhor horário para te lembrar dessa meta? (Ex: 08:00, 20:30)');
@@ -64,7 +80,7 @@ export class IntentRouter {
           const payload = {
             userId,
             title,
-            description,
+            description: (description && String(description).trim()) ? description : (title ? `Lembrete: ${title}` : 'Lembrete rápido'),
             goalType,
             conquestType,
             frequency,
@@ -95,7 +111,7 @@ export class IntentRouter {
           await prisma.userGoal.update({
             where: { id: goalId },
             data: {
-              goalType: 'Contínua',
+              goalType: 'Continua',
               frequency,
               reminderTime: reminderTime ? new Date(reminderTime) : undefined,
             },

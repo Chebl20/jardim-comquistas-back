@@ -23,6 +23,20 @@ export class WorldsTreesController {
     return this.importService.importFromSupabase(safeId, bucket, folder || '', family, dbg);
   }
 
+  // New route: import from bucket starting at `assets/` without requiring world id
+  @Post('trees/import-from-supabase')
+  async importFromSupabaseNoId(
+    @Query('bucket') bucket: string,
+    @Query('folder') folder?: string,
+    @Query('family') family?: string,
+    @Query('debug') debug?: string,
+  ) {
+    if (!bucket) throw new BadRequestException('missing bucket query');
+    const dbg = debug === '1' || debug === 'true';
+    const useFolder = (folder && String(folder).trim().length > 0) ? folder : 'assets';
+    return this.importService.importFromSupabase(undefined as any, bucket, useFolder, family, dbg);
+  }
+
   @Get(':id/trees')
   async listTreeCatalog(@Param('id') id: string) {
     return prisma.treeCatalog.findMany({ orderBy: { family: 'asc' } });

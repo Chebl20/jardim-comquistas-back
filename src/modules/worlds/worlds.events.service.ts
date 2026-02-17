@@ -1,3 +1,4 @@
+import { inferTypeFromPath } from './infer-type-from-path.util';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { prisma } from '../../prisma/client';
 import { WorldsConfigService } from './worlds-config.service';
@@ -69,7 +70,14 @@ export class WorldsEventsService {
     const out = await (prisma as any).$transaction(async (tx: any) => {
       let catalog: any = null;
       if (treeCatalogId) catalog = await tx.treeCatalog.findUnique({ where: { id: treeCatalogId } });
-      else if (family) catalog = await tx.treeCatalog.findUnique({ where: { family } });
+      else if (family) {
+        // Inferir o type a partir do contexto/pasta (exemplo: pode vir de body.path ou outro campo)
+        let type = 'continua';
+        if ('path' in body && typeof (body as any).path === 'string') {
+          type = inferTypeFromPath((body as any).path);
+        }
+        catalog = await tx.treeCatalog.findFirst({ where: { family, type } });
+      }
       if (!catalog) throw new BadRequestException('treeCatalog not found (provide treeCatalogId or family)');
 
       const aid = chosenAnchorId as string;

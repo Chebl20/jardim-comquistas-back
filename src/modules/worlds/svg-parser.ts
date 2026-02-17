@@ -96,6 +96,7 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
             const norm = {
               layer: a?.layer,
               slot: a?.slot,
+              treeType: a?.treeType,
               x: Number(a?.x || 0).toFixed(3),
               y: Number(a?.y || 0).toFixed(3),
               width: Number(a?.width || 0).toFixed(3),
@@ -442,9 +443,24 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
       }
     }
 
+    function getInheritedAttribute(elm: Element | null, name: string): string | undefined {
+      let cur: any = elm;
+      while (cur) {
+        try {
+          if (cur.getAttribute) {
+            const v = cur.getAttribute(name);
+            if (v != null) return v;
+          }
+        } catch {}
+        cur = cur.parentElement;
+      }
+      return undefined;
+    }
+
     const anchor: SlotAnchor = {
       layer: el.getAttribute("data-layer")!,
       slot: el.getAttribute("data-slot")!,
+      treeType: getInheritedAttribute(el, "data-type"),
       x,
       y,
       width,
@@ -452,7 +468,6 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
       spriteAnchorX,
       spriteAnchorY,
       svgLine,
-      treeType: el.getAttribute("data-treeType") || undefined,
     };
 
     // gera um id determinístico baseado no conteúdo essencial da âncora
