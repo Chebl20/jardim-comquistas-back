@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Param, Body, Res, HttpStatus, BadRequestException } from '@nestjs/common';
 import type { Response } from 'express';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 import { WorldsConfigService } from './worlds-config.service';
 import { WorldsService } from './worlds.service';
@@ -13,18 +13,10 @@ export class WorldsAnchorsController {
   async getAnchorsConfig(@Param('id') id: string, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
-
-    const candidatePaths = [
-      join(process.cwd(), 'src', 'assets', 'worlds', `${safeId}.svg`),
-      join(process.cwd(), 'dist', 'assets', 'worlds', `${safeId}.svg`),
-      join(__dirname, '..', 'assets', 'worlds', `${safeId}.svg`),
-      join(process.cwd(), 'data', 'worlds', `${safeId}.svg`),
-      join(process.cwd(), 'src', 'assets', 'worlds', 'ancoras', `${safeId}.svg`),
-    ];
-    const svgPath = candidatePaths.find((p) => existsSync(p));
-    if (!svgPath) return res.status(HttpStatus.NOT_FOUND).send('svg not found');
-
     try {
+      // Primeiro tenta retornar o config persistido no banco (caso a sincronização
+      // já tenha gerado as anchors). Isso evita depender de arquivos locais
+      // (ex: quando o SVG está no Supabase ou foi escaneado remotamente).
       const saved = await this.configService.getByWorldId(safeId);
       if (saved && saved.anchors) {
         let payload: any = { anchors: [] };
@@ -43,10 +35,16 @@ export class WorldsAnchorsController {
         return res.status(HttpStatus.OK).json({ ...payload, meta: { version: '1.0', source: 'db', updatedAt: saved.updatedAt } });
       }
 
+      // Não procurar por arquivos locais: os SVGs vivem no Supabase.
+      // Se não houver config no DB, retornar instrução para regenerar.
       return res.status(HttpStatus.NOT_FOUND).json({ ok: false, error: 'config not found. Use POST /api/worlds/:id/anchors-config/regenerate to generate it.' });
     } catch (err) {
       return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: String(err) });
     }
+
+    // Caso o código alcance este ponto (isso não deveria ocorrer) devolve erro genérico
+    return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: 'unexpected error' });
+    
   }
 
   @Get(':id/config')

@@ -57,11 +57,11 @@ export class WorldsService {
   }
 
   async getAllWorlds() {
-    return prisma.world.findMany();
+    return prisma.world.findMany({ include: { config: true }, orderBy: { name: 'asc' } });
   }
 
   async getWorldById(worldId: string) {
-    return prisma.world.findUnique({ where: { worldId } });
+    return prisma.world.findUnique({ where: { worldId }, include: { config: true } });
   }
 
   async getDefaultWorld() {
