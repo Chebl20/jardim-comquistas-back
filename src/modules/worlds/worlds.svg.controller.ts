@@ -108,8 +108,10 @@ export class WorldsSvgController {
       if (!worldsMap[worldId]) worldsMap[worldId] = { files: [] };
       worldsMap[worldId].files.push(it.path);
       const fname = segs.slice(1).join('/').toLowerCase();
-      if (fname === 'anchors.svg' || fname.endsWith('/anchors.svg')) worldsMap[worldId].anchors = it.path;
-      if (fname === 'bg.svg' || fname.endsWith('/bg.svg')) worldsMap[worldId].bg = it.path;
+      // aceita qualquer arquivo .svg cujo nome contenha 'anchors' (ex: anchors.svg, anchors1.svg, my-anchors.svg)
+      const baseName = fname.split('/').pop() || fname;
+      if (baseName.endsWith('.svg') && baseName.includes('anchors')) worldsMap[worldId].anchors = it.path;
+      if (baseName === 'bg.svg' || baseName.endsWith('/bg.svg') || baseName === 'bg.svg') worldsMap[worldId].bg = it.path;
     }
 
     const scanned: string[] = [];

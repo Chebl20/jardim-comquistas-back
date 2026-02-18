@@ -20,4 +20,12 @@ export class CreateGrowthEventDto {
   @IsOptional()
   @IsString()
   anchorId?: string;
+  
+    @IsOptional()
+    @IsString()
+    goalType?: string;
+  
+    @IsOptional()
+    @IsString()
+    frequency?: string;
 }

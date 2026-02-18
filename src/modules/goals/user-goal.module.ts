@@ -1,9 +1,10 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { UserGoalService } from './user-goal.service';
-import { WorldsGateway } from '../worlds/worlds.gateway';
+import { WorldsModule } from '../worlds/worlds.module';
 
 @Module({
-  providers: [UserGoalService, WorldsGateway],
+  imports: [WorldsModule],
+  providers: [UserGoalService],
   exports: [UserGoalService],
 })
 export class UserGoalModule {}

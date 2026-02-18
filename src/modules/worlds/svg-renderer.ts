@@ -87,20 +87,21 @@ export async function renderSVGLayout(svgText: string) {
 
         let spriteAnchorX: number | undefined = undefined;
         let spriteAnchorY: number | undefined = undefined;
-        const origin = parseTransformOrigin(el.getAttribute('style'));
-        if (origin && bbox.width && bbox.height) {
-          if (origin.kind === 'pct') {
-            spriteAnchorX = Number(origin.xPct || 0);
-            spriteAnchorY = Number(origin.yPct || 0);
+        // Forçar sempre centro em X e base em Y (50% 100%) — ignorar qualquer transform-origin do SVG
+        const usedOrigin: any = { kind: 'pct', xPct: 0.5, yPct: 1 };
+        if (usedOrigin && bbox.width && bbox.height) {
+          if (usedOrigin.kind === 'pct') {
+            spriteAnchorX = Number(usedOrigin.xPct || 0);
+            spriteAnchorY = Number(usedOrigin.yPct || 0);
             const op = svg.createSVGPoint();
-            op.x = bbox.x + bbox.width * Number(origin.xPct || 0);
-            op.y = bbox.y + bbox.height * Number(origin.yPct || 0);
+            op.x = bbox.x + bbox.width * Number(usedOrigin.xPct || 0);
+            op.y = bbox.y + bbox.height * Number(usedOrigin.yPct || 0);
             const opWorld = op.matrixTransform(ctm);
             worldPt.x = opWorld.x; worldPt.y = opWorld.y;
-          } else if (origin.kind === 'abs') {
-            spriteAnchorX = (Number(origin.x || 0) - bbox.x) / bbox.width;
-            spriteAnchorY = (Number(origin.y || 0) - bbox.y) / bbox.height;
-            const op = svg.createSVGPoint(); op.x = Number(origin.x || 0); op.y = Number(origin.y || 0);
+          } else if (usedOrigin.kind === 'abs') {
+            spriteAnchorX = (Number(usedOrigin.x || 0) - bbox.x) / bbox.width;
+            spriteAnchorY = (Number(usedOrigin.y || 0) - bbox.y) / bbox.height;
+            const op = svg.createSVGPoint(); op.x = Number(usedOrigin.x || 0); op.y = Number(usedOrigin.y || 0);
             const opWorld = op.matrixTransform(ctm);
             worldPt.x = opWorld.x; worldPt.y = opWorld.y;
           }

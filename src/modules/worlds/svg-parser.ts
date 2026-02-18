@@ -415,15 +415,16 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
     // Se o elemento trouxer `transform-origin: ...% ...%` no style,
     // usa esse ponto como o anchor (ex.: 50% 100% = base do tronco).
     // Isso permite a árvore crescer "a partir do tronco".
-    const origin = parseTransformOrigin(el.getAttribute("style"));
-    if (origin && boxW > 0 && boxH > 0) {
-      if (origin.kind === "pct") {
-        spriteAnchorX = origin.xPct / 100;
-        spriteAnchorY = origin.yPct / 100;
+    // Forçar sempre centro em X e base em Y (50% 100%) — ignorar qualquer transform-origin do SVG
+    const effectiveOrigin: any = { kind: "pct", xPct: 50, yPct: 100 };
+    if (effectiveOrigin && boxW > 0 && boxH > 0) {
+      if (effectiveOrigin.kind === "pct") {
+        spriteAnchorX = effectiveOrigin.xPct / 100;
+        spriteAnchorY = effectiveOrigin.yPct / 100;
         // Aplica transformação acumulada ao ponto de origem
         const originPoint = transformPoint(
-          boxX + boxW * (origin.xPct / 100),
-          boxY + boxH * (origin.yPct / 100),
+          boxX + boxW * (effectiveOrigin.xPct / 100),
+          boxY + boxH * (effectiveOrigin.yPct / 100),
           cumulativeMatrix
         );
         x = originPoint.x;
@@ -432,12 +433,12 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
         // Quando exportado como px (ex.: Inkscape), o editor costuma gravar
         // o transform-origin em coordenadas absolutas no espaço do SVG.
         // Convertemos isso para (0..1) relativo ao bbox para servir como anchor.
-        const ax = (origin.x - boxX) / boxW;
-        const ay = (origin.y - boxY) / boxH;
+        const ax = (effectiveOrigin.x - boxX) / boxW;
+        const ay = (effectiveOrigin.y - boxY) / boxH;
         spriteAnchorX = Math.min(1, Math.max(0, ax));
         spriteAnchorY = Math.min(1, Math.max(0, ay));
         // Aplica transformação acumulada ao ponto de origem absoluto
-        const originPoint = transformPoint(origin.x, origin.y, cumulativeMatrix);
+        const originPoint = transformPoint(effectiveOrigin.x, effectiveOrigin.y, cumulativeMatrix);
         x = originPoint.x;
         y = originPoint.y;
       }

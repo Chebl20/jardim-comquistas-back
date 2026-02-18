@@ -94,10 +94,13 @@ export class UserGoalService {
     for (const anchor of anchorsArr) {
       const aid = anchor && (anchor.anchorId || anchor.id || anchor.slot || '') ? String(anchor.anchorId || anchor.id || anchor.slot) : '';
       if (!aid) continue;
+      const at = (anchor && (anchor.treeType || anchor.type || anchor.dataType)) ? String(anchor.treeType || anchor.type || anchor.dataType).toLowerCase() : '';
       // Se é pontual, só aceitar anchors que tenham treeType === 'sky'
       if (isPontual) {
-        const at = (anchor && (anchor.treeType || anchor.type || anchor.dataType)) ? String(anchor.treeType || anchor.type || anchor.dataType).toLowerCase() : '';
         if (at !== 'sky') continue;
+      } else {
+        // Para metas contínuas, não aceitar anchors do tipo 'sky'
+        if (at === 'sky') continue;
       }
       // Agora filtra só pelas árvores do usuário no mundo
       const exists = await prisma.plantedTree.findFirst({ where: { worldId: data.worldId, anchorId: aid, userGoals: { some: { userId: data.userId } } } });
