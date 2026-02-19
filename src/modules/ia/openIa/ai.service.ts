@@ -3,6 +3,10 @@
 import OpenAI from 'openai';
 import { Injectable } from '@nestjs/common';
 import SYSTEM_PROMPT from '../SYSTEM_PROMPT';
+import { DateTime } from 'luxon';
+import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
+import { createGoalSchema, askInfoSchema, markDoneSchema } from '../schemas';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { prisma } from '../../../prisma/client';
 import { logAiAudit } from '../ai-audit.service';
@@ -20,6 +24,18 @@ export class AiService {
   private client = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   });
+  private ajv: Ajv;
+  constructor() {
+    this.ajv = new Ajv({ allErrors: true });
+    addFormats(this.ajv);
+    try {
+      this.ajv.addSchema(createGoalSchema, 'intent:CREATE_GOAL');
+      this.ajv.addSchema(askInfoSchema, 'intent:ASK_INFO');
+      this.ajv.addSchema(markDoneSchema, 'intent:MARK_DONE');
+    } catch (e) {
+      console.warn('[AI] Falha ao registrar schemas Ajv', e);
+    }
+  }
 
   /**
    * Gera uma mensagem de lembrete personalizada para uma meta.
@@ -83,6 +99,7 @@ export class AiService {
   }
 
 
+
   /**
    * Interpreta a mensagem do usuário, mantendo o histórico de conversa por chatId.
    * @param message Mensagem do usuário
@@ -115,8 +132,23 @@ export class AiService {
       { role: 'system', content: SYSTEM_PROMPT },
     ];
 
-    // Adicionar hora atual sempre
-    const currentTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    // Adicionar hora atual sempre — tentar usar timezone do usuário quando disponível
+    let currentTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    try {
+      if (opts && opts.userId) {
+        const uFull = await prisma.user.findUnique({ where: { id: String(opts.userId) } });
+        const tz = (uFull && (uFull as any).timezone) ? (uFull as any).timezone : undefined;
+        if (tz) {
+          currentTime = DateTime.now().setZone(tz).toFormat('HH:mm');
+        } else {
+          currentTime = DateTime.now().toFormat('HH:mm');
+        }
+      } else {
+        currentTime = DateTime.now().toFormat('HH:mm');
+      }
+    } catch (e) {
+      currentTime = DateTime.now().toFormat('HH:mm');
+    }
     console.log('[AI] CURRENT_TIME:', currentTime);
     messages.push({ role: 'system', content: `CURRENT_TIME: ${currentTime}` });
 
@@ -151,57 +183,154 @@ export class AiService {
     // adicionar histórico conversacional (últimas mensagens)
     messages.push(...chatHistories[key]);
     try {
-      const completion = await this.client.chat.completions.create({
-        model,
-        temperature: 0,
-        messages,
-      });
-      const content = completion.choices[0].message.content;
-      // audit: raw model output
+      const completion: any = await this.openAIChatCreate({ model, temperature: 0, messages });
+      // tenta extrair conteúdo raw (compatível com diferentes versões do SDK)
+      let rawContent: any = undefined;
       try {
-        await logAiAudit({ chatId: key, prompt: messages.map(m=>({role:m.role, content: m.content})), raw: content });
+        rawContent = completion.choices?.[0]?.message?.content ?? completion.output?.[0]?.content?.[0]?.text ?? completion;
+      } catch (e) {
+        rawContent = completion;
+      }
+
+      // audit raw
+      try {
+        await logAiAudit({ chatId: key, prompt: messages.map(m => ({ role: m.role, content: m.content })), raw: rawContent });
       } catch (e) {
         // ignore audit errors
       }
-      if (!content) {
+
+      if (!rawContent) {
         throw new Error('Resposta da IA vazia.');
       }
-      // Adiciona a resposta do assistente ao histórico
-      chatHistories[key].push({ role: 'assistant', content });
-      // Limita o histórico para as últimas 16 trocas
-      if (chatHistories[key].length > 16) {
-        chatHistories[key] = chatHistories[key].slice(-16);
-      }
-      // Tenta parsear e enriquecer ASK_INFO com opções padronizadas
-      try {
-        const parsed = JSON.parse(content);
-        if (parsed && parsed.action && parsed.action.intent === 'ASK_INFO' && parsed.action.data && parsed.action.data.missing === 'conquestType') {
-          // adicionar opções caso não existam
-          if (!parsed.action.data.options || !Array.isArray(parsed.action.data.options) || parsed.action.data.options.length === 0) {
-            parsed.action.data.options = CONQUEST_TYPES.slice();
+
+      // registrar no histórico como string (se for objeto, stringify)
+      const assistantContent = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+      chatHistories[key].push({ role: 'assistant', content: assistantContent });
+      if (chatHistories[key].length > 16) chatHistories[key] = chatHistories[key].slice(-16);
+
+      // tenta parsear diretamente
+      let parsed: any = null;
+      if (typeof rawContent === 'object') {
+        parsed = rawContent;
+      } else {
+        try {
+          parsed = JSON.parse(String(rawContent));
+        } catch (e) {
+          // tentativa de extrair bloco JSON com regex
+          const m = String(rawContent).match(/({[\s\S]*})/);
+          if (m) {
+            try { parsed = JSON.parse(m[1]); } catch (e2) { parsed = null; }
           }
         }
-        // audit parsed
-        try {
-          await logAiAudit({ chatId: key, parsed });
-        } catch (e) {}
-        return parsed;
-      } catch (e) {
-        // se não for JSON, repassa erro para o handler externo
-        throw new Error('Resposta da IA não é JSON');
       }
+
+      if (!parsed) {
+        // Falha de parsing: responder amigavelmente
+        return { say: 'Desculpe, tive um problema temporário para entender sua mensagem. Pode tentar novamente em alguns segundos?', action: null };
+      }
+
+      // Enriquecer ASK_INFO com opções padronizadas
+      if (parsed && parsed.action && parsed.action.intent === 'ASK_INFO' && parsed.action.data && parsed.action.data.missing === 'conquestType') {
+        if (!parsed.action.data.options || !Array.isArray(parsed.action.data.options) || parsed.action.data.options.length === 0) {
+          parsed.action.data.options = CONQUEST_TYPES.slice();
+        }
+      }
+
+      // Validação por intent usando Ajv
+      try {
+        const intent = parsed?.action?.intent;
+        if (intent) {
+          const schemaKey = `intent:${intent}`;
+          // tentativa de reparo específico por intent antes de validar
+          if (intent === 'ASK_INFO' && parsed.action && parsed.action.data) {
+            const d = parsed.action.data;
+            if (!d.question && !d.prompt) {
+              // gerar pergunta a partir do campo 'missing' ou das opções
+              const missing = d.missing || 'informação requerida';
+              if (Array.isArray(d.options) && d.options.length > 0) {
+                d.question = `Por favor, escolha uma opção para ${missing}: ${d.options.join(' / ')}`;
+              } else {
+                d.question = `Por favor, informe ${missing}.`;
+              }
+            }
+          }
+
+          if (this.ajv.getSchema && this.ajv.getSchema(schemaKey)) {
+            const valid = this.ajv.validate(schemaKey, parsed);
+            if (!valid) {
+              // registrar erros
+              console.warn('[AI] Validation failed for intent', intent, this.ajv.errors);
+              return { say: 'Desculpe, não consegui interpretar sua intenção corretamente. Pode dizer de outra forma?', action: null };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[AI] Erro na validação Ajv', e);
+      }
+
+      // audit parsed
+      try { await logAiAudit({ chatId: key, parsed }); } catch (e) {}
+      return parsed;
     } catch (e) {
       console.error('[AI ERROR]', e);
-      throw e;
+      return { say: 'Desculpe, tive um problema temporário para entender sua mensagem. Pode tentar novamente em alguns segundos?', action: null };
     }
   }
+
+  private async openAIChatCreate(opts: { model: string; temperature?: number; messages: ChatCompletionMessageParam[] }) {
+    const maxRetries = 2;
+    const timeoutMs = Number(process.env.OPENAI_TIMEOUT_MS || 10000);
+    const baseDelay = 500;
+
+    const attempt = async (n: number): Promise<any> => {
+      try {
+        const p = this.client.chat.completions.create({
+          model: opts.model,
+          temperature: opts.temperature,
+          messages: opts.messages,
+          response_format: { type: 'json_object' },
+        });
+        return await this.promiseTimeout(p, timeoutMs);
+      } catch (err: any) {
+        const msg = String(err?.message || err || '');
+        const isTransient = /ETIMEDOUT|ECONNRESET|timeout|429|rate limit/i.test(msg);
+        if (isTransient && n < maxRetries) {
+          const delay = baseDelay * Math.pow(2, n);
+          await this.sleep(delay);
+          return attempt(n + 1);
+        }
+        throw err;
+      }
+    };
+
+    return attempt(0);
+  }
+
+  private promiseTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('OpenAI timeout')), ms);
+      p.then((res) => { clearTimeout(t); resolve(res); }).catch((err) => { clearTimeout(t); reject(err); });
+    });
+  }
+
+  private sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 
   private async trySimpleRules(message: string, userId?: string): Promise<any | null> {
     const msg = message.toLowerCase().trim();
 
     // Detecção rápida de lembretes do tipo "me lembre de X em N minutos" ou "me lembra em N minutos"
     try {
-      const now = new Date();
+      // Determinar timezone do usuário (fallback Brasília)
+      let tz = 'America/Sao_Paulo';
+      if (userId) {
+        try {
+          const uFull = await prisma.user.findUnique({ where: { id: String(userId) } });
+          if (uFull && (uFull as any).timezone) tz = (uFull as any).timezone;
+        } catch (e) {
+          // ignore
+        }
+      }
+      const now = DateTime.now().setZone(tz);
       // padrão: "me lembre de <titulo> em <n> minutos"
       let m = msg.match(/me\s+lembre(?:\s+de)?\s+(.+?)\s+em\s+(\d+)\s*min/);
       if (!m) m = msg.match(/me\s+lembra(?:\s+de)?\s+(.+?)\s+daqui\s+a\s+(\d+)\s*min/);
@@ -209,7 +338,8 @@ export class AiService {
         const title = (m[1] || '').trim();
         const minutes = parseInt(m[2], 10) || 0;
         if (minutes > 0 && title) {
-          const reminder = new Date(now.getTime() + minutes * 60 * 1000).toISOString();
+          // Calcular reminder no timezone do usuário e armazenar em UTC ISO
+          const reminder = now.plus({ minutes }).toUTC().toISO();
           // inferir conquestType básico com confidence
           const lower = title.toLowerCase();
           let conquestType = 'Corpo';

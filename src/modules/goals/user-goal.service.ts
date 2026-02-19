@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { prisma } from '../../prisma/client';
+import { DateTime } from 'luxon';
 import { WorldsGateway } from '../worlds/worlds.gateway';
 import { inferTypeFromPath } from '../worlds/infer-type-from-path.util';
 import { normalizeConquestType, CONQUEST_TYPES } from '../ia/conquest-type.enum';
@@ -123,11 +124,64 @@ export class UserGoalService {
     // Validação/normalização de reminderTime
     let reminderTime: Date | undefined = undefined;
     if (data.reminderTime) {
-      const d = new Date(data.reminderTime as any);
-      if (!isNaN(d.getTime())) {
-        reminderTime = d;
-      } else {
-        console.warn('[UserGoal] reminderTime inválido:', data.reminderTime);
+      try {
+        // Determinar timezone do usuário (fallback Brasília)
+        let tz = 'America/Sao_Paulo';
+        try {
+          const u = await prisma.user.findUnique({ where: { id: data.userId }, select: { timezone: true } });
+          if (u && (u as any).timezone) tz = (u as any).timezone;
+        } catch (e) {
+          // ignore
+        }
+
+        // Se for string, tentar tratar time-only (ex: "08:30")
+        if (typeof data.reminderTime === 'string') {
+          const s = data.reminderTime.trim();
+          const timeOnly = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+          if (timeOnly) {
+            const hh = parseInt(timeOnly[1], 10);
+            const mm = parseInt(timeOnly[2], 10);
+            let dt = DateTime.now().setZone(tz).set({ hour: hh, minute: mm, second: Number(timeOnly[3] || 0), millisecond: 0 });
+            // se já passou hoje, agendar para amanhã
+            if (dt <= DateTime.now().setZone(tz)) dt = dt.plus({ days: 1 });
+            reminderTime = dt.toUTC().toJSDate();
+          } else {
+            // tentar parse ISO com timezone do usuário
+            let dt = DateTime.fromISO(s, { zone: tz });
+            if (!dt.isValid) {
+              // tentar parse como number timestamp
+              const n = Number(s);
+              if (!isNaN(n)) dt = DateTime.fromMillis(n, { zone: tz });
+            }
+            if (dt.isValid) reminderTime = dt.toUTC().toJSDate();
+            else {
+              // fallback para Date constructor
+              const d = new Date(s as any);
+              if (!isNaN(d.getTime())) reminderTime = d;
+              else console.warn('[UserGoal] reminderTime inválido (string):', data.reminderTime);
+            }
+          }
+        } else if (data.reminderTime instanceof Date) {
+          const d: Date = data.reminderTime as Date;
+          const dt = DateTime.fromJSDate(d).setZone(tz);
+          // se o ano da data fornecida for muito antigo/fora do esperado, tratar como time-only
+          const nowYear = DateTime.now().setZone(tz).year;
+          if (dt.year < nowYear - 1) {
+            // usar horas/minutos e combinar com hoje
+            let combined = DateTime.now().setZone(tz).set({ hour: dt.hour, minute: dt.minute, second: dt.second, millisecond: 0 });
+            if (combined <= DateTime.now().setZone(tz)) combined = combined.plus({ days: 1 });
+            reminderTime = combined.toUTC().toJSDate();
+          } else {
+            reminderTime = dt.toUTC().toJSDate();
+          }
+        } else {
+          // tentar conversão genérica
+          const d = new Date(data.reminderTime as any);
+          if (!isNaN(d.getTime())) reminderTime = d;
+          else console.warn('[UserGoal] reminderTime inválido (tipo desconhecido):', data.reminderTime);
+        }
+      } catch (e) {
+        console.warn('[UserGoal] Erro ao normalizar reminderTime:', e, data.reminderTime);
       }
     }
 
@@ -211,6 +265,7 @@ export class UserGoalService {
         userId: true,
         title: true,
         description: true,
+        goalType: true,
         conquestType: true,
         reminderTime: true,
         lastReminderSentAt: true,

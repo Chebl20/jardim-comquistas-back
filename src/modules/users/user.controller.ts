@@ -8,8 +8,10 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Post()
-  async create(@Body() body: { name: string; email: string; password: string }) {
-    return this.userService.createUser(body.name, body.email, body.password);
+  async create(@Body() body: { name: string; email: string; password: string; timezone?: string }, @Req() req: any) {
+    const headerTz = req?.headers?.['x-timezone'] || req?.headers?.timezone;
+    const tz = body.timezone || headerTz;
+    return this.userService.createUser(body.name, body.email, body.password, tz);
   }
 
   @Get(':id/telegram-linked')

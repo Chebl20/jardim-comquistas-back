@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DateTime } from 'luxon';
 import { UserGoalService } from '../goals/user-goal.service';
 import { WorldsEventsService } from '../worlds/worlds.events.service';
 import { AiService } from './openIa/ai.service';
@@ -31,25 +32,27 @@ export class IntentRouter {
 
         let calculatedReminderTime = reminderTime;
         if (time && !reminderTime) {
-          // Calcular tempo relativo
-          const now = new Date();
+          // Calcular tempo relativo — considerar timezone do usuário quando possível
+          let tz = 'UTC';
+          try {
+            const uFull = await prisma.user.findUnique({ where: { id: userId } });
+            if (uFull && (uFull as any).timezone) tz = (uFull as any).timezone;
+          } catch (e) {
+            // ignore
+          }
+          const now = DateTime.now().setZone(tz);
           if (time === '1_minute') {
-            calculatedReminderTime = new Date(now.getTime() + 1 * 60 * 1000).toISOString();
+            calculatedReminderTime = now.plus({ minutes: 1 }).toUTC().toISO();
           } else if (time === '30_min') {
-            calculatedReminderTime = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+            calculatedReminderTime = now.plus({ minutes: 30 }).toUTC().toISO();
           } else if (time === '1_hour') {
-            calculatedReminderTime = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+            calculatedReminderTime = now.plus({ hours: 1 }).toUTC().toISO();
           } else if (time === 'tomorrow') {
-            const tomorrow = new Date(now);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            tomorrow.setHours(9, 0, 0, 0); // 9 AM tomorrow
-            calculatedReminderTime = tomorrow.toISOString();
+            const tomorrow = now.plus({ days: 1 }).set({ hour: 9, minute: 0, second: 0, millisecond: 0 });
+            calculatedReminderTime = tomorrow.toUTC().toISO();
           } else if (time === 'next_cycle') {
-            // Para metas recorrentes, próximo ciclo
-            const tomorrow = new Date(now);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            tomorrow.setHours(9, 0, 0, 0);
-            calculatedReminderTime = tomorrow.toISOString();
+            const tomorrow = now.plus({ days: 1 }).set({ hour: 9, minute: 0, second: 0, millisecond: 0 });
+            calculatedReminderTime = tomorrow.toUTC().toISO();
           }
         }
 
@@ -98,6 +101,30 @@ export class IntentRouter {
         try {
           const user = await prisma.user.findUnique({ where: { id: userId } });
           const worldId = user?.currentWorldId || (await this.worldsService.getDefaultWorld())?.worldId || 'mundo2';
+
+          // Garantir que reminderTime esteja no futuro relativo ao timezone do usuário
+          if (calculatedReminderTime) {
+            try {
+              const tz = (user && (user as any).timezone) ? (user as any).timezone : 'America/Sao_Paulo';
+              let dt = typeof calculatedReminderTime === 'string'
+                ? DateTime.fromISO(calculatedReminderTime, { zone: tz })
+                : DateTime.fromJSDate(new Date(calculatedReminderTime)).setZone(tz);
+              const nowLocal = DateTime.now().setZone(tz);
+              // Se a data/parsing for inválida, fallback não altera
+              if (dt.isValid) {
+                // Se estiver no passado (<= agora) ou muito próximo no passado, ajustar para agora+1min
+                if (dt <= nowLocal) {
+                  dt = nowLocal.plus({ minutes: 1 });
+                  calculatedReminderTime = dt.toUTC().toISO();
+                } else {
+                  // assegura que stored iso esteja em UTC
+                  calculatedReminderTime = dt.toUTC().toISO();
+                }
+              }
+            } catch (e) {
+              // ignore normalization errors
+            }
+          }
           const payload = {
             userId,
             title,
@@ -243,6 +270,17 @@ export class IntentRouter {
             where: { id: goal.id },
             data: { dailyStatus: 'DONE' },
           });
+
+          // Se a meta for Pontual, marcamos como concluída para evitar novos lembretes
+          try {
+            const ng = normalizeGoalType(goal.goalType);
+            if (ng === 'Pontual') {
+              await this.userGoalService.completeGoal(goal.id);
+            }
+          } catch (e) {
+            // não bloquear o fluxo principal em caso de erro ao marcar como concluída
+            this.logger.warn(`Falha ao marcar meta como completed: ${e}`);
+          }
           if (reply && typeof reply === 'function') reply('Progresso registrado com sucesso.');
         } catch (err) {
           console.error('Erro ao registrar progresso:', err);

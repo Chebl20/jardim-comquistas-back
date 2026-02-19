@@ -5,6 +5,7 @@ model User {
   password   String
   linkCode   String?    @unique // código para vincular com o bot
   telegramId String?    @unique // id do usuário no Telegram
+  timezone   String   @default("UTC") // IANA timezone, ex: 'America/Sao_Paulo'
   currentWorldId String? // mundo atual do usuário
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt

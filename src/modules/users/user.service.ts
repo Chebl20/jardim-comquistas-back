@@ -4,11 +4,11 @@ import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class UserService {
-  async createUser(name: string, email: string, password: string) {
+  async createUser(name: string, email: string, password: string, timezone?: string) {
     const hashedPassword = await bcrypt.hash(password, 10);
-    return prisma.user.create({
-      data: { name, email, password: hashedPassword, currentWorldId: 'mundo2' },
-    });
+    const data: any = { name, email, password: hashedPassword, currentWorldId: 'mundo2' };
+    if (timezone) data.timezone = timezone;
+    return prisma.user.create({ data });
   }
 
   async getUserById(userId: string) {

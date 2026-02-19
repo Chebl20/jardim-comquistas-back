@@ -4,6 +4,7 @@ import { UserGoalService } from '../goals/user-goal.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { CommunicationService } from '../shared/communication.service';
 import { AiService } from '../ia/openIa/ai.service';
+import { DateTime } from 'luxon';
 import { prisma } from '../../prisma/client';
 import { MESSAGES, formatMessage } from '../ia/messages';
 
@@ -35,22 +36,47 @@ export class ReminderService {
 
       if (!goal.reminderTime) continue;
 
-      // Normaliza horário do dia em UTC
-      const reminderTime = new Date(goal.reminderTime);
-      const todayReminder = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), reminderTime.getUTCHours(), reminderTime.getUTCMinutes(), 0));
-
-      // Janela: 10 min antes
-      const reminderWindowStart = new Date(todayReminder.getTime() - 10 * 60 * 1000);
-
-      this.logger.log(`🎯 [REMINDER] Meta: ${goal.title}, status: ${goal.dailyStatus}, silenceUntil: ${goal.silenceUntil}, reminder: ${todayReminder}, now: ${now}`);
-
-      // Se nunca foi enviado hoje (dailyStatus null)
-      if (!goal.dailyStatus && now >= reminderWindowStart && now <= todayReminder) {
-        await this.sendReminder(goal, now, 'SENT');
+      // Buscar timezone do usuário (fallback Brasília)
+      let tz = 'America/Sao_Paulo';
+      try {
+        const uFull = await prisma.user.findUnique({ where: { id: goal.userId } });
+        if (uFull && (uFull as any).timezone) tz = (uFull as any).timezone;
+      } catch (e) {
+        // ignore
       }
-      // Se SENT ou WAITING e silêncio expirou
-      else if ((goal.dailyStatus === 'SENT' || goal.dailyStatus === 'WAITING') && (!goal.silenceUntil || now >= goal.silenceUntil)) {
-        await this.sendReminder(goal, now, 'WAITING');
+
+      // Usa horário local do usuário para comparações
+      const nowLocal = DateTime.now().setZone(tz);
+
+      if (!goal.reminderTime) continue;
+
+      // Agora tratamos dois casos: lembrete pontual (Pontual) ou recorrente (Continua)
+      const isPontual = String(goal.goalType || '').toLowerCase() === 'pontual';
+
+      if (isPontual) {
+        // Pontual: comparar a datetime exata armazenada, mas em timezone do usuário
+        const remDtLocal = DateTime.fromJSDate(new Date(goal.reminderTime)).setZone(tz);
+        const windowStartLocal = remDtLocal.minus({ minutes: 10 });
+        this.logger.log(`🎯 [REMINDER] (Pontual) Meta: ${goal.title}, reminderLocal: ${remDtLocal.toFormat('HH:mm')}, nowLocal: ${nowLocal.toFormat('HH:mm')} (tz=${tz})`);
+        if (!goal.dailyStatus && nowLocal >= windowStartLocal && nowLocal <= remDtLocal) {
+          // Persistimos lastReminderSentAt em UTC, mas a decisão é feita em horário local
+          await this.sendReminder(goal, DateTime.fromJSDate(nowLocal.toUTC().toJSDate()).toJSDate(), 'SENT');
+        } else if ((goal.dailyStatus === 'SENT' || goal.dailyStatus === 'WAITING') && (!goal.silenceUntil || nowLocal >= DateTime.fromJSDate(new Date(goal.silenceUntil)).setZone(tz))) {
+          await this.sendReminder(goal, DateTime.fromJSDate(nowLocal.toUTC().toJSDate()).toJSDate(), 'WAITING');
+        }
+      } else {
+        // Recorrente: usamos hora/minuto do reminderTime no timezone do usuário e calculamos ocorrência de hoje
+        const remDt = DateTime.fromJSDate(new Date(goal.reminderTime)).setZone(tz);
+        const todayLocal = nowLocal.set({ hour: remDt.hour, minute: remDt.minute, second: 0, millisecond: 0 });
+        const windowStartLocal = todayLocal.minus({ minutes: 10 });
+
+        this.logger.log(`🎯 [REMINDER] (Recorrente) Meta: ${goal.title}, tz=${tz}, todayLocal=${todayLocal.toFormat('HH:mm')}, nowLocal=${nowLocal.toFormat('HH:mm')}`);
+
+        if (!goal.dailyStatus && nowLocal >= windowStartLocal && nowLocal <= todayLocal) {
+          await this.sendReminder(goal, DateTime.fromJSDate(nowLocal.toUTC().toJSDate()).toJSDate(), 'SENT');
+        } else if ((goal.dailyStatus === 'SENT' || goal.dailyStatus === 'WAITING') && (!goal.silenceUntil || nowLocal >= DateTime.fromJSDate(new Date(goal.silenceUntil)).setZone(tz))) {
+          await this.sendReminder(goal, DateTime.fromJSDate(nowLocal.toUTC().toJSDate()).toJSDate(), 'WAITING');
+        }
       }
       // DONE ou SKIPPED: não envia
     }
@@ -62,7 +88,10 @@ export class ReminderService {
       select: { id: true, telegramId: true, name: true },
     });
 
-    if (!user?.telegramId) return;
+    if (!user?.telegramId) {
+      this.logger.warn(`⚠️ [REMINDER] Usuário sem telegramId, não foi possível enviar reminder para userId=${goal.userId}, goalId=${goal.id}`);
+      return;
+    }
 
     const message = status === 'SENT'
       ? await this.communicationService.generateReminderMessage(user.id, goal.title)
@@ -72,14 +101,13 @@ export class ReminderService {
       await this.telegramService.send(Number(user.telegramId), message);
       this.logger.log(`Lembrete ${status} enviado para ${user.name} para meta: ${goal.title}`);
 
-      // Atualizar status
+      // Atualizar status (usar UTC)
       await prisma.userGoal.update({
         where: { id: goal.id },
         data: {
           dailyStatus: status,
-          lastReminderSentAt: now,
-        //   silenceUntil: new Date(now.getTime() + 20 * 60 * 1000),
-          silenceUntil: new Date(now.getTime() + 1 * 60 * 1000), // 1 min para testes
+          lastReminderSentAt: DateTime.fromJSDate(new Date(now)).toUTC().toJSDate(),
+          silenceUntil: DateTime.fromJSDate(new Date(now)).toUTC().plus({ minutes: 1 }).toJSDate(), // 1 min para testes
         },
       });
     } catch (error) {

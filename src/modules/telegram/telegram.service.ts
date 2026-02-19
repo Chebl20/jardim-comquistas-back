@@ -5,6 +5,8 @@ import { AiService } from '../ia/openIa/ai.service';
 import { IntentRouter } from '../ia/intent-router.service';
 import { UserLinkService } from '../users/user-link.service';
 import { prisma } from '../../prisma/client';
+import { RateLimiterService } from '../shared/rate-limiter.service';
+import { PendingActionService } from '../shared/pending-action.service';
 
 @Injectable()
 
@@ -16,6 +18,8 @@ export class TelegramService implements OnModuleInit {
     private ai: AiService,
     private intentRouter: IntentRouter,
     private userLinkService: UserLinkService,
+    private rateLimiter: RateLimiterService,
+    private pendingActions: PendingActionService,
   ) {}
 
   onModuleInit() {
@@ -63,9 +67,83 @@ export class TelegramService implements OnModuleInit {
           ? 'Suas metas ativas: ' + userGoals.map(g => `${g.title} (id: ${g.id}, mundo: ${g.plantedTree?.worldId || 'desconhecido'})`).join(', ') + '.'
           : 'Você não tem metas ativas no momento.';
 
+        // Rate limit check per user
+        try {
+          const limit = Number(process.env.RATE_LIMIT_MESSAGES_PER_MINUTE || 5);
+          const rl = await this.rateLimiter.isAllowed(`tg:${user.id}`, limit, 60);
+          if (!rl.allowed) {
+            await this.bot.sendMessage(chatId, `Você está enviando mensagens muito rapidamente. Aguarde ${Math.ceil(rl.retryAfter || 1)}s e tente novamente.`);
+            return;
+          }
+        } catch (e) {
+          // se o rate limiter falhar, não bloquear a mensagem
+          this.logger.warn('Rate limiter falhou, continuando', e);
+        }
+
+        // Verifica se existe uma ação pendente (ASK_INFO) para este usuário
+        const pending = this.pendingActions.consumePending(user.id);
+        if (pending) {
+          // Interpretar a resposta do usuário para preencher o campo faltante
+          const missing = pending.data?.missing;
+          const options: string[] = Array.isArray(pending.data?.options) ? pending.data.options : [];
+          let chosen: string | undefined = undefined;
+          const replyText = String(text).trim();
+          // tentar casar com opções
+          for (const opt of options) {
+            const display = String(opt).replace(/_/g, ' / ').toLowerCase();
+            if (replyText.toLowerCase() === opt.toLowerCase() || replyText.toLowerCase() === display.toLowerCase()) {
+              chosen = opt;
+              break;
+            }
+          }
+          // aceitar índice (1,2,...)
+          if (!chosen && /^\d+$/.test(replyText) && options.length > 0) {
+            const idx = parseInt(replyText, 10) - 1;
+            if (idx >= 0 && idx < options.length) chosen = options[idx];
+          }
+          if (!chosen && options.length === 1) {
+            chosen = options[0];
+          }
+
+          if (!chosen && options.length > 0) {
+            // não entendeu — reponde com as opções e re-salva a pendência
+            const optList = options.map((o, i) => `${i + 1}) ${String(o).replace(/_/g, ' / ')}`).join('\n');
+            await this.bot.sendMessage(chatId, `Não entendi. Escolha uma opção:\n${optList}`);
+            this.pendingActions.setPending(user.id, pending);
+            return;
+          }
+
+          // preencher e encaminhar
+          const filled = { intent: pending.intent, data: { ...(pending.data || {}) } } as any;
+          if (missing) filled.data[missing] = chosen || replyText;
+          // garantir userId/worldId
+          filled.data.userId = user.id;
+          filled.data.userName = user.name;
+          filled.data.worldId = worldId;
+          await this.intentRouter.route(filled);
+          return;
+        }
+
         const result = await this.ai.interpret(text, chatId, { userId: user.id, worldId, goalsContext });
-        await this.bot.sendMessage(chatId, result.say);
-        // Garante que o userId real do banco está presente no action
+
+        // If AI requests ASK_INFO, handle it BEFORE sending any say or routing
+        if (result.action && typeof result.action === 'object' && result.action.intent === 'ASK_INFO') {
+          if (!result.action.data) result.action.data = {};
+          const question = result.say || result.action.data.question || 'Por favor, informe o valor solicitado.';
+          const options: string[] = Array.isArray(result.action.data.options) ? result.action.data.options : [];
+          let messageToSend = question;
+          if (options.length > 0) {
+            const optList = options.map((o, i) => `${i + 1}) ${String(o).replace(/_/g, ' / ')}`).join('\n');
+            messageToSend = `${question}\n\n${optList}`;
+          }
+          await this.bot.sendMessage(chatId, messageToSend);
+          this.logger.log(`[TELEGRAM] Saved pending ASK_INFO for user=${user.id}, missing=${result.action.data?.missing}`);
+          this.pendingActions.setPending(user.id, result.action);
+          return;
+        }
+
+        // Otherwise send say (if any) and route action (if any)
+        if (result.say) await this.bot.sendMessage(chatId, result.say);
         if (result.action && typeof result.action === 'object') {
           if (!result.action.data) result.action.data = {};
           result.action.data.userId = user.id;
