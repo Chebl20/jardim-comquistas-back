@@ -2,7 +2,7 @@
 
 import { Module } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
-import { AiModule } from '../ia/openIa/ai.module';
+import { AiModule } from '../ia/ai.module';
 import { UserModule } from '../users/user.module';
 import { SharedModule } from '../shared/shared.module';
 

@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { UserGoalService } from '../goals/user-goal.service';
+import { ClarificationNucleus } from './nuclei/clarification';
 import { WorldsEventsService } from '../worlds/worlds.events.service';
-import { AiService } from './openIa/ai.service';
 import { RulesService } from './rules.service';
 import { CommunicationService } from '../shared/communication.service';
 import { prisma } from '../../prisma/client';
+import { ConversationSessionService } from '../shared/conversation-session.service';
 import { WorldsService } from '../worlds/worlds.service';
 import { normalizeConquestType, CONQUEST_TYPES } from './conquest-type.enum';
 import { normalizeGoalType, GOAL_TYPES } from './goal-type.util';
@@ -18,17 +19,37 @@ export class IntentRouter {
   constructor(
     private readonly userGoalService: UserGoalService,
     private readonly worldsEventsService: WorldsEventsService,
-    private readonly aiService: AiService,
     private readonly rulesService: RulesService,
     private readonly communicationService: CommunicationService,
     private readonly worldsService: WorldsService,
+    private readonly conversationSession: ConversationSessionService,
+    private readonly clarification: ClarificationNucleus,
   ) {}
 
   async route(action: any) {
     this.logger.log(`action received: intent=${action?.intent}, data=${JSON.stringify(action?.data)}`);
+
+    // ASK_INFO should be handled by the conversational layer (TelegramService / ConversationSession).
+    // Do not auto-convert ASK_INFO to CREATE_GOAL here; return early to avoid taking actions without confirmation.
+    if (action && action.intent === 'ASK_INFO') {
+      this.logger.log('ASK_INFO reached IntentRouter - ignoring because it should be handled by ConversationSession layer');
+      return;
+    }
     switch (action.intent) {
       case 'CREATE_GOAL': {
         let { title, description, goalType, conquestType, frequency, reminderTime, time, userId, worldId, reply } = action.data || {};
+
+        // Se existir uma ConversationSession ativa e não estiver em CONFIRM, bloquear criação
+        try {
+          const session = await prisma.conversationSession.findUnique({ where: { userId } });
+          if (session && session.state !== 'CONFIRM') {
+            this.logger.log(`CREATE_GOAL bloqueado: existe sessão ativa (state=${session.state}) para user=${userId}`);
+            // Não prosseguir com criação enquanto houver sessão não confirmada
+            break;
+          }
+        } catch (e) {
+          // ignore absence of table or errors
+        }
 
         let calculatedReminderTime = reminderTime;
         if (time && !reminderTime) {
@@ -56,10 +77,9 @@ export class IntentRouter {
           }
         }
 
-        // Regra de segurança: se a action vier com tempo/reminderTime mas sem goalType, assumir Pontual
-        if ((!goalType || goalType === undefined || goalType === null || String(goalType).trim() === '') && (calculatedReminderTime || reminderTime || time)) {
-          goalType = 'Pontual';
-        }
+        // Regra de segurança: se a action vier sem `goalType`, NÃO deduza automaticamente.
+        // Em vez disso, force a solicitação ao usuário para escolher entre as opções.
+        // (Anteriormente havia heurística que tentava inferir Pontual/Continua — removida.)
 
         // Normalizar e validar goalType em runtime (sem alterar Prisma)
         const normalizedGoalType = normalizeGoalType(goalType);
@@ -137,6 +157,37 @@ export class IntentRouter {
           };
           const userGoal = await this.userGoalService.createUserGoalWithTree(payload);
           this.logger.log(`Meta criada: ${JSON.stringify(userGoal)}`);
+          try {
+            if (action && typeof action.reply === 'function') {
+              const tz = (user && (user as any).timezone) ? (user as any).timezone : 'UTC';
+              const when = userGoal.reminderTime ? DateTime.fromJSDate(new Date(userGoal.reminderTime)).setZone(tz).toFormat('yyyy-LL-dd HH:mm') : 'agora';
+              action.reply(`✅ Meta criada: ${userGoal.title}. Vou te lembrar em ${when}.`);
+            }
+          } catch (e) {
+            // não bloquear fluxo principal por erro de reply
+            this.logger.warn('Falha ao enviar reply após criação de meta', e);
+          }
+          // Reset conversation session state and payload to ensure no leftover context remains
+          try {
+            const existingSession = await this.conversationSession.getSession(userId);
+            const preservedPayload: any = existingSession && existingSession.payload && Array.isArray((existingSession.payload as any).recentMessages)
+              ? { recentMessages: (existingSession.payload as any).recentMessages }
+              : {};
+            await this.conversationSession.createSession(userId, 'IDLE', preservedPayload);
+            // After creating the goal, forward to Clarification to produce
+            // the same post-flow reply behavior as the conversational path.
+            try {
+              const clarInput = { userId: userId as any, currentSession: 'IDLE', text: '', meta: { user: { id: userId } } } as any;
+              const clar = await this.clarification.analyze(clarInput as any);
+              if (action && typeof action.reply === 'function' && clar && clar.suggestedReply) {
+                action.reply(String(clar.suggestedReply || ''));
+              }
+            } catch (e) {
+              // ignore clarification errors and keep original reply
+            }
+          } catch (e) {
+            this.logger.warn('Falha ao resetar sessão após criação de meta', e);
+          }
         } catch (err) {
           if (err && typeof err === 'object') {
             if ('response' in err) {
@@ -253,7 +304,7 @@ export class IntentRouter {
           if ((!title || !title.trim()) || (!description || !description.trim())) {
             try {
               const goalTitle = action.data?.goalTitle || action.data?.title || undefined;
-              const meta = await this.aiService.generateProgressMetadata(userId, { goalTitle });
+              const meta = await this.communicationService.generateProgressMetadata(userId, { goalTitle });
               title = title && title.trim() ? title : meta.title || '';
               description = description && description.trim() ? description : meta.description || '';
             } catch (e) {

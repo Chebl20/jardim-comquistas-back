@@ -37,6 +37,26 @@ export class CommunicationService {
   }
 
   /**
+   * Gera metadata simples para progresso quando a IA antiga não estiver disponível.
+   * Retorna um objeto com `title` e `description` de fallback.
+   */
+  async generateProgressMetadata(userId?: string, opts?: { goalTitle?: string }) {
+    const goalTitle = opts?.goalTitle || '';
+    let userName = '';
+    if (userId) {
+      try {
+        const u = await prisma.user.findUnique({ where: { id: String(userId) }, select: { name: true } });
+        userName = u?.name || '';
+      } catch (e) {
+        // ignore
+      }
+    }
+    const title = goalTitle ? (goalTitle.split(/\s+/).slice(0, 8).join(' ') || 'Progresso') : (userName ? `Progresso de ${userName}` : 'Progresso');
+    const description = goalTitle ? `Progresso em ${goalTitle}` : `Progresso registrado.`;
+    return { title, description };
+  }
+
+  /**
    * Gera mensagem de erro ou confirmação.
    */
   generateErrorMessage(message: string): string {

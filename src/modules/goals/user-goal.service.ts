@@ -8,6 +8,9 @@ import { normalizeGoalType } from '../ia/goal-type.util';
 
 @Injectable()
 export class UserGoalService {
+  createGoal(arg0: any) {
+    throw new Error('Method not implemented.');
+  }
   private readonly logger = new Logger(UserGoalService.name);
 
   constructor(private readonly worldsGateway: WorldsGateway) {}

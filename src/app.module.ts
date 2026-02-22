@@ -6,7 +6,7 @@ import { WorldsModule } from './modules/worlds/worlds.module';
 import { SharedModule } from './modules/shared/shared.module';
 
 import { TelegramModule } from './modules/telegram/telegram.module';
-import { AiModule } from './modules/ia/openIa/ai.module';
+import { AiModule } from './modules/ia/ai.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ReminderModule } from './modules/reminder/reminder.module';
 ;
