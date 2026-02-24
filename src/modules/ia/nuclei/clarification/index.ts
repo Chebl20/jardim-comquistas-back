@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NucleusInput, NucleusResult } from '../nucleus.interface';
+import { NucleusInput } from '../nucleus.interface';
+import { FlowResult } from '../../conversation/flow.types';
 import { ConversationAIService } from '../../conversation-ai.service';
 import { PROMPT as CLARIFICATION_PROMPT } from '../clarification/prompt';
 
@@ -9,36 +10,8 @@ export class ClarificationNucleus {
   public static PROMPT = CLARIFICATION_PROMPT;
   constructor(private readonly llm: ConversationAIService) {}
 
-  async analyze(input: NucleusInput): Promise<NucleusResult> {
+  async analyze(input: NucleusInput): Promise<FlowResult> {
     const text = (input.text || '').trim();
-    const withEmoji = (s: string) => (s && s.trim().endsWith('🙂')) ? s : `${s} 🙂`;
-    const low = text.toLowerCase();
-    // Gibberish detection: mensagens sem sentido (ex: "kdjqw12@@@" ou sequências aleatórias)
-    const isGibberish = (s: string) => {
-      const cleaned = (s || '').replace(/\s+/g, '');
-      if (!cleaned) return false;
-      const letters = (cleaned.match(/[A-Za-zÀ-ÖØ-öø-ÿ]/g) || []).length;
-      const numbers = (cleaned.match(/[0-9]/g) || []).length;
-      const punctuation = (cleaned.match(/[^A-Za-zÀ-ÖØ-öø-ÿ0-9]/g) || []).length;
-      const letterRatio = letters / cleaned.length;
-      const vowelRatio = (cleaned.match(/[aeiouáéíóúâêîôûãõàèìòùü]/gi) || []).length / Math.max(1, letters);
-      if (cleaned.length < 3) return false;
-      if (letterRatio < 0.45 || vowelRatio < 0.15) return true;
-      if (numbers / cleaned.length > 0.6) return true;
-      if (punctuation / cleaned.length > 0.6) return true;
-      return false;
-    };
-
-    // Resposta curta e direta para mensagens sem sentido — seja acolhedor e sugira próximo passo
-    if (isGibberish(text)) {
-      const fallback = 'Tudo bem — não consegui entender sua mensagem. Pode reformular em uma frase curta ou dizer "ajuda" para ver opções?';
-      return {
-        confidence: 0.2,
-        suggestedReply: fallback,
-        stopPropagation: true,
-        nucleus: 'clarification',
-      };
-    }
 
     // Para todas as outras mensagens, delegar ao LLM com o prompt do núcleo.
     // O prompt instrui o LLM a decidir se é small_talk, pedir esclarecimento, ou continuar o fluxo.
@@ -78,22 +51,24 @@ export class ClarificationNucleus {
 
       // Typed-safe parsing of LLM response to avoid implicit any and ensure
       // deterministic `classification` and `intent` fields for the orchestrator.
-      interface ClarificationResult extends NucleusResult {
+      interface ClarificationResult {
+        confidence: number;
+        suggestedReply?: string;
         classification: string;
         intent?: string;
+        extracted?: any;
       }
 
       const llmAny: any = llmRes as any;
       const suggestedReply = String((llmAny && (llmAny.suggestedReply || llmAny.suggested)) || '');
       const confidence = typeof llmAny?.confidence === 'number' ? llmAny.confidence : 0.4;
 
-      // Use `classification` as the canonical field. If the model returns `type`,
-      // warn (for migration) but prefer `classification`.
+      // Use `classification` as the canonical field. Do NOT accept `type`.
       let classification = 'unknown';
       if (typeof llmAny?.classification === 'string') classification = String(llmAny.classification).trim();
-      else if (typeof llmAny?.type === 'string') {
-        try { this.logger.warn('Clarification: model returned `type` field — prefer `classification`.'); } catch (_) {}
-        classification = String(llmAny.type).trim();
+      else if (typeof llmAny?.type !== 'undefined') {
+        try { this.logger.error('Clarification: model returned deprecated `type` field — required `classification`.'); } catch (_) {}
+        // keep classification as 'unknown' so orchestrator remains deterministic
       }
 
       let intent: string | undefined = undefined;
@@ -102,15 +77,15 @@ export class ClarificationNucleus {
 
       // Architectural rule: when classification === 'new_intent', `intent` is
       // mandatory. Do NOT infer or guess intent here — treat missing intent as
-      // invalid output from the model, log it, and return an invalid result so
-      // the orchestrator does not transition implicitly.
+      // invalid output from the model, log it, and return a safe actions[] result
+      // so the orchestrator remains deterministic.
       if (classification === 'new_intent' && !intent) {
         try {
           this.logger.error('Clarification returned new_intent without intent', JSON.stringify(llmAny));
         } catch (_) {
           this.logger.error('Clarification returned new_intent without intent (failed to stringify llm response)');
         }
-        return { confidence: 0.1, suggestedReply: 'Desculpe — não consegui interpretar sua intenção. Pode explicar novamente?', stopPropagation: true, classification: 'invalid_output' } as any;
+        return { actions: [{ type: 'reply', text: 'Desculpe — não consegui interpretar sua intenção. Pode explicar novamente?' }], nucleus: 'clarification' } as FlowResult;
       }
 
       const safeResult: ClarificationResult = { confidence, suggestedReply, classification, intent } as any;
@@ -122,18 +97,25 @@ export class ClarificationNucleus {
       }
       if (llmAny && llmAny.extracted && typeof llmAny.extracted === 'object') safeResult.extracted = llmAny.extracted;
 
-      // Clarification remains a conversational gateway: do not return actionable 'action' fields
-      return {
-        ...safeResult,
-        nucleus: 'clarification',
-      } as NucleusResult;
+      // Clarification returns declarative actions for the orchestrator.
+      // Default: reply with suggestedReply.
+      // When classification === 'new_intent' the nucleus MUST NOT emit a user-facing
+      // reply; it should only emit a redirect to the target nucleus. The target
+      // nucleus is responsible for asking follow-up questions or confirming.
+      const actions: any[] = [];
+      if (safeResult.classification === 'new_intent') {
+        // Only redirect; do not add a reply here. Preserve the full extracted object
+        // so the target nucleus has both payload and missing fields.
+        if (intent === 'CREATE_GOAL') actions.push({ type: 'redirect', to: 'GOAL_CREATION', payload: safeResult.extracted || {} });
+        else actions.push({ type: 'redirect', to: intent || 'CLARIFICATION', payload: safeResult.extracted || {} });
+      } else {
+        if (safeResult.suggestedReply) actions.push({ type: 'reply', text: String(safeResult.suggestedReply) });
+      }
+
+      return { actions, nucleus: 'clarification' } as FlowResult;
     } catch (e) {
       this.logger.warn('Clarification LLM failed', e);
-      return {
-        confidence: 0.3,
-        suggestedReply: 'Não entendi bem — pode explicar em uma frase curta ou dizer "ajuda" para opções?',
-        nucleus: 'clarification',
-      };
+      return { actions: [{ type: 'reply', text: 'Não entendi bem — pode explicar em uma frase curta ou dizer "ajuda" para opções?' }], nucleus: 'clarification' };
     }
   }
 }

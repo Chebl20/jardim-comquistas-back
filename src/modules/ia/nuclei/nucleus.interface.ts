@@ -1,3 +1,5 @@
+import { FlowResult } from '../conversation/flow.types';
+
 export interface NucleusInput {
   userId: string | number;
   currentSession?: any;
@@ -5,7 +7,8 @@ export interface NucleusInput {
   meta?: Record<string, unknown>;
 }
 
-export interface NucleusResult {
+// Legacy result kept for migration compatibility
+export interface NucleusResultLegacy {
   action?: string;
   confidence: number; // 0.0 - 1.0
   extracted?: any;
@@ -15,11 +18,12 @@ export interface NucleusResult {
   delegate?: string;
   classification?: string;
   intent?: string;
-
   // Each nucleus must declare its name so orchestrator avoids hardcoded strings
   nucleus?: string;
 }
 
 export interface Nucleus {
-  analyze(input: NucleusInput): Promise<NucleusResult>;
+  // New preferred return type is FlowResult (actions[]). For gradual migration
+  // allow returning either FlowResult or the legacy NucleusResultLegacy.
+  analyze(input: NucleusInput): Promise<FlowResult | NucleusResultLegacy>;
 }
