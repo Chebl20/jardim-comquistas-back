@@ -1,14 +1,14 @@
-export type FlowState = 'IDLE' | 'GOAL_CREATION' | 'CLARIFICATION' | string;
+export type FlowState = 'IDLE' | 'GOAL_CREATION' | 'CLARIFICATION';
 
 export type Action =
   | { type: 'reply'; text: string }
-  | { type: 'continue'; payload?: Record<string, any> } // merge payload, mantém estado atual
-  | { type: 'redirect'; to: FlowState; payload?: Record<string, any> } // muda estado
-  | { type: 'create_goal'; payload: Record<string, any> } // orquestrador persiste
-  | { type: 'cancel' }; // finaliza fluxo e reseta sessão
+  | { type: 'continue'; payload?: Record<string, any> }
+  | { type: 'redirect'; to: FlowState; payload?: { payload?: Record<string, any>; missing?: string[] } }
+  | { type: 'create_goal'; payload: Record<string, any> }
+  | { type: 'cancel' };
 
 export type FlowResult = {
-  actions?: Action[]; // ordem importa
-  suggestedReply?: string; // fallback se não houver reply nas actions
-  [k: string]: any;
+  actions: Action[];
+  suggestedReply?: string;
+  nucleus?: string;
 };

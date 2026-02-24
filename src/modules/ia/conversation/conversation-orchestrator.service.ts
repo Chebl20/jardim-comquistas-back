@@ -26,142 +26,184 @@ export class ConversationOrchestratorService {
     };
   }
 
-  private async applyAction(userId: string, action: Action, worldId: string) {
+  private async applyAction(
+    userId: string,
+    action: Action,
+    worldId: string,
+  ): Promise<{ redirectedTo?: FlowState }> {
     switch (action.type) {
       case 'continue': {
         const sess = await this.sessionService.getSession(userId);
-        const base = sess?.payload && typeof sess.payload === 'object' ? sess.payload : {};
+        const base =
+          sess?.payload && typeof sess.payload === 'object' ? sess.payload : {};
+
         await this.sessionService.updateSession(userId, {
           state: sess?.state ?? 'IDLE',
           payload: { ...base, ...(action.payload || {}) },
         });
+
         return { redirectedTo: undefined };
       }
+
       case 'redirect':
         await this.sessionService.updateSession(userId, {
           state: action.to,
           payload: action.payload ?? {},
         });
+
         return { redirectedTo: action.to };
+
       case 'create_goal':
         await this.userGoalService.createUserGoalWithTree({
           ...(action.payload as any),
           userId,
           worldId,
         } as any);
-        await this.sessionService.updateSession(userId, { state: 'IDLE', payload: {} });
+
+        await this.sessionService.updateSession(userId, {
+          state: 'IDLE',
+          payload: {},
+        });
+
         return { redirectedTo: 'IDLE' };
+
       case 'cancel':
-        await this.sessionService.updateSession(userId, { state: 'IDLE', payload: {} });
+        await this.sessionService.updateSession(userId, {
+          state: 'IDLE',
+          payload: {},
+        });
+
         return { redirectedTo: 'IDLE' };
+
       case 'reply':
-        // reply tratado no agregador (no-op aqui)
+        // reply é tratado fora (apenas agregação)
         return { redirectedTo: undefined };
     }
   }
 
-  private async execActionsSequentially(userId: string, actions: Action[] = [], worldId: string) {
+  private async execActionsSequentially(
+    userId: string,
+    actions: Action[],
+    worldId: string,
+  ): Promise<{ reply: string; redirectedTo?: FlowState }> {
     let reply = '';
     let redirectedTo: FlowState | undefined = undefined;
-    for (const a of actions) {
-      if (a.type === 'reply') {
-        reply = a.text ?? reply;
-      } else {
-        const res: any = await this.applyAction(userId, a, worldId);
-        if (res && res.redirectedTo) redirectedTo = res.redirectedTo;
+
+    for (const action of actions) {
+      if (action.type === 'reply') {
+        reply = action.text ?? reply;
+        continue;
+      }
+
+      const res = await this.applyAction(userId, action, worldId);
+
+      if (res?.redirectedTo) {
+        redirectedTo = res.redirectedTo;
       }
     }
+
     return { reply, redirectedTo };
   }
 
   async handle(opts: any) {
     try {
       const userId = String(opts.userId || '');
-      const session = await this.sessionService.getSession(userId);
-      const state = (session?.state ?? 'IDLE') as FlowState;
+      const initialSession = await this.sessionService.getSession(userId);
+      const initialState = (initialSession?.state ?? 'IDLE') as FlowState;
 
-      const basePayload =
-        session?.payload && typeof session.payload === 'object'
-          ? session.payload
-          : {};
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
 
-      const user = await prisma.user.findUnique({ where: { id: userId } });
       const worldId = user?.currentWorldId || 'mundo1';
 
-      const input: NucleusInput = {
-        userId,
-        currentSession: state,
-        text: String(opts.userMessage || opts.text || ''),
-        meta: {
-          ...basePayload,
-          user: { id: userId, name: user?.name, timezone: user?.timezone },
-          worldId,
-          serverTime: new Date().toISOString(),
-        },
-      };
-
-      // Controlled loop to allow immediate re-execution after redirect actions.
-      let currentState = state as FlowState;
+      let currentState = initialState;
       let finalReply = '';
+
       const maxIterations = 3;
-      let iter = 0;
+      let iteration = 0;
 
-      while (iter < maxIterations) {
-        iter += 1;
-        const nucleus = this.flows[currentState] ?? this.clarification;
-        this.logger.debug(`Orchestrator loop ${iter}: user=${userId} state=${currentState} nucleus=${nucleus?.constructor?.name || nucleus?.name || 'unknown'}`);
+      while (iteration < maxIterations) {
+        iteration++;
 
-        // reload fresh session and rebuild input so each iteration sees updated session.payload
+        // 🔄 Sempre recarrega sessão
         const freshSession = await this.sessionService.getSession(userId);
-        const freshPayload = freshSession?.payload && typeof freshSession.payload === 'object' ? freshSession.payload : {};
-        // NOTE: do not refetch user inside the loop; user record unlikely to change
-        // during a single request. Use the previously fetched `worldId` for actions.
-        const worldIdNow = worldId;
+        const freshPayload =
+          freshSession?.payload && typeof freshSession.payload === 'object'
+            ? freshSession.payload
+            : {};
 
-        const iterInput: NucleusInput = {
+        const nucleus = this.flows[currentState] ?? this.clarification;
+
+        const input: NucleusInput = {
           userId,
           currentSession: currentState,
           text: String(opts.userMessage || opts.text || ''),
           meta: {
             ...freshPayload,
-            user: { id: userId, name: user?.name, timezone: user?.timezone },
-            worldId: worldIdNow,
+            user: {
+              id: userId,
+              name: user?.name,
+              timezone: user?.timezone,
+            },
+            worldId,
             serverTime: new Date().toISOString(),
           },
         };
 
-        const result: FlowResult = await nucleus.analyze(iterInput);
+        const result: FlowResult = await nucleus.analyze(input);
 
-        // Only accept the canonical actions[] contract.
+        // 🔴 CONTRATO OBRIGATÓRIO
         if (!Array.isArray(result?.actions)) {
-          // If nucleus fails to return actions, fall back to suggestedReply in a deterministic way.
-          finalReply = String(result?.suggestedReply || '');
-          return { kind: 'direct', say: finalReply, origin: (result as any)?.nucleus };
+          this.logger.error('Invalid FlowResult: actions[] missing', result);
+
+          return {
+            kind: 'direct',
+            reply: 'Erro interno de fluxo. Pode repetir?',
+            origin: 'orchestrator',
+          };
         }
 
-            const { reply, redirectedTo } = await this.execActionsSequentially(userId, result.actions || [], worldIdNow) as any;
+        const { reply, redirectedTo } = await this.execActionsSequentially(
+          userId,
+          result.actions,
+          worldId,
+        );
 
-        if (reply) finalReply = reply;
+        if (reply) {
+          finalReply = reply;
+        }
 
+        // 🔁 Redirect no mesmo request
         if (redirectedTo && redirectedTo !== currentState) {
-          // prepare to execute the target nucleus in the same call
-          currentState = redirectedTo as FlowState;
-          // continue loop to execute new nucleus
+          currentState = redirectedTo;
           continue;
         }
 
-        // no redirect → end loop and return final reply
-        return { kind: 'direct', say: finalReply || result.suggestedReply || '', origin: (result as any)?.nucleus };
+        // ✅ Sem redirect → encerra
+        return {
+          kind: 'direct',
+          reply: finalReply || '',
+          origin: result.nucleus,
+        };
       }
 
-      // exceeded max iterations
-      return { kind: 'direct', say: finalReply || 'Fluxo interrompido (muito redirecionamentos).', origin: 'orchestrator' };
+      // 🚨 Proteção contra loop infinito
+      return {
+        kind: 'direct',
+        reply: finalReply || 'Fluxo interrompido (excesso de redirecionamentos).',
+        origin: 'orchestrator',
+      };
     } catch (e) {
-      this.logger.warn('Orchestrator failed', e);
-      return { kind: 'direct', say: 'Algo deu errado. Pode repetir?', origin: 'orchestrator' };
+      this.logger.error('Orchestrator failed', e);
+
+      return {
+        kind: 'direct',
+        reply: 'Algo deu errado. Pode repetir?',
+        origin: 'orchestrator',
+      };
     }
   }
-  
 
   async analyze(opts: any) {
     return this.handle(opts);

@@ -1,8 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-// AiService removed: using ConversationOrchestratorService as single orchestrator
-import { IntentRouter } from '../ia/intent-router.service';
 import { UserLinkService } from '../users/user-link.service';
 import { prisma } from '../../prisma/client';
 import { RateLimiterService } from '../shared/rate-limiter.service';
@@ -46,7 +44,6 @@ export class TelegramService implements OnModuleInit {
   }
 
   constructor(
-    private intentRouter: IntentRouter,
     private userLinkService: UserLinkService,
     private rateLimiter: RateLimiterService,
     private conversationSession: ConversationSessionService,
@@ -133,18 +130,31 @@ export class TelegramService implements OnModuleInit {
           const newPayload = { ...prevPayload, recentMessages: newRecent };
 
           // Atualiza a sessão usando upsert para garantir persistência
-          const stateToKeep = (s && (s as any).state) ? (s as any).state : 'IDLE';
-          await this.conversationSession.createSession(user.id, stateToKeep, newPayload).catch(async (e) => {
-            // fallback para update caso upsert falhe
-            try { await this.conversationSession.updateSession(user.id, { payload: newPayload }); } catch (_) {}
-          });
+          const stateToKeep = s && (s as any).state ? (s as any).state : 'IDLE';
+          await this.conversationSession
+            .createSession(user.id, stateToKeep, newPayload)
+            .catch(async (e) => {
+              // fallback para update caso upsert falhe
+              try {
+                await this.conversationSession.updateSession(user.id, {
+                  payload: newPayload,
+                });
+              } catch (_) {}
+            });
 
           // Ler de volta para garantir que o DB armazenou corretamente (debug)
           try {
             const verified = await this.conversationSession.getSession(user.id);
-            const verifiedPayload: any = verified && verified.payload ? verified.payload : {};
-            const verifiedRecent = Array.isArray(verifiedPayload.recentMessages) ? verifiedPayload.recentMessages : [];
-            const safeVerified = verifiedRecent.map((m: any, i: number) => ({ index: i, role: m.role, text: String(m.text).slice(0, 120) }));
+            const verifiedPayload: any =
+              verified && verified.payload ? verified.payload : {};
+            const verifiedRecent = Array.isArray(verifiedPayload.recentMessages)
+              ? verifiedPayload.recentMessages
+              : [];
+            const safeVerified = verifiedRecent.map((m: any, i: number) => ({
+              index: i,
+              role: m.role,
+              text: String(m.text).slice(0, 120),
+            }));
             // this.logger.debug('TelegramService - recentMessages after DB write: ' + JSON.stringify(safeVerified, null, 2));
           } catch (_) {}
 
@@ -177,21 +187,12 @@ export class TelegramService implements OnModuleInit {
 
         if (!outcome) return;
 
-        if (outcome.kind === 'direct') {
-          const d = outcome as any;
-          if (d.say)
-            await this.sendReply(chatId, d.say, d.origin || 'orchestrator');
-          if (d.action && typeof d.action === 'object') {
-            if (!d.action.data) d.action.data = {};
-            d.action.data.userId = user.id;
-            d.action.data.userName = user.name;
-            await this.intentRouter.route({
-              ...d.action,
-              reply: (m: string) =>
-                this.sendReply(chatId, m, d.origin || 'intent-router'),
-            });
-          }
-          return;
+        if (outcome.reply) {
+          await this.sendReply(
+            chatId,
+            outcome.reply,
+            outcome.origin || 'orchestrator',
+          );
         }
 
         if (

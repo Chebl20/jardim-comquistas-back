@@ -1,6 +1,34 @@
 import { Injectable } from '@nestjs/common';
-import { MESSAGES, formatMessage, randomMessage } from '../ia/messages';
 import { prisma } from '../../prisma/client';
+
+const MESSAGES = {
+  REMINDERS: [
+    "Ei {name}, hora de trabalhar na sua meta: \"{title}\". Você consegue! 💪",
+    "Olá {name}! Lembrete para \"{title}\". Vamos fazer acontecer hoje?",
+    "{name}, não esqueça: \"{title}\" te espera. Um passo de cada vez!",
+    "Oi {name}, é hora de \"{title}\". Estou aqui para te apoiar!",
+    "{name}, lembre-se da sua meta: \"{title}\". Vamos juntos nessa!",
+  ],
+  TIME_RESPONSE: "Agora são {time}.",
+  MARK_DONE_SUCCESS: "Bom trabalho{comma} {name}! Progresso registrado.",
+  RESCHEDULE_SUCCESS: "Tudo bem{comma} {name}, vamos reagendar para amanhã.",
+  ABANDON_SUCCESS: "Entendi{comma} {name}. Vamos pausar essa meta.",
+  GENERIC_ERROR: "Ops, algo deu errado. Tente novamente.",
+  PROGRESS_REGISTERED: "Progresso registrado com sucesso.",
+  WAITING_MESSAGE: "Ei {name}, estou aguardando você cumprir \"{title}\". Vamos lá! 💪",
+};
+
+function formatMessage(message: string, replacements: Record<string, string>): string {
+  let formatted = message;
+  for (const [key, value] of Object.entries(replacements)) {
+    formatted = formatted.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+  }
+  return formatted;
+}
+
+function randomMessage(messages: string[]): string {
+  return messages[Math.floor(Math.random() * messages.length)];
+}
 
 @Injectable()
 export class CommunicationService {
@@ -61,5 +89,9 @@ export class CommunicationService {
    */
   generateErrorMessage(message: string): string {
     return message; // Pode adicionar variações futuras
+  }
+
+  generateWaitingMessage(name: string, title: string): string {
+    return formatMessage(MESSAGES.WAITING_MESSAGE, { name, title });
   }
 }

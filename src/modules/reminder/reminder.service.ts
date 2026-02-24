@@ -5,7 +5,7 @@ import { TelegramService } from '../telegram/telegram.service';
 import { CommunicationService } from '../shared/communication.service';
 import { DateTime } from 'luxon';
 import { prisma } from '../../prisma/client';
-import { MESSAGES, formatMessage } from '../ia/messages';
+// removed external messages import; use CommunicationService for waiting message
 
 @Injectable()
 export class ReminderService {
@@ -125,7 +125,7 @@ export class ReminderService {
 
     const message = status === 'SENT'
       ? await this.communicationService.generateReminderMessage(user.id, goal.title)
-      : formatMessage(MESSAGES.WAITING_MESSAGE, { name: user.name, title: goal.title });
+      : this.communicationService.generateWaitingMessage(user.name, goal.title);
 
     try {
       await this.telegramService.send(Number(user.telegramId), message);
