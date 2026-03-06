@@ -1,21 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { prisma } from '../../prisma/client';
+import { ConversationAIService } from '../ia/conversation-ai.service';
+import { FLOW_STATES } from '../ia/conversation/flow.types';
 
 const MESSAGES = {
-  REMINDERS: [
-    "Ei {name}, hora de trabalhar na sua meta: \"{title}\". Você consegue! 💪",
-    "Olá {name}! Lembrete para \"{title}\". Vamos fazer acontecer hoje?",
-    "{name}, não esqueça: \"{title}\" te espera. Um passo de cada vez!",
-    "Oi {name}, é hora de \"{title}\". Estou aqui para te apoiar!",
-    "{name}, lembre-se da sua meta: \"{title}\". Vamos juntos nessa!",
-  ],
+
   TIME_RESPONSE: "Agora são {time}.",
   MARK_DONE_SUCCESS: "Bom trabalho{comma} {name}! Progresso registrado.",
   RESCHEDULE_SUCCESS: "Tudo bem{comma} {name}, vamos reagendar para amanhã.",
   ABANDON_SUCCESS: "Entendi{comma} {name}. Vamos pausar essa meta.",
   GENERIC_ERROR: "Ops, algo deu errado. Tente novamente.",
   PROGRESS_REGISTERED: "Progresso registrado com sucesso.",
-  WAITING_MESSAGE: "Ei {name}, estou aguardando você cumprir \"{title}\". Vamos lá! 💪",
 };
 
 function formatMessage(message: string, replacements: Record<string, string>): string {
@@ -26,22 +21,9 @@ function formatMessage(message: string, replacements: Record<string, string>): s
   return formatted;
 }
 
-function randomMessage(messages: string[]): string {
-  return messages[Math.floor(Math.random() * messages.length)];
-}
-
 @Injectable()
 export class CommunicationService {
-  /**
-   * Gera uma mensagem de lembrete aleatória e personalizada.
-   */
-  async generateReminderMessage(userId: string, goalTitle: string): Promise<string> {
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-    const name = user?.name || '';
-    const message = randomMessage(MESSAGES.REMINDERS);
-    return formatMessage(message, { name, title: goalTitle });
-  }
-
+  private ai = new ConversationAIService();
   /**
    * Gera resposta para ações simples (ex: MARK_DONE).
    */
@@ -79,6 +61,25 @@ export class CommunicationService {
         // ignore
       }
     }
+
+    // try LLM for more creative metadata
+    try {
+      const prompt = `Você é um gerador de título e descrição curtos para um evento de progresso de meta. ` +
+        `Recebe as informações userName: "${userName}", goalTitle: "${goalTitle}". ` +
+        `Devolva apenas um JSON válido com campos \\"title\\" e \\"description\\".`;
+      const llm = await this.ai.analyze(
+        { currentState: FLOW_STATES.CLARIFICATION, payload: { userName, goalTitle }, userMessage: '' },
+        prompt,
+      );
+      const text = llm.suggestedReply || '';
+      const parsed = JSON.parse(text);
+      if (parsed && parsed.title && parsed.description) {
+        return { title: parsed.title, description: parsed.description };
+      }
+    } catch (e) {
+      // fallback to basic heuristic below
+    }
+
     const title = goalTitle ? (goalTitle.split(/\s+/).slice(0, 8).join(' ') || 'Progresso') : (userName ? `Progresso de ${userName}` : 'Progresso');
     const description = goalTitle ? `Progresso em ${goalTitle}` : `Progresso registrado.`;
     return { title, description };
@@ -91,7 +92,4 @@ export class CommunicationService {
     return message; // Pode adicionar variações futuras
   }
 
-  generateWaitingMessage(name: string, title: string): string {
-    return formatMessage(MESSAGES.WAITING_MESSAGE, { name, title });
-  }
 }

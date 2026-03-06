@@ -24,16 +24,16 @@ async function run() {
     const userId = 'test-user-1';
 
     console.log('--- Teste 1: IDLE, mensagem não-intent ---');
-    const res1 = await orchestrator.handle({ currentState: 'IDLE', payload: { user: { id: userId, name: 'Tester' } }, userMessage: 'Olá, tudo bem?', userId });
+    const res1 = await orchestrator.handle({ userMessage: 'Olá, tudo bem?', userId });
     console.log('Resposta:', res1);
 
     console.log('\n--- Teste 2: IDLE -> Clarification sinaliza new_intent CREATE_GOAL (simulado) ---');
     // Simulação: em ambiente real o Clarification viria do LLM. Aqui enviamos uma mensagem com intenção clara.
-    const res2 = await orchestrator.handle({ currentState: 'IDLE', payload: { user: { id: userId, name: 'Tester' } }, userMessage: 'Quero criar uma meta para correr às 18:00', userId });
+    const res2 = await orchestrator.handle({ userMessage: 'Quero criar uma meta para correr às 18:00', userId });
     console.log('Resposta:', res2);
 
     console.log('\n--- Teste 3: GOAL_CREATION state (continuação) ---');
-    const res3 = await orchestrator.handle({ currentState: 'GOAL_CREATION', payload: { user: { id: userId, name: 'Tester' }, title: 'Correr' }, userMessage: '18:00', userId });
+    const res3 = await orchestrator.handle({ userMessage: '18:00', userId });
     console.log('Resposta:', res3);
 
     await app.close();

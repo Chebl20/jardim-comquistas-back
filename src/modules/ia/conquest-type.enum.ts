@@ -14,22 +14,25 @@ export type ConquestType = typeof CONQUEST_TYPES[number];
 export function normalizeConquestType(input?: string): ConquestType | null {
   if (!input || typeof input !== 'string') return null;
   const s = input.trim().toLowerCase();
+  const normalized = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if (!s) return null;
 
   // exact matches
   for (const v of CONQUEST_TYPES) {
-    if (v.toLowerCase() === s) return v as ConquestType;
+    if (v.toLowerCase() === s || v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === normalized) {
+      return v as ConquestType;
+    }
   }
 
   // fuzzy/inclusive matches -> retornam valores compatíveis com Prisma enum
-  if (s.includes('corpo')) return 'Corpo';
-  if (s.includes('ment') || /^(estud|ler|aprender)/.test(s)) return 'Mente';
-  if (s.includes('fam') || s.includes('famil')) return 'Familia';
-  if (s.includes('trabal') || s.includes('projet') || s.includes('taref')) return 'Trabalho';
-  if (s.includes('social')) return 'Social';
-  if (s.includes('financ') || s.includes('dinheir') || s.includes('econom')) return 'Financeiro';
-  if (s.includes('espiritu') || s.includes('oração') || s.includes('medita')) return 'Espiritual';
-  if (s.includes('hobby') || s.includes('lazer')) return 'Hobby_Lazer';
+  if (normalized.includes('corpo') || normalized.includes('saud') || normalized.includes('remed') || normalized.includes('medic') || normalized.includes('agua')) return 'Corpo';
+  if (normalized.includes('ment') || /^(estud|ler|aprender)/.test(normalized)) return 'Mente';
+  if (normalized.includes('fam') || normalized.includes('famil')) return 'Familia';
+  if (normalized.includes('trabal') || normalized.includes('projet') || normalized.includes('taref')) return 'Trabalho';
+  if (normalized.includes('social')) return 'Social';
+  if (normalized.includes('financ') || normalized.includes('dinheir') || normalized.includes('econom')) return 'Financeiro';
+  if (normalized.includes('espiritu') || normalized.includes('oracao') || normalized.includes('medita')) return 'Espiritual';
+  if (normalized.includes('hobby') || normalized.includes('lazer')) return 'Hobby_Lazer';
 
   return null;
 }

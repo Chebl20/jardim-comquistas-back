@@ -35,6 +35,59 @@ export class ConversationSessionService {
     return prisma.conversationSession.update({ where: { userId }, data: update });
   }
 
+  async upsertSessionState(
+    userId: string,
+    state: string,
+    payloadPatch: Record<string, any> = {},
+    ttlMin?: number,
+  ) {
+    const current = await this.getSession(userId);
+    const basePayload =
+      current?.payload && typeof current.payload === 'object'
+        ? { ...(current.payload as object) }
+        : {};
+    const expiresAt = DateTime.now()
+      .plus({ minutes: ttlMin ?? this.defaultTtlMin })
+      .toUTC()
+      .toJSDate();
+
+    return prisma.conversationSession.upsert({
+      where: { userId },
+      update: {
+        state,
+        payload: { ...basePayload, ...payloadPatch },
+        expiresAt,
+      },
+      create: {
+        userId,
+        state,
+        payload: payloadPatch,
+        expiresAt,
+      },
+    });
+  }
+
+  // optimistic versioned update - throws if version mismatch
+  async updateSessionVersioned(
+    userId: string,
+    data: { state?: string; payload?: any; expiresAt?: Date },
+    expectedVersion: number,
+  ) {
+    const session = await this.getSession(userId);
+    if (!session) {
+      throw new Error('Session not found');
+    }
+    if (session.version !== expectedVersion) {
+      throw new Error('Session version conflict');
+    }
+    const update: any = {};
+    if (data.state) update.state = data.state;
+    if (data.payload) update.payload = data.payload;
+    if (data.expiresAt) update.expiresAt = data.expiresAt;
+    update.version = expectedVersion + 1;
+    return prisma.conversationSession.update({ where: { userId }, data: update });
+  }
+
   async touchSession(userId: string, extraMin?: number) {
     const s = await this.getSession(userId);
     if (!s) return null;

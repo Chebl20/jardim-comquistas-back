@@ -5,6 +5,9 @@ import { WorldsGateway } from '../worlds/worlds.gateway';
 import { inferTypeFromPath } from '../worlds/infer-type-from-path.util';
 import { normalizeConquestType, CONQUEST_TYPES } from '../ia/conquest-type.enum';
 import { normalizeGoalType } from '../ia/goal-type.util';
+import { CommunicationService } from '../shared/communication.service';
+import type { CreateUserGoalInput } from '../ia/conversation/flow.types';
+
 
 @Injectable()
 export class UserGoalService {
@@ -13,23 +16,17 @@ export class UserGoalService {
   }
   private readonly logger = new Logger(UserGoalService.name);
 
-  constructor(private readonly worldsGateway: WorldsGateway) {}
+  constructor(
+    private readonly worldsGateway: WorldsGateway,
+    private readonly communicationService: CommunicationService,
+  ) {}
 
   /**
    * Cria uma meta de usuário (UserGoal) e planta a árvore correspondente (PlantedTree).
    * @param data Dados da meta vindos da IA
    * @returns UserGoal criado (com relação à árvore)
    */
-  async createUserGoalWithTree(data: {
-    userId: string;
-    title: string;
-    description?: string;
-    goalType: string;
-    conquestType: string;
-    frequency?: number | string;
-    reminderTime?: Date | string;
-    worldId: string;
-  }) {
+  async createUserGoalWithTree(data: Omit<CreateUserGoalInput, 'reminderTime'> & { reminderTime?: Date | string }) {
     // 1. Normalizar e validar conquestType recebido (garante consistência vindo de qualquer caminho)
     const normalizedConquest = normalizeConquestType(data.conquestType);
     if (!normalizedConquest) {
@@ -76,6 +73,7 @@ export class UserGoalService {
     else if ('path' in data && typeof (data as any).path === 'string') {
       type = inferTypeFromPath((data as any).path);
     }
+    const normalizedGoalType = ng ?? (type === 'pontual' ? 'Pontual' : 'Continua');
     const treeCatalog = await prisma.treeCatalog.findFirst({ where: { family, type } });
     if (!treeCatalog) throw new BadRequestException(`Tipo de árvore (family='${family}', type='${type}') não encontrado no catálogo para conquestType '${data.conquestType}'`);
 
@@ -191,11 +189,20 @@ export class UserGoalService {
     // Coerce frequency: expected Int? in Prisma. If incoming value is string non-numérico, ignore (store null).
     let frequencyInt: number | undefined = undefined;
     if (typeof data.frequency === 'number') {
-      frequencyInt = data.frequency as number;
-    } else if (typeof data.frequency === 'string') {
-      const n = parseInt(data.frequency.replace(/[^0-9]/g, ''), 10);
-      if (!isNaN(n)) frequencyInt = n;
-      else frequencyInt = undefined;
+      frequencyInt = data.frequency;
+    }
+
+    // before persisting, make sure there is a title/description
+    let title = data.title || '';
+    let description = data.description || '';
+    if ((!title || !description) && data.userId) {
+      try {
+        const md = await this.communicationService.generateProgressMetadata(data.userId, { goalTitle: title });
+        title = title || md.title;
+        description = description || md.description;
+      } catch (e) {
+        // ignore, fallback to whatever we have
+      }
     }
 
     // 4. Criar a árvore (PlantedTree), growthEvent inicial e UserGoal em transação
@@ -214,8 +221,8 @@ export class UserGoalService {
           plantedTreeId: planted.id,
           stage: 1,
           progressIndex: 1,
-          title: data.title || '',
-          description: data.description || '',
+          title,
+          description,
         },
       });
 
@@ -223,10 +230,10 @@ export class UserGoalService {
       const ug = await tx.userGoal.create({
         data: {
           userId: data.userId,
-          title: data.title,
-          description: data.description,
-          goalType: data.goalType,
-          conquestType: data.conquestType,
+          title,
+          description,
+          goalType: normalizedGoalType,
+          conquestType: normalizedConquest,
           frequency: frequencyInt,
           reminderTime,
           plantedTreeId: planted.id,
@@ -254,6 +261,41 @@ export class UserGoalService {
     return prisma.userGoal.update({ where: { id: goalId }, data: { completed: true } });
   }
 
+  async markGoalDoneFromReminder(goalId: string, goalType?: string) {
+    const normalizedGoalType = normalizeGoalType(goalType as any);
+    if (normalizedGoalType === 'Continua') {
+      return prisma.userGoal.update({
+        where: { id: goalId },
+        data: {
+          dailyStatus: 'DONE',
+          silenceUntil: null,
+        },
+      });
+    }
+
+    return prisma.userGoal.update({
+      where: { id: goalId },
+      data: {
+        completed: true,
+        dailyStatus: 'DONE',
+        silenceUntil: null,
+      },
+    });
+  }
+
+  async updateReminderState(
+    goalId: string,
+    data: { dailyStatus?: string | null; silenceUntil?: Date | null },
+  ) {
+    return prisma.userGoal.update({
+      where: { id: goalId },
+      data: {
+        ...(data.dailyStatus !== undefined ? { dailyStatus: data.dailyStatus } : {}),
+        ...(data.silenceUntil !== undefined ? { silenceUntil: data.silenceUntil } : {}),
+      },
+    });
+  }
+
   /**
    * Busca metas ativas para lembretes
    */
@@ -275,6 +317,79 @@ export class UserGoalService {
         dailyStatus: true,
         silenceUntil: true,
         completed: true,
+        reminderCount: true, // include counter for nucleus meta
+        createdAt: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            telegramId: true,
+            timezone: true,
+          },
+        },
+        plantedTree: {
+          select: {
+            growthEvents: {
+              select: {
+                createdAt: true,
+                progressIndex: true,
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 2,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Recupera todas as metas do usuário. Útil para fornecer contexto à IA.
+   */
+  async getGoalsForUser(userId: string) {
+    // traz também alguns dados da árvore plantada associada à meta,
+    // para que o orquestrador possa expor essas informações ao modelo
+    // e ele seja capaz de responder perguntas relacionadas à árvore.
+    // Campos selecionados são deliberadamente limitados para não vazar
+    // informação desnecessária (por ex. stages completas do catálogo).
+    return prisma.userGoal.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        goalType: true,
+        conquestType: true,
+        completed: true,
+        reminderTime: true,
+        frequency: true,
+        createdAt: true,
+        plantedTree: {
+          select: {
+            id: true,
+            anchorId: true,
+            actualStage: true,
+            createdAt: true,
+            treeCatalog: {
+              select: {
+                family: true,
+                type: true,
+              },
+            },
+            growthEvents: {
+              select: {
+                id: true,
+                stage: true,
+                createdAt: true,
+                title: true,
+                description: true,
+                progressIndex: true,
+              },
+              orderBy: { createdAt: 'asc' },
+              take: 3,
+            },
+          },
+        },
       },
     });
   }

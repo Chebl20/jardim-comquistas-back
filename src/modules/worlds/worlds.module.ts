@@ -10,8 +10,10 @@ import { WorldsTreesController } from './worlds.trees.controller';
 import { WorldsPlantedController } from './worlds.planted.controller';
 import { WorldsEventsController } from './worlds.events.controller';
 import { SupabaseService } from '../../supabase/supabase.service';
+import { SharedModule } from '../shared/shared.module';
 
 @Module({
+  imports: [SharedModule],
   providers: [WorldsService, WorldsConfigService, TreesImportService, WorldsGateway, WorldsEventsService, SupabaseService],
   controllers: [WorldsSvgController, WorldsAnchorsController, WorldsTreesController, WorldsPlantedController, WorldsEventsController],
   exports: [WorldsService, WorldsConfigService, TreesImportService, WorldsGateway, WorldsEventsService],

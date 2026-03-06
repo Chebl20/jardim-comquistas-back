@@ -1,212 +1,222 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { NucleusInput } from '../nuclei/nucleus.interface';
+import { NucleusInput, Nucleus } from '../nuclei/nucleus.interface';
 import { ClarificationNucleus } from '../nuclei/clarification';
 import { GoalCreationNucleus } from '../nuclei/goal-creation';
-import { ConversationSessionService } from '../../shared/conversation-session.service';
+import { GoalStatusNucleus } from '../nuclei/goal-status';
+import { ReminderNucleus } from '../nuclei/reminder';
+import { RouterNucleus } from '../nuclei/router';
+import { ConversationActionExecutorService } from './conversation-action-executor.service';
+import { ConversationStateService } from './conversation-state.service';
+import { FlowRoutingPolicyService } from './flow-routing-policy.service';
+import { NucleusMetaFactory } from './meta/nucleus-meta.factory';
 import { prisma } from '../../../prisma/client';
-import { UserGoalService } from '../../goals/user-goal.service';
-import { FlowResult, Action, FlowState } from './flow.types';
+import { FlowResult, FlowState, DECISIONS, FLOW_STATES } from './flow.types';
+
+const DEFAULT_WORLD_ID = 'mundo1';
+
+export interface OrchestratorInput {
+  userId: string | number;
+  userMessage?: string;
+  text?: string;
+  onAck?: (message: string) => Promise<void>;
+}
+
+export interface OrchestratorOutput {
+  kind: string;
+  reply: string;
+  origin: string | FlowState;
+}
 
 @Injectable()
 export class ConversationOrchestratorService {
   private readonly logger = new Logger(ConversationOrchestratorService.name);
-
-  private flows: Record<FlowState, any>;
+  private readonly flows: Record<FlowState, Nucleus>;
 
   constructor(
-    private clarification: ClarificationNucleus,
-    private goalCreation: GoalCreationNucleus,
-    private sessionService: ConversationSessionService,
-    private userGoalService: UserGoalService,
+    private readonly clarification: ClarificationNucleus,
+    private readonly goalCreation: GoalCreationNucleus,
+    private readonly goalStatus: GoalStatusNucleus,
+    private readonly reminderNucleus: ReminderNucleus,
+    private readonly router: RouterNucleus,
+    private readonly actionExecutor: ConversationActionExecutorService,
+    private readonly stateService: ConversationStateService,
+    private readonly routingPolicy: FlowRoutingPolicyService,
+    private readonly nucleusMetaFactory: NucleusMetaFactory,
   ) {
     this.flows = {
-      IDLE: this.clarification,
       CLARIFICATION: this.clarification,
       GOAL_CREATION: this.goalCreation,
+      REMINDER: this.reminderNucleus,
+      GOAL_STATUS: this.goalStatus,
     };
+
+    // sanity check: garante que o registry e os flows locais concordam
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { nucleusRegistry } = require('./nucleus-registry');
+    for (const key of Object.keys(nucleusRegistry) as FlowState[]) {
+      if (!this.flows[key]) {
+        this.logger.warn(`Registry contains state ${key} which is not wired in orchestrator`);
+      }
+    }
   }
 
-  private async applyAction(
-    userId: string,
-    action: Action,
-    worldId: string,
-  ): Promise<{ redirectedTo?: FlowState }> {
-    switch (action.type) {
-      case 'continue': {
-        const sess = await this.sessionService.getSession(userId);
-        const base =
-          sess?.payload && typeof sess.payload === 'object' ? sess.payload : {};
+  // ---------------------------------------------------------------------------
+  // Helpers privados
+  // ---------------------------------------------------------------------------
 
-        await this.sessionService.updateSession(userId, {
-          state: sess?.state ?? 'IDLE',
-          payload: { ...base, ...(action.payload || {}) },
-        });
-
-        return { redirectedTo: undefined };
-      }
-
-      case 'redirect':
-        await this.sessionService.updateSession(userId, {
-          state: action.to,
-          payload: action.payload ?? {},
-        });
-
-        return { redirectedTo: action.to };
-
-      case 'create_goal':
-        await this.userGoalService.createUserGoalWithTree({
-          ...(action.payload as any),
-          userId,
-          worldId,
-        } as any);
-
-        await this.sessionService.updateSession(userId, {
-          state: 'IDLE',
-          payload: {},
-        });
-
-        return { redirectedTo: 'IDLE' };
-
-      case 'cancel':
-        await this.sessionService.updateSession(userId, {
-          state: 'IDLE',
-          payload: {},
-        });
-
-        return { redirectedTo: 'IDLE' };
-
-      case 'reply':
-        // reply é tratado fora (apenas agregação)
-        return { redirectedTo: undefined };
+  private async resolveUserContext(userId: string): Promise<{ worldId: string; timezone: string }> {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      return {
+        worldId: user?.currentWorldId || DEFAULT_WORLD_ID,
+        timezone: user?.timezone || 'America/Sao_Paulo',
+      };
+    } catch {
+      return { worldId: DEFAULT_WORLD_ID, timezone: 'America/Sao_Paulo' };
     }
   }
 
-  private async execActionsSequentially(
-    userId: string,
-    actions: Action[],
-    worldId: string,
-  ): Promise<{ reply: string; redirectedTo?: FlowState }> {
-    let reply = '';
-    let redirectedTo: FlowState | undefined = undefined;
-
-    for (const action of actions) {
-      if (action.type === 'reply') {
-        reply = action.text ?? reply;
-        continue;
-      }
-
-      const res = await this.applyAction(userId, action, worldId);
-
-      if (res?.redirectedTo) {
-        redirectedTo = res.redirectedTo;
-      }
+  private validateFlowResult(result: FlowResult) {
+    if (![DECISIONS.HANDLED, DECISIONS.NOT_MY_JOB, DECISIONS.UNCERTAIN].includes(result.decision)) {
+      throw new Error(`Invalid decision: "${result.decision}"`);
     }
-
-    return { reply, redirectedTo };
+    if (typeof result.confidence !== 'number' || result.confidence < 0 || result.confidence > 1) {
+      throw new Error(`Invalid confidence: ${result.confidence}`);
+    }
+    if (result.decision === DECISIONS.NOT_MY_JOB && result.actions && result.actions.length > 0) {
+      throw new Error('not_my_job result must not include actions');
+    }
   }
 
-  async handle(opts: any) {
+  // ---------------------------------------------------------------------------
+  // Ponto de entrada principal
+  // ---------------------------------------------------------------------------
+
+  async handle(opts: OrchestratorInput): Promise<OrchestratorOutput> {
     try {
       const userId = String(opts.userId || '');
-      const initialSession = await this.sessionService.getSession(userId);
-      const initialState = (initialSession?.state ?? 'IDLE') as FlowState;
+      const incomingText = String(opts.userMessage || opts.text || '');
 
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-      });
+      // 1. Carregar sessão uma única vez — authority para estado e payload
+      const loaded = await this.stateService.load(userId);
+      const session = loaded.session;
+      const sessionPayload: Record<string, any> = loaded.payload;
 
-      const worldId = user?.currentWorldId || 'mundo1';
-
-      let currentState = initialState;
-      let finalReply = '';
-
-      const maxIterations = 3;
-      let iteration = 0;
-
-      while (iteration < maxIterations) {
-        iteration++;
-
-        // 🔄 Sempre recarrega sessão
-        const freshSession = await this.sessionService.getSession(userId);
-        const freshPayload =
-          freshSession?.payload && typeof freshSession.payload === 'object'
-            ? freshSession.payload
-            : {};
-
-        const nucleus = this.flows[currentState] ?? this.clarification;
-
-        const input: NucleusInput = {
-          userId,
-          currentSession: currentState,
-          text: String(opts.userMessage || opts.text || ''),
-          meta: {
-            ...freshPayload,
-            user: {
-              id: userId,
-              name: user?.name,
-              timezone: user?.timezone,
-            },
-            worldId,
-            serverTime: new Date().toISOString(),
-          },
-        };
-
-        const result: FlowResult = await nucleus.analyze(input);
-
-        // 🔴 CONTRATO OBRIGATÓRIO
-        if (!Array.isArray(result?.actions)) {
-          this.logger.error('Invalid FlowResult: actions[] missing', result);
-
-          return {
-            kind: 'direct',
-            reply: 'Erro interno de fluxo. Pode repetir?',
-            origin: 'orchestrator',
-          };
+      // 2. Registrar mensagem do usuário no histórico recente
+      if (incomingText.trim().length > 0) {
+        const updatedPayload = await this.stateService.appendUserMessage(userId, incomingText, session);
+        if (updatedPayload) {
+          sessionPayload.recentMessages = updatedPayload.recentMessages;
         }
-
-        const { reply, redirectedTo } = await this.execActionsSequentially(
-          userId,
-          result.actions,
-          worldId,
-        );
-
-        if (reply) {
-          finalReply = reply;
-        }
-
-        // 🔁 Redirect no mesmo request
-        if (redirectedTo && redirectedTo !== currentState) {
-          currentState = redirectedTo;
-          continue;
-        }
-
-        // ✅ Sem redirect → encerra
-        return {
-          kind: 'direct',
-          reply: finalReply || '',
-          origin: result.nucleus,
-        };
       }
 
-      // 🚨 Proteção contra loop infinito
-      return {
-        kind: 'direct',
-        reply: finalReply || 'Fluxo interrompido (excesso de redirecionamentos).',
-        origin: 'orchestrator',
+      // 3. Determinar estado inicial (sessão persistida tem prioridade)
+      const rawState = (session?.state ?? FLOW_STATES.CLARIFICATION) as FlowState;
+      let currentState: FlowState = this.flows[rawState] ? rawState : FLOW_STATES.CLARIFICATION;
+      if (!this.flows[rawState]) {
+        this.logger.debug(`Session state ${rawState} not wired; falling back to CLARIFICATION`);
+      }
+
+      // 4. Resolver worldId e timezone do usuário (única query ao DB para ambos)
+      const { worldId, timezone } = await this.resolveUserContext(userId);
+
+      // Helper: executa o núcleo do estado dado, buscando sessão atualizada
+      const runNucleus = async (state: FlowState): Promise<FlowResult> => {
+        const fresh = await this.stateService.load(userId);
+        const payload: Record<string, any> = fresh.payload;
+        const meta = await this.nucleusMetaFactory.build({
+          state,
+          sessionPayload: payload,
+          worldId,
+          userId,
+          timezone,
+        });
+        const input: NucleusInput = { userId, currentSession: state, text: incomingText, meta };
+        const nucleus = this.flows[state] ?? this.clarification;
+        const result = await nucleus.analyze(input);
+        this.validateFlowResult(result);
+        this.logger.log(
+          `Orchestrator: nucleus=${state} decision=${result.decision} actions=[${result.actions.map(a => a.type).join(',')}]`,
+        );
+        return result;
       };
+
+      // 5. Chamada primária ao núcleo
+      const firstResult = await runNucleus(currentState);
+
+      if (firstResult.decision !== DECISIONS.NOT_MY_JOB) {
+        const exec = await this.actionExecutor.execute(userId, firstResult.actions, worldId);
+        return { kind: 'direct', reply: exec.reply || '', origin: exec.redirectedTo ?? currentState };
+      }
+
+      // 6. NOT_MY_JOB → consultar router (apenas uma vez; nunca proativamente)
+      const routerInput: NucleusInput = {
+        userId,
+        currentSession: currentState,
+        text: incomingText,
+        meta: {
+          ...sessionPayload,
+          worldId,
+          ...(firstResult.extracted?.payload || {}),
+        },
+      };
+      const routerRes = await this.router.analyze(routerInput);
+      this.logger.debug(`Router: target=${String(routerRes.target)} confidence=${routerRes.confidence}`);
+
+      const routingDecision = this.routingPolicy.resolve({
+        currentState,
+        routerTarget: routerRes.target,
+        routerConfidence: routerRes.confidence,
+        availableFlows: this.flows,
+      });
+      const previousState = currentState;
+      currentState = routingDecision.nextState;
+
+      if (currentState !== previousState) {
+        const redirectedPayload =
+          previousState === FLOW_STATES.REMINDER && currentState !== FLOW_STATES.REMINDER
+            ? {
+                ...sessionPayload,
+                reminderContext: undefined,
+                pendingGoalId: undefined,
+                pendingGoalTitle: undefined,
+                pendingGoalDescription: undefined,
+              }
+            : sessionPayload;
+        await this.stateService.redirectFlow(userId, currentState, redirectedPayload);
+      }
+
+      // 6.5 — Enviar ack antes da operação potencialmente lenta
+      if (opts.onAck && routingDecision.shouldAck && routingDecision.ackMessage) {
+        try {
+          await opts.onAck(routingDecision.ackMessage);
+        } catch (e) {
+          this.logger.debug('onAck callback failed (non-fatal)', e);
+        }
+      }
+
+      // 7. Chamada secundária ao núcleo roteado
+      const secondResult = await runNucleus(currentState);
+
+      // Se o segundo núcleo também recusar e ainda não estamos em clarification,
+      // forçar clarification como último fallback (sem roteamento adicional).
+      if (
+        secondResult.decision === DECISIONS.NOT_MY_JOB &&
+        currentState !== FLOW_STATES.CLARIFICATION
+      ) {
+        currentState = FLOW_STATES.CLARIFICATION;
+        const clarResult = await runNucleus(FLOW_STATES.CLARIFICATION);
+        const exec = await this.actionExecutor.execute(userId, clarResult.actions, worldId);
+        return { kind: 'direct', reply: exec.reply || '', origin: exec.redirectedTo ?? currentState };
+      }
+
+      const exec = await this.actionExecutor.execute(userId, secondResult.actions, worldId);
+      return { kind: 'direct', reply: exec.reply || '', origin: exec.redirectedTo ?? currentState };
+
     } catch (e) {
       this.logger.error('Orchestrator failed', e);
-
-      return {
-        kind: 'direct',
-        reply: 'Algo deu errado. Pode repetir?',
-        origin: 'orchestrator',
-      };
+      return { kind: 'direct', reply: 'Algo deu errado. Pode repetir?', origin: 'orchestrator' };
     }
-  }
-
-  async analyze(opts: any) {
-    return this.handle(opts);
   }
 }
 

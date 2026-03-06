@@ -1,5 +1,7 @@
 import OpenAI from 'openai';
 import { Injectable, Logger } from '@nestjs/common';
+import type { Decision } from './conversation/flow.types';
+import { DECISIONS } from './conversation/flow.types';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { LLMFormatError } from './errors/llm-format.error';
 
@@ -12,12 +14,18 @@ export interface ConversationAIResult {
   };
   suggestedReply: string;
   finished?: boolean;
+  // decisão explícita de domínio (canônica)
+  decision: Decision;
+  // quando utilizado pelo roteador, aponta o nome/estado do núcleo a ser
+  // chamado a seguir (ex. "GOAL_STATUS" ou "goal-status").
+  target?: string;
 }
 
 @Injectable()
 export class ConversationAIService {
   private readonly logger = new Logger(ConversationAIService.name);
   private client: OpenAI;
+  private callCount = 0; // métricas simples
 
   constructor() {
     this.client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -57,11 +65,15 @@ Payload atual: ${JSON.stringify(payload || {})}`;
 
     this.logger.debug(`ConversationAIService: model=${model}`);
 
+    const start = Date.now();
     const completion = await this.client.chat.completions.create({
       model,
       temperature: 0,
       messages,
     });
+    const elapsed = Date.now() - start;
+    this.callCount += 1;
+    this.logger.log(`LLM call #${this.callCount} took ${elapsed}ms`);
 
     const raw = completion.choices?.[0]?.message?.content;
 
@@ -78,20 +90,41 @@ Payload atual: ${JSON.stringify(payload || {})}`;
     }
 
     // 🔒 Validação estrutural mínima obrigatória
-    if (
-      typeof parsed.classification !== 'string' ||
-      typeof parsed.confidence !== 'number' ||
-      typeof parsed.suggestedReply !== 'string'
-    ) {
-      throw new LLMFormatError('LLM response missing required fields');
+    // confidence is strictly required; leaving it optional anywhere would
+    // break the new architectural contract.
+    if (typeof parsed.confidence !== 'number') {
+      throw new LLMFormatError('LLM response missing confidence');
+    }
+
+    // provide fallbacks so callers don't need to guard
+    const classification =
+      typeof parsed.classification === 'string' ? parsed.classification : '';
+    const suggestedReply =
+      typeof parsed.suggestedReply === 'string' ? parsed.suggestedReply : '';
+
+    // Normalizar decision: preferir o campo `parsed.decision` explícito.
+    let decision: Decision = DECISIONS.HANDLED;
+
+    if (typeof parsed.decision === 'string') {
+      const d = parsed.decision.toLowerCase().replace(/[^a-z_]/g, '');
+      if (d === DECISIONS.HANDLED) decision = DECISIONS.HANDLED;
+      else if (d === DECISIONS.NOT_MY_JOB) decision = DECISIONS.NOT_MY_JOB;
+      else if (d === DECISIONS.UNCERTAIN) decision = DECISIONS.UNCERTAIN;
+    } else {
+      try {
+        const rawSnippet = String(raw).slice(0, 2000);
+        this.logger.debug(`LLM returned no explicit decision; raw snippet: ${rawSnippet}`);
+      } catch (_) {}
     }
 
     return {
-      classification: parsed.classification,
+      classification,
       confidence: parsed.confidence,
       extracted: parsed.extracted,
-      suggestedReply: parsed.suggestedReply,
+      suggestedReply,
       finished: parsed.finished,
+      decision,
+      target: parsed.target,
     };
   }
 }

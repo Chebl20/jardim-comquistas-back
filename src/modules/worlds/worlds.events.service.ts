@@ -4,6 +4,7 @@ import { prisma } from '../../prisma/client';
 import { WorldsConfigService } from './worlds-config.service';
 import { TreesImportService } from './trees-import.service';
 import { WorldsGateway } from './worlds.gateway';
+import { CommunicationService } from '../shared/communication.service';
 
 @Injectable()
 export class WorldsEventsService {
@@ -11,6 +12,7 @@ export class WorldsEventsService {
     private readonly configService: WorldsConfigService,
     private readonly importService: TreesImportService,
     private readonly gateway: WorldsGateway,
+    private readonly communicationService: CommunicationService,
   ) {}
 
 
@@ -67,6 +69,15 @@ export class WorldsEventsService {
     }
     if (!chosenAnchorId) throw new BadRequestException('no free anchors available for this user in this world');
 
+    // prepare title/description using IA if missing
+    let metaTitle = title || '';
+    let metaDesc = description || '';
+    if ((!metaTitle || !metaDesc) && userId) {
+      const md = await this.communicationService.generateProgressMetadata(userId, { goalTitle: title || '' });
+      metaTitle = metaTitle || md.title;
+      metaDesc = metaDesc || md.description;
+    }
+
     const out = await (prisma as any).$transaction(async (tx: any) => {
       let catalog: any = null;
       if (treeCatalogId) catalog = await tx.treeCatalog.findUnique({ where: { id: treeCatalogId } });
@@ -102,7 +113,7 @@ export class WorldsEventsService {
       const targetStage = 1;
       const existingCount = await tx.growthEvent.count({ where: { plantedTreeId: planted.id, stage: targetStage } });
       const progressIndex = existingCount + 1;
-      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: title || '', description: description || '' } });
+      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: metaTitle || '', description: metaDesc || '' } });
 
       return { created, plantedId: planted.id, anchorId: aid };
     });
@@ -132,7 +143,7 @@ export class WorldsEventsService {
     const safeId = String(worldId || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
 
-    const { plantedTreeId, goalId, title, description } = body || {};
+    const { plantedTreeId, goalId, title, description, userId } = body || {};
 
     if (!plantedTreeId && !goalId) throw new BadRequestException('plantedTreeId or goalId required');
 
@@ -145,6 +156,21 @@ export class WorldsEventsService {
     }
 
     if (!resolvedPlantedId) throw new BadRequestException('plantedTreeId could not be resolved');
+
+    // prepare title/description using IA if missing
+    let metaTitle = title || '';
+    let metaDesc = description || '';
+    if ((!metaTitle || !metaDesc) && userId) {
+      // try to obtain goal title for context
+      let goalTitle = '';
+      if (goalId) {
+        const g = await prisma.userGoal.findUnique({ where: { id: goalId }, select: { title: true } });
+        if (g?.title) goalTitle = g.title;
+      }
+      const md = await this.communicationService.generateProgressMetadata(userId, { goalTitle });
+      metaTitle = metaTitle || md.title;
+      metaDesc = metaDesc || md.description;
+    }
 
     // Transaction: decide stage and create event atomically
     const out = await (prisma as any).$transaction(async (tx: any) => {

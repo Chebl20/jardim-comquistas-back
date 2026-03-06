@@ -4,7 +4,6 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { UserLinkService } from '../users/user-link.service';
 import { prisma } from '../../prisma/client';
 import { RateLimiterService } from '../shared/rate-limiter.service';
-import { ConversationSessionService } from '../shared/conversation-session.service';
 import { ConversationOrchestratorService } from '../ia/conversation/conversation-orchestrator.service';
 
 @Injectable()
@@ -15,7 +14,8 @@ export class TelegramService implements OnModuleInit {
   // foi atualizada no banco (race condition entre sendMessage e gravação).
   private lastSentByChat = new Map<number, string>();
 
-  private async sendReply(chatId: number, text: string, origin?: string) {
+  // exposed helper so other services can send messages with origin tag
+  public async sendReply(chatId: number, text: string, origin?: string) {
     try {
       // Quick in-memory dedupe to avoid race with DB persistence.
       if (this.lastSentByChat.get(chatId) === String(text).trim()) {
@@ -46,7 +46,6 @@ export class TelegramService implements OnModuleInit {
   constructor(
     private userLinkService: UserLinkService,
     private rateLimiter: RateLimiterService,
-    private conversationSession: ConversationSessionService,
     private interpreterManager: ConversationOrchestratorService,
   ) {}
 
@@ -109,6 +108,12 @@ export class TelegramService implements OnModuleInit {
       try {
         // Note: orchestration service will enrich context (session, userGoals, worldId, serverTime)
 
+        // Indicador "digitando..." imediato — o Telegram cancela após ~5s sem reenvio
+        this.bot.sendChatAction(chatId, 'typing').catch(() => {});
+        let typingInterval: ReturnType<typeof setInterval> = setInterval(() => {
+          this.bot.sendChatAction(chatId, 'typing').catch(() => {});
+        }, 4000);
+
         // Rate limiter (non-blocking)
         try {
           const limit = Number(process.env.RATE_LIMIT_MESSAGES_PER_MINUTE || 5);
@@ -117,72 +122,28 @@ export class TelegramService implements OnModuleInit {
           this.logger.warn('Rate limiter falhou, continuando', e);
         }
 
-        // Persistência de recentMessages e log para debug
-        try {
-          const s = await this.conversationSession.getSession(user.id);
-          const prevPayload: any = s && s.payload ? (s.payload as any) : {};
-          const prevRecent = Array.isArray(prevPayload.recentMessages)
-            ? prevPayload.recentMessages.slice(-5)
-            : [];
-          const newRecent = prevRecent
-            .concat([{ role: 'user', text }])
-            .slice(-6); // mantém até 6 últimas mensagens
-          const newPayload = { ...prevPayload, recentMessages: newRecent };
+        // Callback de ack: para o typing, envia a mensagem e reinicia o typing
+        const onAck = async (msg: string) => {
+          clearInterval(typingInterval);
+          await this.sendReply(chatId, msg);
+          this.bot.sendChatAction(chatId, 'typing').catch(() => {});
+          typingInterval = setInterval(() => {
+            this.bot.sendChatAction(chatId, 'typing').catch(() => {});
+          }, 4000);
+        };
 
-          // Atualiza a sessão usando upsert para garantir persistência
-          const stateToKeep = s && (s as any).state ? (s as any).state : 'IDLE';
-          await this.conversationSession
-            .createSession(user.id, stateToKeep, newPayload)
-            .catch(async (e) => {
-              // fallback para update caso upsert falhe
-              try {
-                await this.conversationSession.updateSession(user.id, {
-                  payload: newPayload,
-                });
-              } catch (_) {}
-            });
-
-          // Ler de volta para garantir que o DB armazenou corretamente (debug)
-          try {
-            const verified = await this.conversationSession.getSession(user.id);
-            const verifiedPayload: any =
-              verified && verified.payload ? verified.payload : {};
-            const verifiedRecent = Array.isArray(verifiedPayload.recentMessages)
-              ? verifiedPayload.recentMessages
-              : [];
-            const safeVerified = verifiedRecent.map((m: any, i: number) => ({
-              index: i,
-              role: m.role,
-              text: String(m.text).slice(0, 120),
-            }));
-            // this.logger.debug('TelegramService - recentMessages after DB write: ' + JSON.stringify(safeVerified, null, 2));
-          } catch (_) {}
-
-          // --- LOG PARA DEBUG ---
-          const safeRecent = newRecent.map((m: any, i: number) => ({
-            index: i,
-            role: m.role,
-            text: String(m.text).slice(0, 120),
-          }));
-          // this.logger.debug(
-          //   'TelegramService - recentMessages persistidos: ' +
-          //     JSON.stringify(safeRecent, null, 2),
-          // );
-        } catch (e) {
-          this.logger.debug(
-            'TelegramService - falha ao persistir recentMessages',
-            e,
-          );
-        }
         // Delegate everything to the orchestrator
         let outcome: any = null;
         try {
           outcome = await this.interpreterManager.handle({
             userId: user.id,
             userMessage: text,
+            onAck,
           });
         } catch (e) {
           this.logger.warn('InterpreterManager failed', e);
+        } finally {
+          clearInterval(typingInterval);
         }
 
         if (!outcome) return;
