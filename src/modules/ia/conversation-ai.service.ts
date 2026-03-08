@@ -19,6 +19,10 @@ export interface ConversationAIResult {
   // quando utilizado pelo roteador, aponta o nome/estado do núcleo a ser
   // chamado a seguir (ex. "GOAL_STATUS" ou "goal-status").
   target?: string;
+  // Reminder nucleus: metas mencionadas como concluídas ou dispensadas
+  goalIds?: string[];
+  goalsCompleted?: Array<{ id: string; title?: string; description?: string }>;
+  dismissGoalId?: string;
 }
 
 @Injectable()
@@ -125,6 +129,11 @@ Payload atual: ${JSON.stringify(payload || {})}`;
       finished: parsed.finished,
       decision,
       target: parsed.target,
+      goalIds: Array.isArray(parsed.goalIds) ? parsed.goalIds : undefined,
+      goalsCompleted: Array.isArray(parsed.goalsCompleted)
+        ? parsed.goalsCompleted.filter((g: any) => g && typeof g.id === 'string')
+        : undefined,
+      dismissGoalId: typeof parsed.dismissGoalId === 'string' ? parsed.dismissGoalId : undefined,
     };
   }
 }

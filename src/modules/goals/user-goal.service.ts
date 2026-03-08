@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma/client';
 import { DateTime } from 'luxon';
 import { WorldsGateway } from '../worlds/worlds.gateway';
@@ -6,7 +7,7 @@ import { inferTypeFromPath } from '../worlds/infer-type-from-path.util';
 import { normalizeConquestType, CONQUEST_TYPES } from '../ia/conquest-type.enum';
 import { normalizeGoalType } from '../ia/goal-type.util';
 import { CommunicationService } from '../shared/communication.service';
-import type { CreateUserGoalInput } from '../ia/conversation/flow.types';
+import type { CreateUserGoalInput, ScheduleConfig } from '../ia/conversation/flow.types';
 
 
 @Injectable()
@@ -26,7 +27,9 @@ export class UserGoalService {
    * @param data Dados da meta vindos da IA
    * @returns UserGoal criado (com relação à árvore)
    */
-  async createUserGoalWithTree(data: Omit<CreateUserGoalInput, 'reminderTime'> & { reminderTime?: Date | string }) {
+  async createUserGoalWithTree(
+    data: Omit<CreateUserGoalInput, 'reminderTime'> & { reminderTime?: Date | string; scheduleConfig?: ScheduleConfig },
+  ) {
     // 1. Normalizar e validar conquestType recebido (garante consistência vindo de qualquer caminho)
     const normalizedConquest = normalizeConquestType(data.conquestType);
     if (!normalizedConquest) {
@@ -122,9 +125,49 @@ export class UserGoalService {
       throw new Error('userId inválido ao criar meta: ' + String(data.userId));
     }
 
-    // Validação/normalização de reminderTime
+    // scheduleConfig: nova fonte de agendamento (prioridade sobre reminderTime)
+    let scheduleConfigJson: object | undefined = undefined;
+    if (data.scheduleConfig && typeof data.scheduleConfig === 'object') {
+      const sc = data.scheduleConfig as ScheduleConfig;
+      if (sc.type === 'once' && sc.at) {
+        const at = String(sc.at).trim();
+        const timeOnly = at.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        if (timeOnly) {
+          let tz = 'America/Sao_Paulo';
+          try {
+            const u = await prisma.user.findUnique({ where: { id: data.userId }, select: { timezone: true } });
+            if (u && (u as any).timezone) tz = (u as any).timezone;
+          } catch {
+            // ignore
+          }
+          const hh = parseInt(timeOnly[1], 10);
+          const mm = parseInt(timeOnly[2], 10);
+          const ss = parseInt(timeOnly[3] || '0', 10);
+          const dt = DateTime.now()
+            .setZone(tz)
+            .set({ hour: hh, minute: mm, second: ss, millisecond: 0 });
+          scheduleConfigJson = { ...sc, at: dt.toISO()! };
+        } else {
+          scheduleConfigJson = sc;
+        }
+      } else if (sc.type === 'daily' && Array.isArray(sc.times) && sc.times.length > 0) scheduleConfigJson = sc;
+      else if (sc.type === 'weekly' && Array.isArray(sc.daysOfWeek) && Array.isArray(sc.times) && sc.times.length > 0)
+        scheduleConfigJson = sc;
+    }
+
+    // Validação/normalização de reminderTime (usado quando scheduleConfig type=once ou legado)
     let reminderTime: Date | undefined = undefined;
-    if (data.reminderTime) {
+    const scOnce = scheduleConfigJson as ScheduleConfig;
+    if (scOnce && scOnce.type === 'once' && 'at' in scOnce) {
+      const at = scOnce.at;
+      try {
+        reminderTime = new Date(at);
+        if (Number.isNaN(reminderTime.getTime())) reminderTime = undefined;
+      } catch {
+        reminderTime = undefined;
+      }
+    }
+    if (!reminderTime && data.reminderTime) {
       try {
         // Determinar timezone do usuário (fallback Brasília)
         let tz = 'America/Sao_Paulo';
@@ -236,6 +279,7 @@ export class UserGoalService {
           conquestType: normalizedConquest,
           frequency: frequencyInt,
           reminderTime,
+          scheduleConfig: scheduleConfigJson ?? undefined,
           plantedTreeId: planted.id,
           anchorId: chosenAnchorId,
         },
@@ -262,8 +306,12 @@ export class UserGoalService {
   }
 
   async markGoalDoneFromReminder(goalId: string, goalType?: string) {
-    const normalizedGoalType = normalizeGoalType(goalType as any);
-    if (normalizedGoalType === 'Continua') {
+    const goal = await prisma.userGoal.findUnique({
+      where: { id: goalId },
+      select: { goalType: true },
+    });
+    const actualType = goal?.goalType ? normalizeGoalType(goal.goalType) : normalizeGoalType(goalType as any);
+    if (actualType === 'Continua') {
       return prisma.userGoal.update({
         where: { id: goalId },
         data: {
@@ -303,7 +351,7 @@ export class UserGoalService {
     return prisma.userGoal.findMany({
       where: {
         completed: false,
-        reminderTime: { not: null },
+        OR: [{ scheduleConfig: { not: Prisma.DbNull } }, { reminderTime: { not: null } }],
       },
       select: {
         id: true,
@@ -313,11 +361,13 @@ export class UserGoalService {
         goalType: true,
         conquestType: true,
         reminderTime: true,
+        scheduleConfig: true,
+        reminderSlotsToday: true,
         lastReminderSentAt: true,
         dailyStatus: true,
         silenceUntil: true,
         completed: true,
-        reminderCount: true, // include counter for nucleus meta
+        reminderCount: true,
         createdAt: true,
         user: {
           select: {
@@ -344,6 +394,134 @@ export class UserGoalService {
   }
 
   /**
+   * Retorna metas por IDs (para mapear pendingGoalIds em otherGoals).
+   */
+  async getGoalsByIds(goalIds: string[]) {
+    if (goalIds.length === 0) return [];
+    return prisma.userGoal.findMany({
+      where: { id: { in: goalIds } },
+      select: { id: true, title: true },
+    });
+  }
+
+  /**
+   * Retorna metas que já receberam lembrete hoje e o usuário ignorou
+   * (não completou, não dispensou).
+   * Status considerados: WAITING_OPERATIONAL_REPLY, WAITING_FOLLOW_UP_REPLY,
+   * WAITING_REACTIVATION_REPLY, MISSED.
+   * Usado para a seção "Além disso, estas metas ainda estão pendentes hoje" em mensagens subsequentes.
+   */
+  async getIgnoredGoalsForToday(
+    userId: string,
+    timezone = 'America/Sao_Paulo',
+    excludeGoalIds: string[] = [],
+  ) {
+    const todayGoals = await this.getGoalsForTodayForUser(userId, timezone);
+    const now = DateTime.now().setZone(timezone);
+    const todayStart = now.startOf('day').toJSDate();
+    const todayEnd = now.endOf('day').toJSDate();
+
+    const todayGoalIds = todayGoals.map((g: any) => g.id).filter(
+      (id: string) => !excludeGoalIds.includes(id),
+    );
+
+    if (todayGoalIds.length === 0) return [];
+
+    const ignored = await prisma.userGoal.findMany({
+      where: {
+        userId,
+        id: { in: todayGoalIds },
+        completed: false,
+        lastReminderSentAt: { gte: todayStart, lte: todayEnd },
+        dailyStatus: {
+          in: [
+            'WAITING_OPERATIONAL_REPLY',
+            'WAITING_FOLLOW_UP_REPLY',
+            'WAITING_REACTIVATION_REPLY',
+            'MISSED',
+          ],
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        dailyStatus: true,
+      },
+    });
+
+    return ignored;
+  }
+
+  /**
+   * Retorna metas do dia com dailyStatus e completed, excluindo as com silenceUntil > now
+   * (ex: usuário disse "não vou conseguir hoje").
+   * Usado para montar mensagens de lembrete (outras pendentes, progresso X/Y).
+   */
+  async getGoalsForTodayWithStatus(userId: string, timezone = 'America/Sao_Paulo') {
+    const todayGoals = await this.getGoalsForTodayForUser(userId, timezone);
+    const now = DateTime.now().setZone(timezone).toJSDate();
+
+    const goalsWithStatus = await prisma.userGoal.findMany({
+      where: {
+        userId,
+        id: { in: todayGoals.map((g: any) => g.id) },
+        completed: false,
+      },
+      select: {
+        id: true,
+        title: true,
+        dailyStatus: true,
+        silenceUntil: true,
+        completed: true,
+      },
+    });
+
+    return goalsWithStatus.filter((g) => {
+      const silenceUntil = g.silenceUntil ? new Date(g.silenceUntil) : null;
+      if (silenceUntil && silenceUntil > now) return false;
+      return true;
+    });
+  }
+
+  /**
+   * Retorna metas que têm lembretes agendados para hoje (no timezone do usuário).
+   * Usado pelo resumo diário (DailyDigest).
+   */
+  async getGoalsForTodayForUser(userId: string, timezone = 'America/Sao_Paulo') {
+    const all = await this.getGoalsForUser(userId);
+    const now = DateTime.now().setZone(timezone);
+    const todayDow = now.weekday === 7 ? 0 : now.weekday; // 0=Dom, 1=Seg..6=Sab
+    const todayStart = now.startOf('day');
+
+    return all.filter((g: any) => {
+      if (g.completed) return false;
+      const sc = g.scheduleConfig as import('../ia/conversation/flow.types').ScheduleConfig | null;
+      if (sc && typeof sc === 'object') {
+        if (sc.type === 'once') {
+          const at = new Date(sc.at);
+          const userAt = DateTime.fromJSDate(at).setZone(timezone);
+          return userAt.hasSame(todayStart, 'day');
+        }
+        if (sc.type === 'daily') {
+          if (sc.durationDays) {
+            const createdAt = DateTime.fromJSDate(new Date(g.createdAt)).setZone(timezone);
+            const daysSince = Math.floor(now.diff(createdAt, 'days').days);
+            return daysSince < sc.durationDays;
+          }
+          return true;
+        }
+        if (sc.type === 'weekly') {
+          return sc.daysOfWeek.includes(todayDow);
+        }
+      }
+      // Legado: reminderTime ou frequency
+      if (g.reminderTime) return true;
+      if (g.frequency && g.frequency >= 1) return true;
+      return false;
+    });
+  }
+
+  /**
    * Recupera todas as metas do usuário. Útil para fornecer contexto à IA.
    */
   async getGoalsForUser(userId: string) {
@@ -362,6 +540,7 @@ export class UserGoalService {
         conquestType: true,
         completed: true,
         reminderTime: true,
+        scheduleConfig: true,
         frequency: true,
         createdAt: true,
         plantedTree: {

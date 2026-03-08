@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { NucleusMetaBuildContext, NucleusMetaBuilder } from './nucleus-meta.builder';
 import { GoalStatusMetaBuilder } from './goal-status-meta.builder';
+import { GoalProgressMetaBuilder } from './goal-progress-meta.builder';
 
 @Injectable()
 export class NucleusMetaFactory {
-  constructor(private readonly goalStatusMetaBuilder: GoalStatusMetaBuilder) {}
+  constructor(
+    private readonly goalStatusMetaBuilder: GoalStatusMetaBuilder,
+    private readonly goalProgressMetaBuilder: GoalProgressMetaBuilder,
+  ) {}
 
   async build(context: NucleusMetaBuildContext): Promise<Record<string, any>> {
     const builder = this.resolveBuilder(context.state);
@@ -14,6 +18,9 @@ export class NucleusMetaFactory {
   private resolveBuilder(state: string): NucleusMetaBuilder {
     if (this.goalStatusMetaBuilder.supports(state as never)) {
       return this.goalStatusMetaBuilder;
+    }
+    if (this.goalProgressMetaBuilder.supports(state as never)) {
+      return this.goalProgressMetaBuilder;
     }
 
     return {

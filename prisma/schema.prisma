@@ -7,6 +7,8 @@ model User {
   telegramId     String?  @unique // id do usuário no Telegram
   timezone       String   @default("UTC") // IANA timezone, ex: 'America/Sao_Paulo'
   currentWorldId String? // mundo atual do usuário
+  digestEnabled  Boolean  @default(false) // mensagem diária ativa
+  digestTime     String? // "HH:MM" horário do resumo diário (timezone do usuário)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -26,23 +28,25 @@ model World {
 }
 
 model UserGoal {
-  id                 String    @id @default(uuid())
-  userId             String
-  title              String
-  description        String?
-  goalType           String // 'Pontual' ou 'Continua'
-  conquestType       String // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
-  frequency          Int? // número de vezes por semana/dia (apenas para metas Continuas)
-  reminderTime       DateTime? // horário do lembrete
-  lastReminderSentAt DateTime? // última vez que o lembrete foi enviado
-  reminderCount      Int       @default(0) // quantas vezes o lembrete foi enviado
-  dailyStatus        String? // PENDING | SENT | WAITING | DONE | SKIPPED
-  silenceUntil       DateTime? // quando pode cobrar de novo
-  completed          Boolean   @default(false)
-  plantedTreeId      String // ligação com a árvore que representa a meta
-  anchorId           String // ligação direta com o anchor usado
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                   String    @id @default(uuid())
+  userId               String
+  title                String
+  description          String?
+  goalType             String // 'Pontual' ou 'Continua'
+  conquestType         String // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
+  frequency            Int? // legado; preferir scheduleConfig
+  reminderTime         DateTime? // legado; preferir scheduleConfig
+  scheduleConfig       Json? // once.at=ISO; daily/weekly.times=HH:MM
+  reminderSlotsToday   Json? // [{ "time": "08:00" }] slots já enviados hoje (reset diário)
+  lastReminderSentAt   DateTime? // última vez que o lembrete foi enviado
+  reminderCount        Int       @default(0) // quantas vezes o lembrete foi enviado
+  dailyStatus          String? // PENDING | SENT | WAITING | DONE | SKIPPED
+  silenceUntil         DateTime? // quando pode cobrar de novo
+  completed            Boolean   @default(false)
+  plantedTreeId        String // ligação com a árvore que representa a meta
+  anchorId             String // ligação direta com o anchor usado
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   plantedTree PlantedTree @relation(fields: [plantedTreeId], references: [id])
   user        User        @relation(fields: [userId], references: [id])

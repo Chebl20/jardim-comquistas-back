@@ -3,6 +3,7 @@ import { FlowState, FLOW_STATES } from './flow.types';
 
 const ACK_MESSAGES: Partial<Record<FlowState, string>> = {
   GOAL_STATUS: 'Um momento, vou verificar suas metas...',
+  GOAL_PROGRESS: 'Um momento, vou registrar seu progresso...',
   REMINDER: 'Verificando seus lembretes...',
 };
 

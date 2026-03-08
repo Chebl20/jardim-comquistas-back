@@ -2,9 +2,11 @@ import TelegramBot from 'node-telegram-bot-api';
 
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { UserLinkService } from '../users/user-link.service';
-import { prisma } from '../../prisma/client';
 import { RateLimiterService } from '../shared/rate-limiter.service';
 import { ConversationOrchestratorService } from '../ia/conversation/conversation-orchestrator.service';
+import { DailyDigestService } from '../daily-digest/daily-digest.service';
+
+const MANUAL_DIGEST_TRIGGER = 'DISPARO DE MSG DIARIA';
 
 @Injectable()
 export class TelegramService implements OnModuleInit {
@@ -47,6 +49,7 @@ export class TelegramService implements OnModuleInit {
     private userLinkService: UserLinkService,
     private rateLimiter: RateLimiterService,
     private interpreterManager: ConversationOrchestratorService,
+    private dailyDigestService: DailyDigestService,
   ) {}
 
   // TelegramService is transport-only: all conversational heuristics live in the orchestrator.
@@ -100,6 +103,20 @@ export class TelegramService implements OnModuleInit {
             '👋 Olá! Para começar, envie aqui o código de acesso gerado no app/web para vincular sua conta.',
             'telegram-service',
           );
+        }
+        return;
+      }
+
+      // Gatilho manual para teste do resumo diário (envia a msg diretamente no DailyDigestService)
+      if (text.trim().toUpperCase() === MANUAL_DIGEST_TRIGGER) {
+        try {
+          const msg = await this.dailyDigestService.sendDigestForUser(user.id);
+          if (!msg) {
+            await this.sendReply(chatId, 'Não foi possível enviar o resumo. Verifique se você tem metas com lembretes.', 'telegram-service');
+          }
+        } catch (e) {
+          this.logger.warn('Manual digest trigger failed', e);
+          await this.sendReply(chatId, 'Erro ao gerar o resumo diário.', 'telegram-service');
         }
         return;
       }

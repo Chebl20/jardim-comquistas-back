@@ -4,6 +4,7 @@ import { ClarificationNucleus } from '../nuclei/clarification';
 import { GoalCreationNucleus } from '../nuclei/goal-creation';
 import { GoalStatusNucleus } from '../nuclei/goal-status';
 import { ReminderNucleus } from '../nuclei/reminder';
+import { GoalProgressNucleus } from '../nuclei/goal-progress';
 import { RouterNucleus } from '../nuclei/router';
 import { ConversationActionExecutorService } from './conversation-action-executor.service';
 import { ConversationStateService } from './conversation-state.service';
@@ -37,6 +38,7 @@ export class ConversationOrchestratorService {
     private readonly goalCreation: GoalCreationNucleus,
     private readonly goalStatus: GoalStatusNucleus,
     private readonly reminderNucleus: ReminderNucleus,
+    private readonly goalProgressNucleus: GoalProgressNucleus,
     private readonly router: RouterNucleus,
     private readonly actionExecutor: ConversationActionExecutorService,
     private readonly stateService: ConversationStateService,
@@ -48,6 +50,7 @@ export class ConversationOrchestratorService {
       GOAL_CREATION: this.goalCreation,
       REMINDER: this.reminderNucleus,
       GOAL_STATUS: this.goalStatus,
+      GOAL_PROGRESS: this.goalProgressNucleus,
     };
 
     // sanity check: garante que o registry e os flows locais concordam
@@ -146,10 +149,11 @@ export class ConversationOrchestratorService {
 
       if (firstResult.decision !== DECISIONS.NOT_MY_JOB) {
         const exec = await this.actionExecutor.execute(userId, firstResult.actions, worldId);
-        return { kind: 'direct', reply: exec.reply || '', origin: exec.redirectedTo ?? currentState };
+        return { kind: 'direct', reply: exec.reply || '', origin: currentState };
       }
 
-      // 6. NOT_MY_JOB → consultar router (apenas uma vez; nunca proativamente)
+      // 6. NOT_MY_JOB → consultar router (rejectedBy: núcleo que recusou — Router não deve retorná-lo)
+      const previousState = currentState;
       const routerInput: NucleusInput = {
         userId,
         currentSession: currentState,
@@ -158,6 +162,7 @@ export class ConversationOrchestratorService {
           ...sessionPayload,
           worldId,
           ...(firstResult.extracted?.payload || {}),
+          rejectedBy: previousState,
         },
       };
       const routerRes = await this.router.analyze(routerInput);
@@ -169,8 +174,12 @@ export class ConversationOrchestratorService {
         routerConfidence: routerRes.confidence,
         availableFlows: this.flows,
       });
-      const previousState = currentState;
       currentState = routingDecision.nextState;
+
+      if (currentState === previousState) {
+        await this.stateService.appendAssistantMessage(userId, 'Não consegui entender. Pode reformular?');
+        return { kind: 'direct', reply: 'Não consegui entender. Pode reformular?', origin: FLOW_STATES.CLARIFICATION };
+      }
 
       if (currentState !== previousState) {
         const redirectedPayload =
@@ -207,11 +216,14 @@ export class ConversationOrchestratorService {
         currentState = FLOW_STATES.CLARIFICATION;
         const clarResult = await runNucleus(FLOW_STATES.CLARIFICATION);
         const exec = await this.actionExecutor.execute(userId, clarResult.actions, worldId);
-        return { kind: 'direct', reply: exec.reply || '', origin: exec.redirectedTo ?? currentState };
+        return { kind: 'direct', reply: exec.reply || '', origin: currentState };
       }
 
       const exec = await this.actionExecutor.execute(userId, secondResult.actions, worldId);
-      return { kind: 'direct', reply: exec.reply || '', origin: exec.redirectedTo ?? currentState };
+      const reply = exec.reply || (secondResult.decision === DECISIONS.NOT_MY_JOB && currentState === FLOW_STATES.CLARIFICATION
+        ? 'Não consegui entender. Pode reformular?'
+        : '');
+      return { kind: 'direct', reply, origin: currentState };
 
     } catch (e) {
       this.logger.error('Orchestrator failed', e);

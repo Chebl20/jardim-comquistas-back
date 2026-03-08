@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon';
-import { ReminderPolicyEngine } from './reminder-policy.engine';
+import { ReminderPolicyEngine } from '../policy/reminder-policy.engine';
 import {
   REMINDER_KINDS,
   REMINDER_POLICY_ACTIONS,
   REMINDER_STATUSES,
   ReminderGoalRecord,
-} from './reminder.types';
+} from '../reminder.types';
+import type { ReminderGroup } from '../grouping/reminder-group.util';
 
 function makeGoal(overrides: Partial<ReminderGoalRecord> = {}): ReminderGoalRecord {
   return {
@@ -60,6 +61,24 @@ describe('ReminderPolicyEngine', () => {
     );
   });
 
+  it('envia reminder operacional para meta once com horário passado há 30 min', () => {
+    const goal = makeGoal({
+      scheduleConfig: { type: 'once', at: '2026-03-05T16:00:00.000-03:00' },
+      reminderTime: null,
+      lastReminderSentAt: null,
+    });
+    const now = DateTime.fromISO('2026-03-05T16:31:00.000-03:00');
+
+    const decision = engine.evaluate({
+      goal,
+      now,
+      timezone: 'America/Sao_Paulo',
+    });
+
+    expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.SEND_OPERATIONAL);
+    expect(decision.kind).toBe(REMINDER_KINDS.OPERATIONAL);
+  });
+
   it('envia um único follow-up após janela de espera expirar', () => {
     const goal = makeGoal({
       dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
@@ -95,6 +114,80 @@ describe('ReminderPolicyEngine', () => {
     });
 
     expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.WAIT);
+  });
+
+  it('retorna WAIT para follow-up de grupo quando ainda não passou 5 min do último operacional', () => {
+    const goalA = makeGoal({
+      id: 'goal-a',
+      dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
+      lastReminderSentAt: '2026-03-05T13:14:00.000Z',
+      scheduleConfig: { type: 'daily', times: ['10:14'] },
+      reminderTime: null,
+    });
+    const goalB = makeGoal({
+      id: 'goal-b',
+      dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
+      lastReminderSentAt: '2026-03-05T13:15:00.000Z',
+      scheduleConfig: { type: 'daily', times: ['10:15'] },
+      reminderTime: null,
+    });
+    const lastOp = DateTime.fromISO('2026-03-05T13:15:00.000Z').setZone('America/Sao_Paulo');
+    const group: ReminderGroup = {
+      goals: [goalA, goalB],
+      firstScheduledAt: DateTime.fromISO('2026-03-05T13:14:00.000Z').setZone('America/Sao_Paulo'),
+      lastScheduledAt: lastOp,
+      groupFollowUpAt: lastOp.plus({ minutes: 5 }),
+      groupLastChanceAt: lastOp.plus({ minutes: 20 }),
+    };
+
+    const now = DateTime.fromISO('2026-03-05T13:19:00.000Z');
+
+    const decision = engine.evaluate({
+      goal: goalA,
+      now,
+      timezone: 'America/Sao_Paulo',
+      group,
+    });
+
+    expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.WAIT);
+    expect(decision.reason).toBe('group_follow_up_not_due');
+  });
+
+  it('envia follow-up de grupo quando passou 5 min do último operacional', () => {
+    const goalA = makeGoal({
+      id: 'goal-a',
+      dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
+      lastReminderSentAt: '2026-03-05T13:14:00.000Z',
+      scheduleConfig: { type: 'daily', times: ['10:14'] },
+      reminderTime: null,
+    });
+    const goalB = makeGoal({
+      id: 'goal-b',
+      dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
+      lastReminderSentAt: '2026-03-05T13:15:00.000Z',
+      scheduleConfig: { type: 'daily', times: ['10:15'] },
+      reminderTime: null,
+    });
+    const lastOp = DateTime.fromISO('2026-03-05T13:15:00.000Z').setZone('America/Sao_Paulo');
+    const group: ReminderGroup = {
+      goals: [goalA, goalB],
+      firstScheduledAt: DateTime.fromISO('2026-03-05T13:14:00.000Z').setZone('America/Sao_Paulo'),
+      lastScheduledAt: lastOp,
+      groupFollowUpAt: lastOp.plus({ minutes: 5 }),
+      groupLastChanceAt: lastOp.plus({ minutes: 20 }),
+    };
+
+    const now = DateTime.fromISO('2026-03-05T13:21:00.000Z');
+
+    const decision = engine.evaluate({
+      goal: goalA,
+      now,
+      timezone: 'America/Sao_Paulo',
+      group,
+    });
+
+    expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.SEND_FOLLOW_UP);
+    expect(decision.kind).toBe(REMINDER_KINDS.FOLLOW_UP);
   });
 
   it('troca operacional por reativação em meta contínua antiga e sem progresso', () => {

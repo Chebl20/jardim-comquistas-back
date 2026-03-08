@@ -8,10 +8,12 @@ import {
   CancelAction,
   DraftGoalPayload,
   ValidatedGoalPayload,
+  ScheduleConfig,
   DECISIONS,
   CLASSIFICATIONS,
   FLOW_STATES,
 } from '../../conversation/flow.types';
+import { formatScheduleForUser } from '../../../shared/schedule-formatter.util';
 import { PROMPT as GOAL_PROMPT } from './prompt';
 import { ConversationAIService } from '../../conversation-ai.service';
 import { CommunicationService } from '../../../shared/communication.service';
@@ -81,6 +83,39 @@ type GoalPayloadGuardResult =
       continuePayload: DraftGoalPayload;
     };
 
+function parseTimeFromISO(iso: string): string {
+  const d = new Date(iso);
+  const h = d.getUTCHours().toString().padStart(2, '0');
+  const m = d.getUTCMinutes().toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function buildScheduleFromReminderTime(
+  reminderTime: string,
+  goalType: string,
+): ScheduleConfig {
+  const isPontual = normalizeGoalType(goalType) === 'Pontual';
+  if (isPontual) {
+    return { type: 'once', at: reminderTime };
+  }
+  const timeStr = reminderTime.includes('T') ? parseTimeFromISO(reminderTime) : reminderTime;
+  return { type: 'daily', times: [timeStr] };
+}
+
+function isValidScheduleConfig(sc: unknown): sc is ScheduleConfig {
+  if (!sc || typeof sc !== 'object') return false;
+  const o = sc as Record<string, unknown>;
+  if (o.type === 'once' && typeof o.at === 'string') return true;
+  if (o.type === 'daily' && Array.isArray(o.times) && o.times.length > 0) {
+    if (o.durationDays !== undefined && (typeof o.durationDays !== 'number' || o.durationDays < 1))
+      return false;
+    return true;
+  }
+  if (o.type === 'weekly' && Array.isArray(o.daysOfWeek) && Array.isArray(o.times) && o.times.length > 0)
+    return true;
+  return false;
+}
+
 function sanitizeGoalPayload(
   draft: DraftGoalPayload,
   now: Date,
@@ -90,28 +125,37 @@ function sanitizeGoalPayload(
   const timeToken = cleanText(draft.timeToken);
   const normalizedGoalType =
     normalizeGoalType(typeof draft.goalType === 'string' ? draft.goalType : undefined) ??
-    (draft.reminderTime || timeToken ? 'Pontual' : 'Continua');
+    (draft.reminderTime || draft.scheduleConfig || timeToken ? 'Pontual' : 'Continua');
   const normalizedConquest =
     normalizeConquestType(typeof draft.conquestType === 'string' ? draft.conquestType : undefined) ??
     'Mente';
 
-  let reminderTime = cleanText(draft.reminderTime);
-  if (reminderTime) {
-    const resolvedReminderTime = resolveReminderTime(reminderTime, now);
-    if (!resolvedReminderTime) {
-      return {
-        ok: false,
-        reply:
-          'Não consegui confirmar o horário desse lembrete. Pode me dizer de novo o horário ou em quanto tempo eu devo te lembrar?',
-        continuePayload: {
-          ...draft,
-          goalType: normalizedGoalType,
-          conquestType: normalizedConquest,
-          reminderTime: undefined,
-        },
-      };
+  let scheduleConfig: ScheduleConfig | undefined;
+  let reminderTime: string | undefined;
+
+  if (isValidScheduleConfig(draft.scheduleConfig)) {
+    scheduleConfig = draft.scheduleConfig;
+    if (scheduleConfig.type === 'once') reminderTime = scheduleConfig.at;
+  } else {
+    let rawReminder = cleanText(draft.reminderTime);
+    if (rawReminder) {
+      const resolved = resolveReminderTime(rawReminder, now);
+      if (!resolved) {
+        return {
+          ok: false,
+          reply:
+            'Não consegui confirmar o horário desse lembrete. Pode me dizer de novo o horário ou em quanto tempo eu devo te lembrar?',
+          continuePayload: {
+            ...draft,
+            goalType: normalizedGoalType,
+            conquestType: normalizedConquest,
+            reminderTime: undefined,
+          },
+        };
+      }
+      reminderTime = resolved;
+      scheduleConfig = buildScheduleFromReminderTime(resolved, normalizedGoalType);
     }
-    reminderTime = resolvedReminderTime;
   }
 
   if (!title) {
@@ -123,21 +167,21 @@ function sanitizeGoalPayload(
         goalType: normalizedGoalType,
         conquestType: normalizedConquest,
         reminderTime,
+        scheduleConfig,
       },
     };
   }
 
   const payload: ValidatedGoalPayload = {
     title,
-    description: description ?? `Progresso em ${title}`,
+    description: description ?? 'Primeiro gesto que deu vida ao crescimento',
     goalType: normalizedGoalType,
     conquestType: normalizedConquest,
     timeToken: timeToken ?? null,
   };
 
-  if (reminderTime) {
-    payload.reminderTime = reminderTime;
-  }
+  if (reminderTime) payload.reminderTime = reminderTime;
+  if (scheduleConfig) payload.scheduleConfig = scheduleConfig;
 
   if (normalizedGoalType === 'Continua') {
     const frequency = normalizeFrequency(draft.frequency);
@@ -342,9 +386,17 @@ export class GoalCreationNucleus implements Nucleus<ReplyAction | ContinueAction
           };
         }
 
-        const successReply =
-          suggestedReply ||
-          this.makeConfirmation(guardedPayload.payload);
+        let successReply = suggestedReply || this.makeConfirmation(guardedPayload.payload);
+        if (guardedPayload.payload.scheduleConfig) {
+          const scheduleBlock = formatScheduleForUser(
+            guardedPayload.payload.scheduleConfig,
+            guardedPayload.payload.title,
+            'America/Sao_Paulo',
+          );
+          if (scheduleBlock) {
+            successReply = `${successReply}\n\n${scheduleBlock}`;
+          }
+        }
         const failureReply =
           'Não consegui salvar essa meta agora. Quer que eu tente de novo com você?';
 
@@ -371,11 +423,23 @@ export class GoalCreationNucleus implements Nucleus<ReplyAction | ContinueAction
         };
       }
 
-      // default continuation case
+      // default continuation case (confirmação — incluir tabela para metas semanais)
       {
+        let replyText = suggestedReply ?? '';
+        const sc = payload?.scheduleConfig as { type?: string } | undefined;
+        if (sc && (sc.type === 'weekly' || sc.type === 'daily')) {
+          const scheduleBlock = formatScheduleForUser(
+            payload.scheduleConfig,
+            typeof payload.title === 'string' ? payload.title : undefined,
+            'America/Sao_Paulo',
+          );
+          if (scheduleBlock) {
+            replyText = `${replyText}\n\n${scheduleBlock}`;
+          }
+        }
         const actions: Array<ReplyAction | ContinueAction | CreateGoalAction | CancelAction> = [
           { type: 'continue', payload, to: FLOW_STATES.GOAL_CREATION } as ContinueAction,
-          { type: 'reply', text: suggestedReply } as ReplyAction,
+          { type: 'reply', text: replyText } as ReplyAction,
         ];
         try {
           this.logger.debug(`GoalCreation returning CONTINUE actions=${JSON.stringify(actions).slice(0,1000)} confidence=${aiRes.confidence}`);

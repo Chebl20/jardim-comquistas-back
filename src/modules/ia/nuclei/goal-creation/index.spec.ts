@@ -44,7 +44,9 @@ describe('Goal creation hardening', () => {
     expect(action.payload.goalType).toBe('Pontual');
     expect(typeof action.payload.reminderTime).toBe('string');
     expect(Number.isNaN(Date.parse(action.payload.reminderTime!))).toBe(false);
-    expect(action.successReply).toBe('Anotado! Vou te lembrar em instantes.');
+    expect(action.successReply).toContain('Anotado! Vou te lembrar em instantes.');
+    expect(action.successReply).toContain('📅 Quando vou te lembrar');
+    expect(action.payload.scheduleConfig).toEqual({ type: 'once', at: action.payload.reminderTime });
   });
 
   it('não cria meta quando o payload final ainda está incompleto', async () => {

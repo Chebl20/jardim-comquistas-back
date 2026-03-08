@@ -9,6 +9,7 @@ export const FLOW_STATES = {
   GOAL_CREATION: 'GOAL_CREATION',
   REMINDER: 'REMINDER',
   GOAL_STATUS: 'GOAL_STATUS',
+  GOAL_PROGRESS: 'GOAL_PROGRESS',
 } as const;
 export type FlowState = typeof FLOW_STATES[keyof typeof FLOW_STATES];
 
@@ -29,8 +30,15 @@ export interface ContinueAction {
 export interface RedirectAction {
   type: 'redirect';
   to: FlowState;
-  payload?: { payload?: Record<string, any>; missing?: string[] };
+  payload?: Record<string, any> | { payload?: Record<string, any>; missing?: string[] };
 }
+
+// scheduleConfig: estrutura de agendamento de lembretes.
+// Regra de formato: once.at = ISO completo (momento absoluto); daily/weekly.times = HH:MM (horário do dia).
+export type ScheduleConfig =
+  | { type: 'once'; at: string }
+  | { type: 'daily'; times: string[]; durationDays?: number }
+  | { type: 'weekly'; daysOfWeek: number[]; times: string[] };
 
 // payload flexível produzido pelo LLM; ainda precisa de saneamento antes
 // de chegar à camada de persistência.
@@ -42,6 +50,7 @@ export interface DraftGoalPayload {
   frequency?: number | string | null;
   reminderTime?: string | null;
   timeToken?: string | null;
+  scheduleConfig?: ScheduleConfig | null;
 }
 
 // payload seguro para persistência. Depois dessa fronteira, nenhum valor
@@ -54,6 +63,7 @@ export interface ValidatedGoalPayload {
   frequency?: number;
   reminderTime?: string;
   timeToken?: string | null;
+  scheduleConfig?: ScheduleConfig | null;
 }
 
 export interface CreateUserGoalInput extends ValidatedGoalPayload {
@@ -79,6 +89,8 @@ export interface MarkDoneAction {
     goalTitle?: string;
     goalDescription?: string;
     goalType?: 'Pontual' | 'Continua';
+    /** Mensagem do usuário que fez a meta avançar (para descrição do GrowthEvent) */
+    userMessage?: string;
   };
 }
 
@@ -92,6 +104,30 @@ export interface UpdateReminderAction {
   };
 }
 
+export interface MarkMultipleDoneGoal {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface MarkMultipleDoneAction {
+  type: 'mark_multiple_done';
+  payload: {
+    goals: MarkMultipleDoneGoal[];
+    /** Mensagem do usuário (ex.: "já cumpri todas") para descrição do GrowthEvent */
+    userMessage?: string;
+  };
+}
+
+export interface DismissGoalForTodayAction {
+  type: 'dismiss_goal_for_today';
+  payload: {
+    goalId: string;
+    goalTitle?: string;
+    silenceUntil?: string | Date;
+  };
+}
+
 // união geral de ações
 export type Action =
   | ReplyAction
@@ -100,7 +136,9 @@ export type Action =
   | CreateGoalAction
   | CancelAction
   | MarkDoneAction
-  | UpdateReminderAction;
+  | UpdateReminderAction
+  | MarkMultipleDoneAction
+  | DismissGoalForTodayAction;
 
 // lista oficial de classificações retornáveis pelos núcleos. usar o
 // `CLASSIFICATIONS` abaixo garante que os prompts e o código permaneçam
@@ -123,6 +161,7 @@ export const INTENTS = {
   CREATE_GOAL: 'CREATE_GOAL',
   CREATE_REMINDER: 'CREATE_REMINDER',
   CHECK_GOAL_STATUS: 'CHECK_GOAL_STATUS',
+  REPORT_PROGRESS: 'REPORT_PROGRESS',
   UPDATE_GOAL: 'UPDATE_GOAL',
   CANCEL_FLOW: 'CANCEL_FLOW',
   OPEN_CLARIFICATION: 'OPEN_CLARIFICATION',

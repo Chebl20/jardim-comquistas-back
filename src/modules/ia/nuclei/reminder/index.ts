@@ -5,13 +5,14 @@ import { ConversationAIService } from '../../conversation-ai.service';
 import { REMINDER_PROMPT } from './prompt';
 import { decisionFromClassification } from '../prompt-utils';
 import { DateTime } from 'luxon';
-import { ReminderPolicyEngine } from '../../../reminder/reminder-policy.engine';
+import { ReminderPolicyEngine } from '../../../reminder/policy/reminder-policy.engine';
 import {
   REMINDER_KINDS,
   REMINDER_STATUSES,
   ReminderKind,
 } from '../../../reminder/reminder.types';
-import { ReminderObservabilityService } from '../../../reminder/reminder-observability.service';
+import { ReminderObservabilityService } from '../../../reminder/observability/reminder-observability.service';
+import { UserGoalService } from '../../../goals/user-goal.service';
 
 @Injectable()
 export class ReminderNucleus implements Nucleus<Action> {
@@ -21,6 +22,7 @@ export class ReminderNucleus implements Nucleus<Action> {
     private readonly llm: ConversationAIService,
     private readonly policyEngine: ReminderPolicyEngine,
     private readonly observability: ReminderObservabilityService,
+    private readonly userGoalService: UserGoalService,
   ) {}
 
   /**
@@ -32,7 +34,20 @@ export class ReminderNucleus implements Nucleus<Action> {
     input: NucleusInput<ReminderMeta>,
   ): Promise<FlowResult<Action>> {
     const text = (input.text || '').trim();
-    const meta = this.normalizeMeta((input.meta as ReminderMeta) || {}, text);
+    let meta = this.normalizeMeta((input.meta as ReminderMeta) || {}, text);
+
+    if (text && meta.timezone) {
+      if (meta.pendingGoalIds && meta.pendingGoalIds.length > 0) {
+        const goals = await this.userGoalService.getGoalsByIds(meta.pendingGoalIds);
+        meta = { ...meta, otherGoals: goals.map((g: any) => ({ id: g.id, title: g.title })) };
+      } else {
+        const goalsWithStatus = await this.userGoalService.getGoalsForTodayWithStatus(
+          input.userId,
+          meta.timezone,
+        );
+        meta = { ...meta, otherGoals: goalsWithStatus.map((g) => ({ id: g.id, title: g.title })) };
+      }
+    }
 
     try {
       const prompt = REMINDER_PROMPT(
@@ -44,11 +59,10 @@ export class ReminderNucleus implements Nucleus<Action> {
         {
           currentState: input.currentSession || FLOW_STATES.CLARIFICATION,
           payload: meta,
-          userMessage: text, // not used but included for consistency
+          userMessage: text,
         },
         prompt,
       );
-      // o serviço LLM retorna `suggestedReply` como texto final
       const message = llmRes.suggestedReply || '';
       this.logger.debug(`ReminderNucleus generated message: ${message}`);
 
@@ -73,14 +87,58 @@ export class ReminderNucleus implements Nucleus<Action> {
         actions.push({ type: 'reply', text: message });
       }
 
-      if (classification === CLASSIFICATIONS.DONE && meta.goalId) {
+      const goalsCompleted = llmRes.goalsCompleted as Array<{ id: string; title?: string; description?: string }> | undefined;
+      const dismissGoalId = llmRes.dismissGoalId as string | undefined;
+
+      if (goalsCompleted && goalsCompleted.length > 0) {
+        const goals = goalsCompleted.map((g) => ({
+          id: g.id,
+          title: g.title ?? meta.otherGoals?.find((og) => og.id === g.id)?.title ?? 'Progresso',
+          description: g.description ?? 'Progresso concluído',
+        }));
+        actions.push({
+          type: 'mark_multiple_done',
+          payload: { goals, userMessage: text || undefined },
+        });
+        for (const g of goals) {
+          const gid = g.id;
+          actions.push({
+            type: 'update_reminder',
+            payload: {
+              goalId: gid,
+              dailyStatus: REMINDER_STATUSES.DONE,
+              silenceUntil: null,
+            },
+          });
+        }
+        actions.push({
+          type: 'update_reminder',
+          payload: { goalId: meta.goalId!, clearSession: true },
+        });
+      } else if (dismissGoalId) {
+        const tz = meta.timezone || 'America/Sao_Paulo';
+        const endOfDay = this.policyEngine.resolveEndOfDay(tz).toISOString();
+        actions.push({
+          type: 'dismiss_goal_for_today',
+          payload: {
+            goalId: dismissGoalId,
+            silenceUntil: endOfDay,
+          },
+        });
+        if (meta.goalId === dismissGoalId) {
+          actions.push({
+            type: 'update_reminder',
+            payload: { goalId: dismissGoalId, clearSession: true },
+          });
+        }
+      } else if (classification === CLASSIFICATIONS.DONE && meta.goalId) {
         actions.push({
           type: 'mark_done',
           payload: {
             goalId: String(meta.goalId || ''),
             goalTitle: String(meta.goalTitle || ''),
-            goalDescription: String(meta.goalDescription || ''),
             goalType: meta.goalType,
+            userMessage: text || undefined,
           },
         });
         actions.push({
@@ -117,7 +175,6 @@ export class ReminderNucleus implements Nucleus<Action> {
           },
         });
       } else if (text && meta.goalId) {
-        // Fechar o estado de reminder após um reply válido evita loop em mensagens futuras.
         actions.push({
           type: 'update_reminder',
           payload: {

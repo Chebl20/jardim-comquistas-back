@@ -46,12 +46,16 @@ export class CommunicationService {
     }
   }
 
+  /** Máximo de caracteres para descrição; se userMessage for maior, trunca ou resume */
+  private static readonly MAX_DESCRIPTION_LENGTH = 80;
+
   /**
-   * Gera metadata simples para progresso quando a IA antiga não estiver disponível.
-   * Retorna um objeto com `title` e `description` de fallback.
+   * Gera metadata para GrowthEvent: título criativo e descrição (mensagem do usuário ou fallback).
+   * Regra: descrição = userMessage (ou resumo se longo); título = criativo via IA.
    */
-  async generateProgressMetadata(userId?: string, opts?: { goalTitle?: string }) {
+  async generateProgressMetadata(userId?: string, opts?: { goalTitle?: string; userMessage?: string }) {
     const goalTitle = opts?.goalTitle || '';
+    const userMessage = (opts?.userMessage || '').trim();
     let userName = '';
     if (userId) {
       try {
@@ -62,26 +66,42 @@ export class CommunicationService {
       }
     }
 
-    // try LLM for more creative metadata
+    // Descrição: preferir userMessage; se muito longa, truncar
+    let description = '';
+    if (userMessage) {
+      description = userMessage.length > CommunicationService.MAX_DESCRIPTION_LENGTH
+        ? userMessage.slice(0, CommunicationService.MAX_DESCRIPTION_LENGTH - 3) + '...'
+        : userMessage;
+    }
+
+    // Título: tentar IA para criatividade
+    let title = '';
     try {
-      const prompt = `Você é um gerador de título e descrição curtos para um evento de progresso de meta. ` +
-        `Recebe as informações userName: "${userName}", goalTitle: "${goalTitle}". ` +
-        `Devolva apenas um JSON válido com campos \\"title\\" e \\"description\\".`;
+      const prompt = `Você gera um título curto e criativo para um evento de progresso de meta. ` +
+        `goalTitle: "${goalTitle}", userMessage: "${userMessage}". ` +
+        `O título deve ser variado (ex: "Um copo à noite", "Hidratação matinal", "Mais um passo"). ` +
+        `NÃO repita o goalTitle. Devolva apenas um JSON: {"title":"..."}.`;
       const llm = await this.ai.analyze(
-        { currentState: FLOW_STATES.CLARIFICATION, payload: { userName, goalTitle }, userMessage: '' },
+        { currentState: FLOW_STATES.CLARIFICATION, payload: { userName, goalTitle, userMessage }, userMessage: userMessage || '' },
         prompt,
       );
       const text = llm.suggestedReply || '';
       const parsed = JSON.parse(text);
-      if (parsed && parsed.title && parsed.description) {
-        return { title: parsed.title, description: parsed.description };
+      if (parsed?.title && typeof parsed.title === 'string') {
+        title = String(parsed.title).trim();
       }
     } catch (e) {
-      // fallback to basic heuristic below
+      // fallback abaixo
     }
 
-    const title = goalTitle ? (goalTitle.split(/\s+/).slice(0, 8).join(' ') || 'Progresso') : (userName ? `Progresso de ${userName}` : 'Progresso');
-    const description = goalTitle ? `Progresso em ${goalTitle}` : `Progresso registrado.`;
+    if (!title) {
+      title = 'Mais um passo';
+    }
+    if (!description) {
+      const now = new Date();
+      const hora = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      description = `Registrado às ${hora}`;
+    }
     return { title, description };
   }
 

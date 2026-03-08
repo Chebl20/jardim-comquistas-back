@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { UserGoalService } from '../../../goals/user-goal.service';
 import { FLOW_STATES } from '../flow.types';
 import { NucleusMetaBuilder, NucleusMetaBuildContext } from './nucleus-meta.builder';
+import { formatScheduleSummary } from '../../../shared/schedule-formatter.util';
+import type { ScheduleConfig } from '../flow.types';
 
 @Injectable()
 export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
@@ -37,11 +39,44 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
           timeZone: timezone,
         });
 
+      const nextReminderFromSchedule = (sc: ScheduleConfig): string | null => {
+        if (sc.type === 'once') {
+          const reminder = new Date(sc.at);
+          const userNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+          const userReminder = new Date(reminder.toLocaleString('en-US', { timeZone: timezone }));
+          const diffDays = Math.floor(
+            (userReminder.setHours(0, 0, 0, 0) - new Date(userNow.toDateString()).getTime()) / 86400000,
+          );
+          const timeStr = formatTime(reminder);
+          if (userReminder <= userNow) {
+            if (diffDays === 0) return `hoje às ${timeStr}`;
+            return null;
+          }
+          const dateLabel = diffDays === 0 ? 'hoje' : diffDays === 1 ? 'amanhã' : `em ${diffDays} dias`;
+          return `${dateLabel} às ${timeStr}`;
+        }
+        if (sc.type === 'daily' || sc.type === 'weekly') {
+          const timeStr = sc.times[0];
+          if (!timeStr) return null;
+          const userNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+          const [hh, mm] = timeStr.split(':').map(Number);
+          const userReminderToday = new Date(userNow);
+          userReminderToday.setHours(hh || 0, mm || 0, 0, 0);
+          return userReminderToday > userNow ? `hoje às ${timeStr}` : `amanhã às ${timeStr}`;
+        }
+        return null;
+      };
+
       const nextReminderLabel = (
         reminderTimeDt: Date | string | null,
         goalType: string,
         frequency: number | null,
+        scheduleConfig?: unknown,
       ): string | null => {
+        const sc = scheduleConfig as ScheduleConfig | undefined;
+        if (sc && typeof sc === 'object' && (sc.type === 'once' || sc.type === 'daily' || sc.type === 'weekly')) {
+          return nextReminderFromSchedule(sc);
+        }
         if (!reminderTimeDt) return null;
         try {
           const reminder = new Date(reminderTimeDt);
@@ -50,10 +85,13 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
           if (goalType === 'Pontual') {
             const userNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
             const userReminder = new Date(reminder.toLocaleString('en-US', { timeZone: timezone }));
-            if (userReminder <= userNow) return null;
             const diffDays = Math.floor(
               (userReminder.setHours(0, 0, 0, 0) - new Date(userNow.toDateString()).getTime()) / 86400000,
             );
+            if (userReminder <= userNow) {
+              if (diffDays === 0) return `hoje às ${timeStr}`;
+              return null;
+            }
             const dateLabel =
               diffDays === 0 ? 'hoje' : diffDays === 1 ? 'amanhã' : `em ${diffDays} dias`;
             return `${dateLabel} às ${timeStr}`;
@@ -79,14 +117,22 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
         }
       };
 
-      const goals = await this.userGoalService.getGoalsForUser(userId);
-      const total = Array.isArray(goals) ? goals.length : 0;
+      const allGoals = await this.userGoalService.getGoalsForUser(userId);
+      const goals = (allGoals || []).filter(
+        (g: any) => !(g.goalType === 'Pontual' && g.completed === true),
+      );
+      const completedPontualGoals = (allGoals || []).filter(
+        (g: any) => g.goalType === 'Pontual' && g.completed === true,
+      );
+      const total = goals.length;
 
       const summarizeGoal = (g: any) => {
         const reminderFormatted = g.reminderTime ? formatTime(g.reminderTime) : null;
-        const nextReminder = g.reminderTime
-          ? nextReminderLabel(g.reminderTime, g.goalType, g.frequency ?? null)
-          : null;
+        const nextReminder =
+          g.scheduleConfig || g.reminderTime
+            ? nextReminderLabel(g.reminderTime, g.goalType, g.frequency ?? null, g.scheduleConfig)
+            : null;
+        const scheduleSummary = g.scheduleConfig ? formatScheduleSummary(g.scheduleConfig, timezone) : null;
         return {
           id: g.id,
           title: g.title,
@@ -94,6 +140,8 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
           conquestType: g.conquestType,
           completed: g.completed,
           reminderTime: reminderFormatted,
+          scheduleConfig: g.scheduleConfig,
+          scheduleSummary,
           nextReminder,
           frequency: g.frequency ?? null,
           currentStage: g.plantedTree?.actualStage,
@@ -120,6 +168,17 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
         meta._fullUserGoalsAvailable = true;
       }
       meta.totalGoals = total;
+
+      meta.userGoalsSummaryCompletedPontual = (completedPontualGoals || []).map((g: any) => ({
+        id: g.id,
+        title: g.title,
+        type: g.goalType,
+        conquestType: g.conquestType,
+        completed: true,
+        reminderTime: g.reminderTime ? formatTime(g.reminderTime) : null,
+        scheduleSummary: g.scheduleConfig ? formatScheduleSummary(g.scheduleConfig, timezone) : null,
+      }));
+      meta.totalCompletedPontual = meta.userGoalsSummaryCompletedPontual.length;
     } catch (e) {
       this.logger.warn('Failed to fetch userGoals for GoalStatus nucleus', e);
     }

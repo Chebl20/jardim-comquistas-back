@@ -1,5 +1,5 @@
 import { inferTypeFromPath } from './infer-type-from-path.util';
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { prisma } from '../../prisma/client';
 import { WorldsConfigService } from './worlds-config.service';
 import { TreesImportService } from './trees-import.service';
@@ -8,6 +8,8 @@ import { CommunicationService } from '../shared/communication.service';
 
 @Injectable()
 export class WorldsEventsService {
+  private readonly logger = new Logger(WorldsEventsService.name);
+
   constructor(
     private readonly configService: WorldsConfigService,
     private readonly importService: TreesImportService,
@@ -138,12 +140,12 @@ export class WorldsEventsService {
 
   async progressPlantedTree(
     worldId: string,
-    body: { plantedTreeId?: string; goalId?: string; title?: string; description?: string; userId?: string },
+    body: { plantedTreeId?: string; goalId?: string; title?: string; description?: string; userId?: string; userMessage?: string },
   ) {
     const safeId = String(worldId || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
 
-    const { plantedTreeId, goalId, title, description, userId } = body || {};
+    const { plantedTreeId, goalId, title, description, userId, userMessage } = body || {};
 
     if (!plantedTreeId && !goalId) throw new BadRequestException('plantedTreeId or goalId required');
 
@@ -157,17 +159,21 @@ export class WorldsEventsService {
 
     if (!resolvedPlantedId) throw new BadRequestException('plantedTreeId could not be resolved');
 
-    // prepare title/description using IA if missing
+    if (!userMessage && goalId) {
+      this.logger.warn(`progressPlantedTree: userMessage ausente para goalId=${goalId} — usando fallback`);
+    }
+
+    // prepare title/description: prefer userMessage como descrição; título criativo via IA
     let metaTitle = title || '';
     let metaDesc = description || '';
-    if ((!metaTitle || !metaDesc) && userId) {
-      // try to obtain goal title for context
+    const needsMetadata = (!metaDesc || !metaTitle) && !!userId;
+    if (needsMetadata && userId) {
       let goalTitle = '';
       if (goalId) {
         const g = await prisma.userGoal.findUnique({ where: { id: goalId }, select: { title: true } });
         if (g?.title) goalTitle = g.title;
       }
-      const md = await this.communicationService.generateProgressMetadata(userId, { goalTitle });
+      const md = await this.communicationService.generateProgressMetadata(userId, { goalTitle, userMessage });
       metaTitle = metaTitle || md.title;
       metaDesc = metaDesc || md.description;
     }
@@ -206,7 +212,9 @@ export class WorldsEventsService {
         await tx.plantedTree.update({ where: { id: planted.id }, data: { actualStage: targetStage } });
       }
 
-      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: title || '', description: description || '' } });
+      const safeDesc = (metaDesc || description || '').trim()
+        || `Registrado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+      const created = await tx.growthEvent.create({ data: { plantedTreeId: planted.id, stage: targetStage, progressIndex, title: metaTitle || title || '', description: safeDesc } });
 
       return { created, plantedId: planted.id, eventStage: targetStage, progressIndex };
     });

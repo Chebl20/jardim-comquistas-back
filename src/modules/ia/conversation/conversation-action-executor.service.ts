@@ -18,6 +18,10 @@ function isValidatedGoalPayload(payload: ValidatedGoalPayload | null | undefined
   if (normalizeConquestType(payload.conquestType) !== payload.conquestType) return false;
   if (payload.frequency !== undefined && (!Number.isInteger(payload.frequency) || payload.frequency <= 0)) return false;
   if (payload.reminderTime !== undefined && typeof payload.reminderTime !== 'string') return false;
+  if (payload.scheduleConfig !== undefined && payload.scheduleConfig !== null) {
+    const sc = payload.scheduleConfig as { type?: string };
+    if (!sc.type || !['once', 'daily', 'weekly'].includes(sc.type)) return false;
+  }
   return true;
 }
 
@@ -95,11 +99,13 @@ export class ConversationActionExecutorService {
         }
 
         try {
-          const created = await this.userGoalService.createUserGoalWithTree({
+          const createData = {
             ...goalData,
             userId,
             worldId,
-          });
+            scheduleConfig: goalData.scheduleConfig ?? undefined,
+          };
+          const created = await this.userGoalService.createUserGoalWithTree(createData);
           this.logger.log(
             `create_goal: created id=${(created as { id?: string; plantedTreeId?: string })?.id} plantedTreeId=${(created as { plantedTreeId?: string })?.plantedTreeId || 'n/a'}`,
           );
@@ -122,7 +128,7 @@ export class ConversationActionExecutorService {
 
       case 'mark_done': {
         try {
-          const { goalId, goalTitle, goalDescription, goalType } = action.payload;
+          const { goalId, goalTitle, goalType, userMessage } = action.payload;
           if (goalId) {
             await this.userGoalService.markGoalDoneFromReminder(goalId, goalType);
             this.logger.log(`Goal ${goalId} marked done via reminder`);
@@ -131,8 +137,7 @@ export class ConversationActionExecutorService {
             await this.worldsEventsService.progressPlantedTree(worldId, {
               goalId,
               userId,
-              title: goalTitle,
-              description: goalDescription,
+              userMessage,
             });
           } catch (inner) {
             this.logger.warn('failed to record growth event after reminder', inner);
@@ -160,6 +165,48 @@ export class ConversationActionExecutorService {
           }
         } catch (e) {
           this.logger.error('update_reminder action failed', e);
+        }
+        return {};
+      }
+
+      case 'mark_multiple_done': {
+        const { goals, userMessage } = action.payload;
+        try {
+          if (Array.isArray(goals) && goals.length > 0) {
+            for (const g of goals) {
+              if (g?.id) {
+                await this.userGoalService.markGoalDoneFromReminder(g.id);
+                this.logger.log(`Goal ${g.id} marked done via mark_multiple_done`);
+                try {
+                  await this.worldsEventsService.progressPlantedTree(worldId, {
+                    goalId: g.id,
+                    userId,
+                    userMessage,
+                  });
+                } catch (inner) {
+                  this.logger.warn('failed to record growth event after mark_multiple_done', inner);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          this.logger.error('mark_multiple_done action failed', e);
+        }
+        return {};
+      }
+
+      case 'dismiss_goal_for_today': {
+        const { goalId, silenceUntil } = (action.payload as { goalId: string; silenceUntil?: string | Date });
+        try {
+          if (goalId) {
+            const until = typeof silenceUntil === 'string' ? new Date(silenceUntil) : silenceUntil;
+            await this.userGoalService.updateReminderState(goalId, {
+              silenceUntil: until ?? undefined,
+            });
+            this.logger.log(`Goal ${goalId} dismissed for today`);
+          }
+        } catch (e) {
+          this.logger.error('dismiss_goal_for_today action failed', e);
         }
         return {};
       }

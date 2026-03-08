@@ -46,6 +46,8 @@ export interface ReminderMeta {
   reminderTime?: string;
   reminderCount?: number;
   pendingCount?: number;
+  doneCount?: number;
+  totalCount?: number;
   userName?: string;
   userReply?: string;
   reminderKind?: ReminderKind;
@@ -53,6 +55,8 @@ export interface ReminderMeta {
   lastProgressAt?: string;
   goalCreatedAt?: string;
   timezone?: string;
+  otherGoals?: Array<{ id: string; title: string }>;
+  pendingGoalIds?: string[];
   reminderContext?: {
     reminderKind?: ReminderKind;
     pendingGoalId?: string;

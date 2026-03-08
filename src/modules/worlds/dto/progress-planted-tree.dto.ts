@@ -12,4 +12,8 @@ export class ProgressPlantedTreeDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsString()
+  userMessage?: string;
 }
