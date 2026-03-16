@@ -49,7 +49,7 @@ export class UserGoalService {
         case conquest.includes('espiritual'):
           family = 'b';
           break;
-        case conquest.includes('financeiro') || conquest.includes('financeiro'):
+        case conquest.includes('financeiro'):
           family = 'c';
           break;
         case conquest.includes('hobby') || conquest.includes('lazer'):
@@ -60,9 +60,20 @@ export class UserGoalService {
           family = 'b';
       }
     } else {
-      const familyA = ['Corpo', 'Espiritual', 'Saúde', 'Água'];
-      if (familyA.some((t) => conquest.includes(t.toLowerCase()))) {
-        family = 'a';
+      // Metas contínuas: mapear para a, b, c, d
+      switch (true) {
+        case conquest.includes('corpo') || conquest.includes('espiritual') || conquest.includes('saud') || conquest.includes('agua'):
+          family = 'a';
+          break;
+        case conquest.includes('financeiro'):
+          family = 'c';
+          break;
+        case conquest.includes('hobby') || conquest.includes('lazer'):
+          family = 'd';
+          break;
+        default:
+          // Mente, Familia, Trabalho, Social → 'b'
+          family = 'b';
       }
     }
     // Inferir o type a partir do contexto/pasta (exemplo: pode vir de data.path ou outro campo)
@@ -484,34 +495,40 @@ export class UserGoalService {
   }
 
   /**
-   * Retorna metas que têm lembretes agendados para hoje (no timezone do usuário).
-   * Usado pelo resumo diário (DailyDigest).
+   * Retorna metas relevantes para uma data específica (no timezone do usuário).
+   * @param includeCompleted - quando true, inclui pontuais concluídas (para exibição "metas para hoje")
    */
-  async getGoalsForTodayForUser(userId: string, timezone = 'America/Sao_Paulo') {
+  async getGoalsForDateForUser(
+    userId: string,
+    targetDate: DateTime,
+    timezone = 'America/Sao_Paulo',
+    options?: { includeCompleted?: boolean },
+  ) {
     const all = await this.getGoalsForUser(userId);
-    const now = DateTime.now().setZone(timezone);
-    const todayDow = now.weekday === 7 ? 0 : now.weekday; // 0=Dom, 1=Seg..6=Sab
-    const todayStart = now.startOf('day');
+    const targetDow = targetDate.weekday === 7 ? 0 : targetDate.weekday; // 0=Dom, 1=Seg..6=Sab
+    const targetStart = targetDate.startOf('day');
 
     return all.filter((g: any) => {
-      if (g.completed) return false;
+      const isPontualCompleted = g.goalType === 'Pontual' && g.completed === true;
+      if (!(options?.includeCompleted ?? false) && isPontualCompleted) return false;
+
       const sc = g.scheduleConfig as import('../ia/conversation/flow.types').ScheduleConfig | null;
       if (sc && typeof sc === 'object') {
         if (sc.type === 'once') {
           const at = new Date(sc.at);
           const userAt = DateTime.fromJSDate(at).setZone(timezone);
-          return userAt.hasSame(todayStart, 'day');
+          return userAt.hasSame(targetStart, 'day');
         }
         if (sc.type === 'daily') {
           if (sc.durationDays) {
             const createdAt = DateTime.fromJSDate(new Date(g.createdAt)).setZone(timezone);
-            const daysSince = Math.floor(now.diff(createdAt, 'days').days);
+            const daysSince = Math.floor(targetDate.diff(createdAt, 'days').days);
             return daysSince < sc.durationDays;
           }
           return true;
         }
         if (sc.type === 'weekly') {
-          return sc.daysOfWeek.includes(todayDow);
+          return sc.daysOfWeek.includes(targetDow);
         }
       }
       // Legado: reminderTime ou frequency
@@ -519,6 +536,25 @@ export class UserGoalService {
       if (g.frequency && g.frequency >= 1) return true;
       return false;
     });
+  }
+
+  /**
+   * Retorna metas que têm lembretes agendados para hoje (no timezone do usuário).
+   * Usado pelo resumo diário (DailyDigest).
+   */
+  async getGoalsForTodayForUser(userId: string, timezone = 'America/Sao_Paulo') {
+    const now = DateTime.now().setZone(timezone);
+    return this.getGoalsForDateForUser(userId, now, timezone, { includeCompleted: false });
+  }
+
+  /**
+   * Retorna metas que estarão pendentes amanhã (no timezone do usuário).
+   * Usado pelo GoalStatus para perguntas "metas para amanhã".
+   */
+  async getGoalsForTomorrowForUser(userId: string, timezone = 'America/Sao_Paulo') {
+    const now = DateTime.now().setZone(timezone);
+    const tomorrow = now.plus({ days: 1 });
+    return this.getGoalsForDateForUser(userId, tomorrow, timezone, { includeCompleted: false });
   }
 
   /**
@@ -564,8 +600,8 @@ export class UserGoalService {
                 description: true,
                 progressIndex: true,
               },
-              orderBy: { createdAt: 'asc' },
-              take: 3,
+              orderBy: { createdAt: 'desc' },
+              take: 30,
             },
           },
         },

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DateTime } from 'luxon';
 import { UserGoalService } from '../../../goals/user-goal.service';
 import { FLOW_STATES } from '../flow.types';
 import { NucleusMetaBuilder, NucleusMetaBuildContext } from './nucleus-meta.builder';
@@ -20,10 +21,12 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
   async build(context: NucleusMetaBuildContext): Promise<Record<string, any>> {
     const { sessionPayload, worldId, userId, timezone } = context;
     const recent = Array.isArray(sessionPayload.recentMessages) ? sessionPayload.recentMessages : [];
+    const now = new Date();
     const meta: Record<string, any> = {
       ...sessionPayload,
       worldId,
       recentMessages: recent.slice(-this.recentMessagesContext),
+      nowISO: now.toISOString(),
     };
 
     if (meta.userGoalsSummary) {
@@ -31,7 +34,6 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
     }
 
     try {
-      const now = new Date();
       const formatTime = (dt: Date | string): string =>
         new Date(dt).toLocaleTimeString('pt-BR', {
           hour: '2-digit',
@@ -133,6 +135,12 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
             ? nextReminderLabel(g.reminderTime, g.goalType, g.frequency ?? null, g.scheduleConfig)
             : null;
         const scheduleSummary = g.scheduleConfig ? formatScheduleSummary(g.scheduleConfig, timezone) : null;
+        const growthEvents = Array.isArray(g.plantedTree?.growthEvents) ? g.plantedTree.growthEvents : [];
+        const recentProgress = growthEvents.slice(0, 3).map((p: any) => ({
+          date: p.createdAt,
+          title: p.title,
+          description: p.description,
+        }));
         return {
           id: g.id,
           title: g.title,
@@ -145,13 +153,10 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
           nextReminder,
           frequency: g.frequency ?? null,
           currentStage: g.plantedTree?.actualStage,
-          recentProgress: Array.isArray(g.progresses)
-            ? g.progresses.slice(-3).map((p: any) => ({
-                date: p.createdAt,
-                title: p.title,
-                description: p.description,
-              }))
-            : [],
+          recentProgress,
+          growthEvents: growthEvents.map((ge: any) => ({
+            createdAt: typeof ge.createdAt === 'string' ? ge.createdAt : new Date(ge.createdAt).toISOString(),
+          })),
         };
       };
 
@@ -176,9 +181,30 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
         conquestType: g.conquestType,
         completed: true,
         reminderTime: g.reminderTime ? formatTime(g.reminderTime) : null,
+        scheduleConfig: g.scheduleConfig,
         scheduleSummary: g.scheduleConfig ? formatScheduleSummary(g.scheduleConfig, timezone) : null,
       }));
       meta.totalCompletedPontual = meta.userGoalsSummaryCompletedPontual.length;
+
+      const todayGoals = await this.userGoalService.getGoalsForDateForUser(
+        userId,
+        DateTime.now().setZone(timezone),
+        timezone,
+        { includeCompleted: true },
+      );
+      const tomorrowGoals = await this.userGoalService.getGoalsForTomorrowForUser(userId, timezone);
+
+      const todaySummarized = todayGoals.map((g: any) => summarizeGoal(g));
+      const nowDt = DateTime.now().setZone(timezone);
+      const todayDow = nowDt.weekday === 7 ? 0 : nowDt.weekday;
+      meta.userGoalsSummaryForToday = todaySummarized.filter((s: any) => {
+        const nr = String(s?.nextReminder || '');
+        if (s?.type === 'Pontual' && (nr.startsWith('amanhã') || nr.startsWith('em '))) return false;
+        const sc = s?.scheduleConfig;
+        if (sc?.type === 'weekly' && Array.isArray(sc.daysOfWeek) && !sc.daysOfWeek.includes(todayDow)) return false;
+        return true;
+      });
+      meta.userGoalsSummaryForTomorrow = tomorrowGoals.map((g: any) => summarizeGoal(g));
     } catch (e) {
       this.logger.warn('Failed to fetch userGoals for GoalStatus nucleus', e);
     }

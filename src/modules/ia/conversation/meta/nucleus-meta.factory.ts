@@ -2,12 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { NucleusMetaBuildContext, NucleusMetaBuilder } from './nucleus-meta.builder';
 import { GoalStatusMetaBuilder } from './goal-status-meta.builder';
 import { GoalProgressMetaBuilder } from './goal-progress-meta.builder';
+import { WorldsService } from '../../../worlds/worlds.service';
 
 @Injectable()
 export class NucleusMetaFactory {
   constructor(
     private readonly goalStatusMetaBuilder: GoalStatusMetaBuilder,
     private readonly goalProgressMetaBuilder: GoalProgressMetaBuilder,
+    private readonly worldsService: WorldsService,
   ) {}
 
   async build(context: NucleusMetaBuildContext): Promise<Record<string, any>> {
@@ -27,9 +29,18 @@ export class NucleusMetaFactory {
       supports: () => true,
       build: async ({ sessionPayload, worldId }) => {
         const recent = Array.isArray(sessionPayload.recentMessages) ? sessionPayload.recentMessages : [];
+        let worldName: string | undefined;
+        try {
+          const world = await this.worldsService.getWorldById(worldId);
+          worldName = world?.name;
+        } catch {
+          // fallback: derive from worldId (ex: mundo2 → Mundo2)
+          worldName = worldId.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase());
+        }
         return {
           ...sessionPayload,
           worldId,
+          worldName: worldName || worldId,
           recentMessages: recent.slice(-3),
         };
       },
