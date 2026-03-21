@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Param, Body, Res, HttpStatus, Query, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
 import { createReadStream, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { Response } from 'express';
@@ -8,6 +9,7 @@ import { WorldsService } from './worlds.service';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { prisma } from '../../prisma/client';
 
+@ApiTags('Mundos — SVG e Scan')
 @Controller('api/worlds')
 export class WorldsSvgController {
   constructor(
@@ -17,6 +19,10 @@ export class WorldsSvgController {
   ) {}
 
   @Get(':id/svg')
+  @ApiOperation({ summary: 'Obter SVG do mundo', description: 'Retorna o arquivo SVG de fundo do mundo especificado.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiResponse({ status: 200, description: 'Arquivo SVG retornado.' })
+  @ApiResponse({ status: 404, description: 'Mundo ou SVG não encontrado.' })
   async getSvg(@Param('id') id: string, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
@@ -34,14 +40,15 @@ export class WorldsSvgController {
   }
 
   @Get()
+  @ApiOperation({ summary: 'Listar mundos', description: 'Retorna todos os mundos cadastrados com resumo.' })
+  @ApiResponse({ status: 200, description: 'Lista de mundos.' })
   async getWorlds() {
     const worlds = await this.worldsService.getAllWorlds();
-    // Return a summarized view (no large config payload)
     return worlds.map((w: any) => {
       let bgPublicUrl: string | undefined;
       try {
         if (typeof w.svgPath === 'string' && w.svgPath.startsWith('supabase://')) {
-          const rest = w.svgPath.replace(/^supabase:\/\//, ''); // bucket/path...
+          const rest = w.svgPath.replace(/^supabase:\/\//, '');
           const parts = rest.split('/');
           const bucket = parts.shift();
           const p = parts.join('/');
@@ -61,13 +68,16 @@ export class WorldsSvgController {
   }
 
   @Post('scan')
+  @ApiOperation({ summary: 'Escanear mundos do Supabase', description: 'Lista os arquivos de mundos no bucket do Supabase e sincroniza anchors/configs no banco.' })
+  @ApiQuery({ name: 'bucket', required: false, description: 'Nome do bucket no Supabase' })
+  @ApiQuery({ name: 'debug', required: false, description: 'Ativar debug (1 ou true)' })
+  @ApiResponse({ status: 200, description: 'Resultado do scan.' })
   async scanWorlds(@Query('bucket') bucket?: string, @Query('debug') debug?: string) {
     const logger = new Logger('WorldsScan');
     const client = this.supabaseService.getClient();
     const dbg = debug === '1' || debug === 'true';
     const bucketName = bucket || process.env.SUPABASE_BUCKET || 'jardim-das-conquistas';
 
-    // recursive list under 'words/' similar to TreesImportService
     const basePrefix = 'words/';
     const queue: string[] = [basePrefix];
     const fileExtRegex = /\.(svg|png|jpg|jpeg)$/i;
@@ -98,7 +108,6 @@ export class WorldsSvgController {
       }
     }
 
-    // group by worldId = first segment after 'words/'
     const worldsMap: Record<string, { anchors?: string; bg?: string; files: string[] }> = {};
     for (const it of items) {
       const rel = it.path.replace(/^words\//, '');
@@ -108,7 +117,6 @@ export class WorldsSvgController {
       if (!worldsMap[worldId]) worldsMap[worldId] = { files: [] };
       worldsMap[worldId].files.push(it.path);
       const fname = segs.slice(1).join('/').toLowerCase();
-      // aceita qualquer arquivo .svg cujo nome contenha 'anchors' (ex: anchors.svg, anchors1.svg, my-anchors.svg)
       const baseName = fname.split('/').pop() || fname;
       if (baseName.endsWith('.svg') && baseName.includes('anchors')) worldsMap[worldId].anchors = it.path;
       if (baseName === 'bg.svg' || baseName.endsWith('/bg.svg') || baseName === 'bg.svg') worldsMap[worldId].bg = it.path;
@@ -127,14 +135,11 @@ export class WorldsSvgController {
         const anchorsText = await this.supabaseService.getSvgFromStorage(bucketName, info.anchors);
         const anchorsJson = await parseSVGLayout(anchorsText);
 
-        // Ensure world exists before creating worldConfig (worldConfig has FK -> world)
         const name = (this.worldsService as any).deriveName ? (this.worldsService as any).deriveName(worldId) : worldId;
-        // Prefer background SVG when available; fall back to anchors if not.
         const resource = info.bg || info.anchors;
         const svgPath = `supabase://${bucketName}/${resource}`;
         await prisma.world.upsert({ where: { worldId }, update: { name, svgPath, updatedAt: new Date() }, create: { worldId, name, svgPath } });
 
-        // Now upsert config
         await this.configService.upsert(worldId, { anchors: anchorsJson as any });
 
         scanned.push(worldId);
@@ -151,6 +156,10 @@ export class WorldsSvgController {
   }
 
   @Post(':id/svg')
+  @ApiOperation({ summary: 'Upload SVG do mundo', description: 'Faz upload de um SVG como background para o mundo.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiBody({ schema: { type: 'object', required: ['svg'], properties: { svg: { type: 'string', description: 'Conteúdo SVG em texto' } } } })
+  @ApiResponse({ status: 201, description: 'SVG salvo com sucesso.' })
   async uploadSvg(@Param('id') id: string, @Body() body: { svg?: string }, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
@@ -181,6 +190,9 @@ export class WorldsSvgController {
   }
 
   @Post(':id/anchors-config/regenerate')
+  @ApiOperation({ summary: 'Regenerar config de anchors', description: 'Reprocessa o SVG do mundo e regenera a configuração de anchors.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiResponse({ status: 200, description: 'Config regenerada.' })
   async regenerateAnchorsConfig(@Param('id') id: string, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');

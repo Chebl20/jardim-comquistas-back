@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -10,6 +11,17 @@ async function bootstrap() {
   // Habilita validação automática de DTOs
   app.useGlobalPipes(new ValidationPipe());
 
+  // Swagger
+  const config = new DocumentBuilder()
+    .setTitle('Jardim das Conquistas API')
+    .setDescription('API do backend do Jardim das Conquistas — gerenciamento de metas, mundos, árvores e integração com Telegram.')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
+
   await app.listen(3000);
 }
 bootstrap();
+

@@ -1,22 +1,25 @@
 import { Controller, Get, Post, Patch, Param, Body, Res, HttpStatus, BadRequestException } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { WorldsConfigService } from './worlds-config.service';
 import { WorldsService } from './worlds.service';
 
+@ApiTags('Mundos — Anchors e Config')
 @Controller('api/worlds')
 export class WorldsAnchorsController {
   constructor(private readonly configService: WorldsConfigService, private readonly worldsService: WorldsService) {}
 
   @Get(':id/anchors-config')
+  @ApiOperation({ summary: 'Obter config de anchors', description: 'Retorna a configuração de anchors (posições de plantio) de um mundo.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiResponse({ status: 200, description: 'Config retornada.' })
+  @ApiResponse({ status: 404, description: 'Config não encontrada.' })
   async getAnchorsConfig(@Param('id') id: string, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
     try {
-      // Primeiro tenta retornar o config persistido no banco (caso a sincronização
-      // já tenha gerado as anchors). Isso evita depender de arquivos locais
-      // (ex: quando o SVG está no Supabase ou foi escaneado remotamente).
       const saved = await this.configService.getByWorldId(safeId);
       if (saved && saved.anchors) {
         let payload: any = { anchors: [] };
@@ -35,19 +38,20 @@ export class WorldsAnchorsController {
         return res.status(HttpStatus.OK).json({ ...payload, meta: { version: '1.0', source: 'db', updatedAt: saved.updatedAt } });
       }
 
-      // Não procurar por arquivos locais: os SVGs vivem no Supabase.
-      // Se não houver config no DB, retornar instrução para regenerar.
       return res.status(HttpStatus.NOT_FOUND).json({ ok: false, error: 'config not found. Use POST /api/worlds/:id/anchors-config/regenerate to generate it.' });
     } catch (err) {
       return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: String(err) });
     }
 
-    // Caso o código alcance este ponto (isso não deveria ocorrer) devolve erro genérico
     return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ ok: false, error: 'unexpected error' });
     
   }
 
   @Get(':id/config')
+  @ApiOperation({ summary: 'Obter config completa do mundo', description: 'Retorna a configuração completa (anchors + metadata) do mundo.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiResponse({ status: 200, description: 'Config retornada.' })
+  @ApiResponse({ status: 404, description: 'Config não encontrada.' })
   async getConfig(@Param('id') id: string, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
@@ -61,6 +65,10 @@ export class WorldsAnchorsController {
   }
 
   @Patch(':id/config/node')
+  @ApiOperation({ summary: 'Editar nó do config', description: 'Atualiza propriedades de um nó (anchor) específico na configuração do mundo.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiBody({ schema: { type: 'object', properties: { layer: { type: 'string' }, slot: { type: 'string' }, x: { type: 'number' }, y: { type: 'number' }, treeType: { type: 'string' }, growth: { type: 'number', minimum: 1, maximum: 6 } } } })
+  @ApiResponse({ status: 200, description: 'Nó atualizado.' })
   async patchNode(@Param('id') id: string, @Body() body: any, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');
@@ -95,6 +103,9 @@ export class WorldsAnchorsController {
   }
 
   @Post(':id/anchors-config/regenerate')
+  @ApiOperation({ summary: 'Regenerar config de anchors', description: 'Reprocessa o SVG e regenera a configuração de anchors do mundo.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiResponse({ status: 200, description: 'Config regenerada.' })
   async regenerateAnchorsConfig(@Param('id') id: string, @Res() res: Response) {
     const safeId = id.replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) return res.status(HttpStatus.BAD_REQUEST).send('invalid world id');

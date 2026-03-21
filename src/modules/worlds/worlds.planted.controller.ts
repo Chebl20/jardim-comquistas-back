@@ -1,11 +1,22 @@
 import { Controller, Get, Delete, Param, Query, BadRequestException, UseGuards, Req } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '../../auth/auth.guard';
 import { prisma } from '../../prisma/client';
 
+@ApiTags('Mundos — Árvores Plantadas')
+@ApiBearerAuth()
 @UseGuards(AuthGuard)
 @Controller('api/worlds')
 export class WorldsPlantedController {
   @Get(':id/planted-trees')
+  @ApiOperation({ summary: 'Listar árvores plantadas', description: 'Retorna as árvores plantadas do usuário autenticado no mundo especificado.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiQuery({ name: 'anchorId', required: false })
+  @ApiQuery({ name: 'treeCatalogId', required: false })
+  @ApiQuery({ name: 'stage', required: false, description: 'Estágio de crescimento' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Limite de resultados (padrão: 100)' })
+  @ApiQuery({ name: 'offset', required: false, description: 'Offset para paginação' })
+  @ApiResponse({ status: 200, description: 'Lista de árvores plantadas.' })
   async listPlantedTrees(
     @Param('id') id: string,
     @Req() req: any,
@@ -18,8 +29,6 @@ export class WorldsPlantedController {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
 
-
-    // Filtro por userId (cada usuário só vê suas árvores)
     const userId = req?.user?.userId;
     if (!userId) throw new BadRequestException('userId não encontrado no contexto da requisição');
 
@@ -49,6 +58,10 @@ export class WorldsPlantedController {
   }
 
   @Delete(':id/planted-trees/:plantedTreeId')
+  @ApiOperation({ summary: 'Deletar árvore plantada', description: 'Remove uma árvore plantada específica com seus eventos e metas associadas.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiParam({ name: 'plantedTreeId', description: 'ID da árvore plantada' })
+  @ApiResponse({ status: 200, description: 'Árvore removida.' })
   async deletePlantedTreeById(@Param('id') id: string, @Param('plantedTreeId') plantedTreeId: string) {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
@@ -60,7 +73,6 @@ export class WorldsPlantedController {
       if (!planted) throw new BadRequestException('planted tree not found');
       if (planted.worldId !== safeId) throw new BadRequestException('planted tree does not belong to this world');
 
-      // Deletar UserGoal associado antes de deletar a árvore
       await tx.userGoal.deleteMany({ where: { plantedTreeId: pid } });
 
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: pid } });
@@ -72,6 +84,10 @@ export class WorldsPlantedController {
   }
 
   @Delete(':id/planted-trees')
+  @ApiOperation({ summary: 'Limpar todas as árvores plantadas', description: 'Remove todas as árvores plantadas de um mundo. Requer confirm=1.' })
+  @ApiParam({ name: 'id', description: 'ID do mundo' })
+  @ApiQuery({ name: 'confirm', required: true, description: 'Confirmação (1 ou true)' })
+  @ApiResponse({ status: 200, description: 'Árvores removidas.' })
   async clearPlantedTrees(@Param('id') id: string, @Query('confirm') confirm?: string) {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
@@ -84,7 +100,6 @@ export class WorldsPlantedController {
       const ids = (plantedRows || []).map((r: any) => r.id);
       if (!ids.length) return { ok: true, deletedPlantedTrees: 0, deletedEvents: 0 };
 
-      // Deletar UserGoal associados antes de deletar as árvores
       await tx.userGoal.deleteMany({ where: { plantedTreeId: { in: ids } } });
 
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: { in: ids } } });
