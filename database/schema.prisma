@@ -1,0 +1,291 @@
+// ============================================================================
+// Schema Prisma Completo do Sistema de Metas com Granularidades
+// ============================================================================
+// Autor: Cascade AI
+// Data: 2026-03-24
+// Descrição: Modelagem otimizada para suportar alterações pontuais,
+//            transferências entre dias e override de horários
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum GoalType {
+  PONTUAL
+  CONTINUA
+}
+
+enum ConquestType {
+  CORPO
+  MENTE
+  FAMILIA
+  TRABALHO
+  SOCIAL
+  FINANCEIRO
+  ESPIRITUAL
+  HOBBY_LAZER
+}
+
+enum Granularity {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum InstanceStatus {
+  PENDING
+  DONE
+  SKIPPED
+  MISSED
+}
+
+enum PeriodType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum InstanceLogAction {
+  MARK_DONE
+  SKIP
+  UNSKIP
+  SNOOZE
+  TRANSFER
+  OVERRIDE_TIME
+}
+
+// ----------------------------------------------------------------------------
+// MODELO: GoalDefinition (Catálogo / SKU de metas)
+// ----------------------------------------------------------------------------
+
+model GoalDefinition {
+  id           String        @id @default(uuid())
+  title        String        @db.VarChar(255)
+  description  String?       @db.Text
+  goalType     GoalType
+  conquestType ConquestType
+  icon         String?       @db.VarChar(50)
+  accentColor  String?       @db.VarChar(7)
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now()) @db.Timestamptz
+  updatedAt    DateTime      @updatedAt @db.Timestamptz
+
+  // Relações
+  schedules    GoalSchedule[]
+  userGoals    UserGoal[]
+
+  @@index([goalType, conquestType, isActive], map: "idx_goal_definition_type_conquest")
+  @@index([title], map: "idx_goal_definition_title")
+  @@map("goal_definition")
+}
+
+// ----------------------------------------------------------------------------
+// MODELO: GoalSchedule (Programação / Frequência)
+// ----------------------------------------------------------------------------
+
+model GoalSchedule {
+  id               String      @id @default(uuid())
+  goalDefinitionId String
+  granularity      Granularity
+  daysOfWeek       Int[]       @default([])
+  dayOfMonth       Int?       @db.SmallInt
+  times            String[]    @default([]) // HH:MM format
+  startDate        DateTime    @default(now()) @db.Date
+  endDate          DateTime?   @db.Date
+  durationDays     Int?
+  createdAt        DateTime    @default(now()) @db.Timestamptz
+  updatedAt        DateTime    @updatedAt @db.Timestamptz
+
+  // Relações
+  goalDefinition   GoalDefinition @relation(fields: [goalDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([goalDefinitionId], map: "idx_goal_schedule_definition")
+  @@index([startDate, endDate], map: "idx_goal_schedule_validity")
+  @@map("goal_schedule")
+}
+
+// ----------------------------------------------------------------------------
+// MODELO: UserGoal (Instância de uma meta para um usuário)
+// ----------------------------------------------------------------------------
+
+model UserGoal {
+  id                String      @id @default(uuid())
+  userId            String
+  goalDefinitionId  String
+  plantedTreeId     String
+  anchorId          String?
+  isActive          Boolean     @default(true)
+  createdAt         DateTime    @default(now()) @db.Timestamptz
+  updatedAt         DateTime    @updatedAt @db.Timestamptz
+
+  // Relações
+  goalDefinition    GoalDefinition @relation(fields: [goalDefinitionId], references: [id], onDelete: Cascade)
+  instances         UserGoalInstance[]
+
+  @@index([userId, isActive], map: "idx_user_goal_user")
+  @@index([goalDefinitionId], map: "idx_user_goal_definition")
+  @@index([plantedTreeId], map: "idx_user_goal_tree")
+  @@map("user_goal")
+}
+
+// ----------------------------------------------------------------------------
+// MODELO: UserGoalInstance (Ocorrência concreta de uma meta em um período)
+// ----------------------------------------------------------------------------
+
+model UserGoalInstance {
+  id                  String             @id @default(uuid())
+  userGoalId          String
+  periodStart         DateTime           @db.Date
+  periodType          PeriodType
+  periodKey           String             @db.VarChar(10)
+  status              InstanceStatus     @default(PENDING)
+  completedAt         DateTime?          @db.Timestamptz
+  completionCount     Int                @default(0)
+  totalSchedules      Int                @default(0)
+
+  // Campos de override para alterações pontuais
+  overrideTimes       String[]?          // HH:MM format
+  overrideDaysOfWeek  Int[]?             @db.SmallInt
+  overridePeriodStart DateTime?           @db.Date
+  isOverridden        Boolean            @default(false)
+
+  createdAt           DateTime           @default(now()) @db.Timestamptz
+  updatedAt           DateTime           @updatedAt @db.Timestamptz
+
+  // Relações
+  userGoal            UserGoal           @relation(fields: [userGoalId], references: [id], onDelete: Cascade)
+  logs                UserGoalInstanceLog[]
+
+  @@unique([userGoalId, periodStart], name: "idx_instance_unique_override")
+  @@index([userGoalId, periodStart, status], map: "idx_instance_user_date_status")
+  @@index([periodStart, periodType, status], map: "idx_instance_pending_daily")
+  @@index([isOverridden], map: "idx_instance_overridden")
+  @@map("user_goal_instance")
+}
+
+// ----------------------------------------------------------------------------
+// MODELO: UserGoalInstanceLog (Histórico de interações)
+// ----------------------------------------------------------------------------
+
+model UserGoalInstanceLog {
+  id                   String             @id @default(uuid())
+  userGoalInstanceId   String
+  action               InstanceLogAction
+  oldStatus            InstanceStatus?
+  newStatus            InstanceStatus?
+  metadata             Json?
+  timestamp            DateTime           @default(now()) @db.Timestamptz
+
+  // Relações
+  userGoalInstance     UserGoalInstance   @relation(fields: [userGoalInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([userGoalInstanceId, timestamp(sort: Desc)], map: "idx_instance_log_instance")
+  @@index([action, timestamp(sort: Desc)], map: "idx_instance_log_action")
+  @@map("user_goal_instance_log")
+}
+
+// ----------------------------------------------------------------------------
+// MODELOS EXISTENTES (mantidos para compatibilidade)
+// ----------------------------------------------------------------------------
+
+model User {
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique
+  password       String
+  linkCode       String?  @unique
+  telegramId     String?  @unique
+  timezone       String   @default("UTC")
+  currentWorldId String?
+  digestEnabled  Boolean  @default(false)
+  digestTime     String?
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  goals                UserGoal[]
+  conversationSessions ConversationSession[]
+}
+
+model World {
+  id        String   @id @default(uuid())
+  worldId   String   @unique
+  name      String
+  svgPath   String
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  config WorldConfig?
+}
+
+model WorldConfig {
+  id              Int      @id @default(autoincrement())
+  worldId         String   @unique
+  anchors         Json
+  defaultTreeType String?
+  defaultGrowth   Int?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  world World? @relation(fields: [worldId], references: [worldId])
+}
+
+model TreeCatalog {
+  id           String        @id @default(uuid())
+  family       String
+  type         String?
+  stages       Json
+  createdAt    DateTime      @default(now()) @db.Timestamptz
+  plantedTrees PlantedTree[]
+
+  @@unique([family, type])
+}
+
+model PlantedTree {
+  id            String   @id @default(uuid())
+  worldId       String
+  anchorId      String
+  treeCatalogId String
+  actualStage   Int
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+
+  treeCatalog  TreeCatalog   @relation(fields: [treeCatalogId], references: [id])
+  growthEvents GrowthEvent[]
+
+  @@index([treeCatalogId])
+}
+
+model GrowthEvent {
+  id            String   @id @default(uuid())
+  plantedTreeId String
+  stage         Int
+  progressIndex Int
+  title         String
+  description   String
+  createdAt     DateTime @default(now()) @db.Timestamptz
+
+  plantedTree PlantedTree @relation(fields: [plantedTreeId], references: [id])
+}
+
+model ConversationSession {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  state     String
+  payload   Json?
+  version   Int      @default(0)
+  expiresAt DateTime
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
