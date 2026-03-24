@@ -69,13 +69,16 @@ export interface SVGParseResult {
 // Função para obter um Document a partir de uma string SVG.
 let getDocumentFromString: (svgText: string) => any;
 // Forçar uso de svgdom.createSVGDocument no Node.js para garantir um DOM SVG real
+// Nota: svgdom agora é ESM-only, então usamos import() dinâmico
 if (typeof DOMParser === 'undefined') {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const svgdom = require('svgdom');
-  if (typeof svgdom.createSVGDocument !== 'function') {
-    throw new Error('svgdom.createSVGDocument não encontrado — instale/atualize a dependência svgdom');
-  }
-  getDocumentFromString = (svgText: string) => svgdom.createSVGDocument(svgText);
+  // Deferimos a importação para quando a função for chamada
+  getDocumentFromString = async (svgText: string) => {
+    const svgdom = await import('svgdom');
+    if (typeof svgdom.createSVGDocument !== 'function') {
+      throw new Error('svgdom.createSVGDocument não encontrado — instale/atualize a dependência svgdom');
+    }
+    return svgdom.createSVGDocument(svgText);
+  };
 } else {
   getDocumentFromString = (svgText: string) => new DOMParser().parseFromString(svgText, 'image/svg+xml');
 }
@@ -175,10 +178,8 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
 
   if (typeof DOMParser === 'undefined') {
     // Node: criar window/svg document via svgdom e @svgdotjs/svg.js
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const svgdom = require('svgdom');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { SVG, registerWindow } = require('@svgdotjs/svg.js');
+    const svgdom = await import('svgdom');
+    const { SVG, registerWindow } = await import('@svgdotjs/svg.js');
     const window = svgdom.createSVGWindow();
     const document = window.document;
     registerWindow(window, document);
@@ -200,7 +201,7 @@ export async function parseSVGLayout(svgText: string): Promise<SVGParseResult> {
     }
     elements = nodes.map((n: any) => n.node);
   } else {
-    const doc = getDocumentFromString(svgText);
+    const doc = await getDocumentFromString(svgText);
 
     const svg = doc.documentElement;
     const viewBoxAttr = svg.getAttribute('viewBox');
