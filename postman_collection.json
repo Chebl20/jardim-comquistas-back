@@ -6,124 +6,199 @@
   },
   "item": [
     {
-      "name": "GET /api/worlds/:id/svg",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/svg",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "svg"]
-        }
-      }
-    },
-    {
-      "name": "POST /api/worlds/:id/svg",
-      "request": {
-        "method": "POST",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"svg\": \"<svg>...</svg>\"\n}"
+      "name": "Worlds",
+      "item": [
+        {
+          "name": "GET /api/worlds/:id/svg",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/svg",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "svg"
+              ]
+            }
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/svg",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "svg"]
-        }
-      }
-    },
-    {
-      "name": "GET /api/worlds/:id/anchors-config",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/anchors-config",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "anchors-config"]
-        }
-      }
-    },
-    {
-      "name": "POST /api/worlds/:id/anchors-config/regenerate",
-      "request": {
-        "method": "POST",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/anchors-config/regenerate",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "anchors-config", "regenerate"]
-        }
-      }
-    },
-    {
-      "name": "GET /api/worlds/:id/config",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/config",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "config"]
-        }
-      }
-    },
-    {
-      "name": "PUT /api/worlds/:id/config",
-      "request": {
-        "method": "PUT",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"anchors\": [],\n  \"defaultTreeType\": \"\",\n  \"defaultGrowth\": 1\n}"
+        {
+          "name": "POST /api/worlds/:id/svg",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"svg\": \"<svg>...</svg>\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/svg",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "svg"
+              ]
+            }
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/config",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "config"]
-        }
-      }
-    },
-    {
-      "name": "PATCH /api/worlds/:id/config",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"anchors\": [],\n  \"defaultTreeType\": \"\",\n  \"defaultGrowth\": 1\n}"
+        {
+          "name": "GET /api/worlds/:id/anchors-config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/anchors-config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "anchors-config"
+              ]
+            }
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/config",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "config"]
-        }
-      }
-    },
-    {
-      "name": "PATCH /api/worlds/:id/config/node",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          { "key": "Content-Type", "value": "application/json" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"layer\": \"\",\n  \"slot\": \"\",\n  \"x\": 0,\n  \"y\": 0,\n  \"treeType\": \"\",\n  \"growth\": 1\n}"
+        {
+          "name": "POST /api/worlds/:id/anchors-config/regenerate",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/anchors-config/regenerate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "anchors-config",
+                "regenerate"
+              ]
+            }
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/api/worlds/:id/config/node",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "worlds", ":id", "config", "node"]
+        {
+          "name": "GET /api/worlds/:id/config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "config"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PUT /api/worlds/:id/config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"anchors\": [],\n  \"defaultTreeType\": \"\",\n  \"defaultGrowth\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "config"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/worlds/:id/config",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"anchors\": [],\n  \"defaultTreeType\": \"\",\n  \"defaultGrowth\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "config"
+              ]
+            }
+          }
+        },
+        {
+          "name": "PATCH /api/worlds/:id/config/node",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"layer\": \"\",\n  \"slot\": \"\",\n  \"x\": 0,\n  \"y\": 0,\n  \"treeType\": \"\",\n  \"growth\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/worlds/:id/config/node",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "worlds",
+                ":id",
+                "config",
+                "node"
+              ]
+            }
+          }
         }
-      }
+      ]
     },
     {
       "name": "GET /",
@@ -132,16 +207,452 @@
         "header": [],
         "url": {
           "raw": "{{baseUrl}}/",
-          "host": ["{{baseUrl}}"],
-          "path": [""]
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            ""
+          ]
         }
       }
+    },
+    {
+      "name": "Users & Auth",
+      "item": [
+        {
+          "name": "POST /api/users/login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"teste@teste.com\",\n  \"password\": \"123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/users/me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "me"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Goals",
+      "item": [
+        {
+          "name": "GET /api/goals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/goals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "goals"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/goals",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Correr 5km\",\n  \"description\": \"Exercicio matinal\",\n  \"conquestType\": \"Corpo\",\n  \"goalType\": \"Continua\",\n  \"worldId\": \"mundo2\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/goals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "goals"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Goal Instances",
+      "item": [
+        {
+          "name": "GET /api/goal-instances?date=2024-10-15",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/goal-instances",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "goal-instances"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/goal-instances/:id/complete",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/goal-instances/:id/complete",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "goal-instances",
+                ":id",
+                "complete"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "GET /api/dashboard",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dashboard?period=day&date=2024-10-15",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dashboard"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "day",
+                  "description": "day, week ou month"
+                },
+                {
+                  "key": "date",
+                  "value": "2024-10-15"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Progress",
+      "item": [
+        {
+          "name": "GET /api/progress/week?date=2024-10-15",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/progress/week",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "progress",
+                "week"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/progress/streaks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/progress/streaks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "progress",
+                "streaks"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Areas",
+      "item": [
+        {
+          "name": "GET /api/areas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/areas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "areas"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "GET /api/events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Reunião de Alinhamento\",\n  \"description\": \"Com equipe\",\n  \"conquestType\": \"Trabalho\",\n  \"worldId\": \"mundo2\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "events"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Garden Guide",
+      "item": [
+        {
+          "name": "GET /api/garden-guide/conversations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/garden-guide/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "garden-guide",
+                "conversations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/garden-guide/conversations/:id/messages",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Me dê uma sugestão de meta hoje\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/garden-guide/conversations/:id/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "garden-guide",
+                "conversations",
+                ":id",
+                "messages"
+              ]
+            }
+          }
+        }
+      ]
     }
   ],
   "variable": [
     {
       "key": "baseUrl",
       "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": "seu_token_aqui"
     }
   ]
 }

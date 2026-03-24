@@ -11,8 +11,13 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ReminderModule } from './modules/reminder/reminder.module';
 ;
 
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { ProgressModule } from './modules/progress/progress.module';
+import { AreasModule } from './modules/areas/areas.module';
+import { EventsModule } from './modules/events/events.module';
+
 @Module({
-  imports: [ScheduleModule.forRoot(), TelegramModule, AiModule, UserGoalModule, UserModule, ReminderModule, SharedModule, WorldsModule],
+  imports: [ScheduleModule.forRoot(), TelegramModule, AiModule, UserGoalModule, UserModule, ReminderModule, SharedModule, WorldsModule, DashboardModule, ProgressModule, AreasModule, EventsModule],
   controllers: [HealthController],
   providers: [],
 })

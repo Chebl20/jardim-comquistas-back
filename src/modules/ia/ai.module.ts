@@ -15,12 +15,14 @@ import { ReminderNucleus } from './nuclei/reminder';
 import { GoalProgressNucleus } from './nuclei/goal-progress';
 import { ReminderPolicyEngine } from '../reminder/policy/reminder-policy.engine';
 import { ReminderObservabilityService } from '../reminder/observability/reminder-observability.service';
+import { GardenGuideController } from './garden-guide.controller';
 import { UserGoalModule } from '../goals/user-goal.module';
 import { WorldsModule } from '../worlds/worlds.module';
 import { SharedModule } from '../shared/shared.module';
 
 @Module({
   imports: [UserGoalModule, forwardRef(() => SharedModule), WorldsModule],
+  controllers: [GardenGuideController],
 providers: [
   ConversationOrchestratorService,
   ConversationActionExecutorService,
