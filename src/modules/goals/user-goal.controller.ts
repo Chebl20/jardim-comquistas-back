@@ -22,7 +22,7 @@ export class UserGoalController {
   @ApiOperation({ summary: 'Detalhes da meta' })
   @ApiResponse({ status: 200, description: 'Detalhes retornados' })
   async getGoalById(@Param('id') id: string, @Req() req: any) {
-    return prisma.userGoal.findFirst({ where: { id, userId: req.user.userId } });
+    return prisma.goal.findFirst({ where: { id, userId: req.user.userId } });
   }
 
   @Post()
@@ -39,14 +39,14 @@ export class UserGoalController {
   @ApiResponse({ status: 200, description: 'Meta atualizada' })
   async updateGoal(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     // Apenas exemplo (prisma update direto)
-    return prisma.userGoal.update({ where: { id }, data: body });
+    return prisma.goal.update({ where: { id }, data: body });
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Deletar meta' })
   @ApiResponse({ status: 200, description: 'Meta deletada' })
   async deleteGoal(@Param('id') id: string, @Req() req: any) {
-    return prisma.userGoal.delete({ where: { id } });
+    return prisma.goal.delete({ where: { id } });
   }
 }
 

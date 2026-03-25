@@ -12,6 +12,7 @@ const MANUAL_DIGEST_TRIGGER = 'DISPARO DE MSG DIARIA';
 export class TelegramService implements OnModuleInit {
   private readonly logger = new Logger(TelegramService.name);
   private bot: TelegramBot;
+  private botInfo: any; // Cache para informações do bot
   // Cache curto para evitar envios duplicados enquanto a sessão ainda não
   // foi atualizada no banco (race condition entre sendMessage e gravação).
   private lastSentByChat = new Map<number, string>();
@@ -58,6 +59,14 @@ export class TelegramService implements OnModuleInit {
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) throw new Error('TELEGRAM_BOT_TOKEN não definido');
     this.bot = new TelegramBot(token, { polling: true });
+
+    // Obter informações do bot para ter o nome dinamicamente
+    this.bot.getMe().then(botInfo => {
+      this.botInfo = botInfo;
+      this.logger.log(`Bot iniciado: @${botInfo.username} - ${botInfo.first_name}`);
+    }).catch(err => {
+      this.logger.error('Erro ao obter informações do bot', err);
+    });
 
     this.bot.on('message', async (msg) => {
       const chatId = msg.chat.id;
@@ -199,5 +208,20 @@ export class TelegramService implements OnModuleInit {
 
   send(chatId: number, text: string) {
     return this.sendReply(chatId, text, 'telegram-service');
+  }
+
+  // Método para obter informações do bot
+  getBotInfo() {
+    return this.botInfo;
+  }
+
+  // Método para obter o username do bot para link
+  getBotUsername(): string {
+    return this.botInfo?.username || process.env.TELEGRAM_BOT_USERNAME || '';
+  }
+
+  // Método para obter o nome completo do bot
+  getBotName(): string {
+    return this.botInfo?.first_name || '';
   }
 }

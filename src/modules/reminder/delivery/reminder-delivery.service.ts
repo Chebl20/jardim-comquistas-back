@@ -64,7 +64,7 @@ export class ReminderDeliveryService {
       pendingGoalId: request.goal.id,
       pendingGoalTitle: request.goal.title,
       pendingGoalDescription: request.goal.description || '',
-      goalType: request.goal.goalType,
+      goalType: request.goal.goalKind,
       reminderTime: request.goal.reminderTime
         ? new Date(request.goal.reminderTime).toISOString()
         : null,
@@ -144,7 +144,7 @@ export class ReminderDeliveryService {
       pendingGoalId: mainGoal.id,
       pendingGoalTitle: mainGoal.title,
       pendingGoalDescription: mainGoal.description || '',
-      goalType: mainGoal.goalType,
+      goalType: mainGoal.goalKind,
       reminderTime: mainGoal.reminderTime
         ? new Date(mainGoal.reminderTime).toISOString()
         : null,
@@ -265,7 +265,7 @@ export class ReminderDeliveryService {
         goalId: goal.id,
         goalTitle: goal.title,
         goalDescription: goal.description || '',
-        goalType: goal.goalType as 'Pontual' | 'Continua',
+        goalType: goal.goalKind as 'Pontual' | 'Continua',
         reminderTime: goal.reminderTime
           ? new Date(goal.reminderTime).toISOString()
           : undefined,

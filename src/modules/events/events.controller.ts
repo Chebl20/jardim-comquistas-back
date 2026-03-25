@@ -16,14 +16,14 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Lista de eventos' })
   async getEvents(@Req() req: any) {
     const goals = await this.userGoalService.getGoalsForUser(req.user.userId);
-    return goals.filter(g => g.goalType === 'Pontual');
+    return goals.filter(g => g.goalKind === 'PONTUAL');
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Detalhes do evento' })
   @ApiResponse({ status: 200, description: 'Detalhes retornados' })
   async getEventById(@Param('id') id: string, @Req() req: any) {
-    return prisma.userGoal.findFirst({ where: { id, userId: req.user.userId, goalType: 'Pontual' } });
+    return prisma.goal.findFirst({ where: { id, userId: req.user.userId, goalKind: 'PONTUAL' } });
   }
 
   @Post()
@@ -38,13 +38,13 @@ export class EventsController {
   @ApiOperation({ summary: 'Atualizar evento' })
   @ApiResponse({ status: 200, description: 'Evento atualizado' })
   async updateEvent(@Param('id') id: string, @Body() body: any, @Req() req: any) {
-    return prisma.userGoal.update({ where: { id, goalType: 'Pontual' }, data: body });
+    return prisma.goal.update({ where: { id, goalKind: 'PONTUAL' }, data: body });
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Deletar evento' })
   @ApiResponse({ status: 200, description: 'Evento deletado' })
   async deleteEvent(@Param('id') id: string, @Req() req: any) {
-    return prisma.userGoal.delete({ where: { id, goalType: 'Pontual' } });
+    return prisma.goal.delete({ where: { id, goalKind: 'PONTUAL' } });
   }
 }

@@ -366,7 +366,7 @@ export class ReminderPolicyEngine {
   }
 
   private isPontual(goal: ReminderGoalRecord) {
-    return String(goal.goalType || '').toLowerCase() === 'pontual';
+    return String(goal.goalKind || '').toLowerCase() === 'pontual';
   }
 
   private toDateTime(

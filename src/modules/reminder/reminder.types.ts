@@ -40,7 +40,7 @@ export interface ReminderGoalRecord {
   userId: string;
   title: string;
   description: string | null;
-  goalType: string;
+  goalKind: string;
   conquestType: string;
   reminderTime: Date | string | null;
   scheduleConfig?: unknown;

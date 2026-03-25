@@ -12,7 +12,8 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  goals                UserGoal[]
+  goals                Goal[]
+  userGoals            UserGoal[]
   conversationSessions ConversationSession[]
 }
 
@@ -25,6 +26,80 @@ model World {
   updatedAt DateTime @updatedAt
 
   config WorldConfig?
+}
+
+model Goal {
+  id            String   @id @default(uuid())
+  userId        String
+  title         String
+  description   String?
+  conquestType  String // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
+  goalKind      String // 'PONTUAL' | 'CONTINUA'
+  status        String   @default("ACTIVE") // 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'COMPLETED'
+  plantedTreeId String?  @unique // FK opcional para PlantedTree (1:1)
+  reminderTime  DateTime? // legado; compatibilidade com código existente
+  scheduleConfig Json? // once.at=ISO; daily/weekly.times=HH:MM
+  reminderSlotsToday Json? // [{ "time": "08:00" }] slots já enviados hoje (reset diário)
+  lastReminderSentAt DateTime? // última vez que o lembrete foi enviado
+  reminderCount      Int       @default(0) // quantas vezes o lembrete foi enviado
+  dailyStatus        String? // PENDING | SENT | WAITING | DONE | SKIPPED
+  silenceUntil       DateTime? // quando pode cobrar de novo
+  completed          Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  plantedTree PlantedTree? @relation(fields: [plantedTreeId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+  schedule    GoalSchedule?
+  reminders   GoalReminder[]
+  exceptions  GoalOccurrenceException[]
+
+  @@index([userId, createdAt])
+}
+
+model GoalSchedule {
+  id            String   @id @default(uuid())
+  goalId        String   @unique // 1:1 com Goal
+  frequency     String // 'ONCE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
+  timeZone      String   @default("UTC") // IANA timezone
+  dtStart       DateTime // início da série
+  dtEnd         DateTime? // fim da série (opcional)
+  rrule         String? // RFC 5545 recurrence rule string
+  seriesEndDate DateTime? // data final da série (opcional)
+  extra         Json? // configurações adicionais
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  goal       Goal                      @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  exceptions GoalOccurrenceException[]
+}
+
+model GoalOccurrenceException {
+  id                     String   @id @default(uuid())
+  goalId                 String
+  scheduleId             String
+  originalOccurrenceStart DateTime // timestamp original da ocorrência na série
+  isCancelled            Boolean  @default(false)
+  titleOverride          String?
+  startOverride          DateTime?
+  endOverride            DateTime?
+  payloadOverride        Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  goal     Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  schedule GoalSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, originalOccurrenceStart])
+}
+
+model GoalReminder {
+  id            String   @id @default(uuid())
+  goalId        String
+  minutesBefore Int      @default(0) // minutos antes da ocorrência para enviar lembrete
+  createdAt     DateTime @default(now())
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
 }
 
 model UserGoal {
@@ -95,6 +170,7 @@ model PlantedTree {
 
   treeCatalog  TreeCatalog   @relation(fields: [treeCatalogId], references: [id])
   growthEvents GrowthEvent[]
+  goal         Goal?         @relation
   userGoals    UserGoal[]
 }
 

@@ -217,6 +217,86 @@
       }
     },
     {
+      "name": "Telegram Link",
+      "item": [
+        {
+          "name": "POST /api/users/link/generate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"user_id_here\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/link/generate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "link",
+                "generate"
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/users/link/telegram",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"linkCode\": \"abcdef123\",\n  \"telegramId\": \"123456789\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/link/telegram",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "link",
+                "telegram"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /api/users/link/bot-info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/link/bot-info",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "link",
+                "bot-info"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Users & Auth",
       "item": [
         {

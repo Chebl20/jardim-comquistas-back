@@ -119,7 +119,7 @@ export class UserGoalService {
         if (at === 'sky') continue;
       }
       // Agora filtra só pelas árvores do usuário no mundo
-      const exists = await prisma.plantedTree.findFirst({ where: { worldId: data.worldId, anchorId: aid, userGoals: { some: { userId: data.userId } } } });
+      const exists = await prisma.plantedTree.findFirst({ where: { worldId: data.worldId, anchorId: aid, goal: { is: { userId: data.userId } } } });
       if (!exists) {
         chosenAnchorId = aid;
         break;
@@ -280,23 +280,21 @@ export class UserGoalService {
         },
       });
 
-      // Criar a meta (UserGoal) associada à árvore dentro da mesma transação
-      const ug = await tx.userGoal.create({
+      // Criar a meta (Goal) associada à árvore dentro da mesma transação
+      const goal = await tx.goal.create({
         data: {
           userId: data.userId,
           title,
           description,
-          goalType: normalizedGoalType,
           conquestType: normalizedConquest,
-          frequency: frequencyInt,
+          goalKind: normalizedGoalType,
           reminderTime,
           scheduleConfig: scheduleConfigJson ?? undefined,
           plantedTreeId: planted.id,
-          anchorId: chosenAnchorId,
         },
       });
 
-      return { planted, userGoal: ug };
+      return { planted, goal };
     });
 
     const plantedTreeFull = await prisma.plantedTree.findUnique({ where: { id: txResult.planted.id }, include: { treeCatalog: true } });
@@ -306,24 +304,24 @@ export class UserGoalService {
     // Emitir também o progresso inicial
     this.worldsGateway.emitTreeProgress(data.worldId, txResult.planted.id, 1, undefined, data.userId);
 
-    return txResult.userGoal;
+    return txResult.goal;
   }
 
   /**
    * Marca uma meta como concluída
    */
   async completeGoal(goalId: string) {
-    return prisma.userGoal.update({ where: { id: goalId }, data: { completed: true } });
+    return prisma.goal.update({ where: { id: goalId }, data: { completed: true } });
   }
 
   async markGoalDoneFromReminder(goalId: string, goalType?: string) {
-    const goal = await prisma.userGoal.findUnique({
+    const goal = await prisma.goal.findUnique({
       where: { id: goalId },
-      select: { goalType: true },
+      select: { goalKind: true },
     });
-    const actualType = goal?.goalType ? normalizeGoalType(goal.goalType) : normalizeGoalType(goalType as any);
+    const actualType = goal?.goalKind ? normalizeGoalType(goal.goalKind) : normalizeGoalType(goalType as any);
     if (actualType === 'Continua') {
-      return prisma.userGoal.update({
+      return prisma.goal.update({
         where: { id: goalId },
         data: {
           dailyStatus: 'DONE',
@@ -332,7 +330,7 @@ export class UserGoalService {
       });
     }
 
-    return prisma.userGoal.update({
+    return prisma.goal.update({
       where: { id: goalId },
       data: {
         completed: true,
@@ -346,7 +344,7 @@ export class UserGoalService {
     goalId: string,
     data: { dailyStatus?: string | null; silenceUntil?: Date | null },
   ) {
-    return prisma.userGoal.update({
+    return prisma.goal.update({
       where: { id: goalId },
       data: {
         ...(data.dailyStatus !== undefined ? { dailyStatus: data.dailyStatus } : {}),
@@ -359,7 +357,7 @@ export class UserGoalService {
    * Busca metas ativas para lembretes
    */
   async getActiveGoalsForReminders() {
-    return prisma.userGoal.findMany({
+    return prisma.goal.findMany({
       where: {
         completed: false,
         OR: [{ scheduleConfig: { not: Prisma.DbNull } }, { reminderTime: { not: null } }],
@@ -369,7 +367,7 @@ export class UserGoalService {
         userId: true,
         title: true,
         description: true,
-        goalType: true,
+        goalKind: true,
         conquestType: true,
         reminderTime: true,
         scheduleConfig: true,
@@ -409,7 +407,7 @@ export class UserGoalService {
    */
   async getGoalsByIds(goalIds: string[]) {
     if (goalIds.length === 0) return [];
-    return prisma.userGoal.findMany({
+    return prisma.goal.findMany({
       where: { id: { in: goalIds } },
       select: { id: true, title: true },
     });
@@ -438,7 +436,7 @@ export class UserGoalService {
 
     if (todayGoalIds.length === 0) return [];
 
-    const ignored = await prisma.userGoal.findMany({
+    const ignored = await prisma.goal.findMany({
       where: {
         userId,
         id: { in: todayGoalIds },
@@ -472,7 +470,7 @@ export class UserGoalService {
     const todayGoals = await this.getGoalsForTodayForUser(userId, timezone);
     const now = DateTime.now().setZone(timezone).toJSDate();
 
-    const goalsWithStatus = await prisma.userGoal.findMany({
+    const goalsWithStatus = await prisma.goal.findMany({
       where: {
         userId,
         id: { in: todayGoals.map((g: any) => g.id) },
@@ -509,7 +507,7 @@ export class UserGoalService {
     const targetStart = targetDate.startOf('day');
 
     return all.filter((g: any) => {
-      const isPontualCompleted = g.goalType === 'Pontual' && g.completed === true;
+      const isPontualCompleted = g.goalKind === 'Pontual' && g.completed === true;
       if (!(options?.includeCompleted ?? false) && isPontualCompleted) return false;
 
       const sc = g.scheduleConfig as import('../ia/conversation/flow.types').ScheduleConfig | null;
@@ -566,18 +564,17 @@ export class UserGoalService {
     // e ele seja capaz de responder perguntas relacionadas à árvore.
     // Campos selecionados são deliberadamente limitados para não vazar
     // informação desnecessária (por ex. stages completas do catálogo).
-    return prisma.userGoal.findMany({
+    return prisma.goal.findMany({
       where: { userId },
       select: {
         id: true,
         title: true,
         description: true,
-        goalType: true,
+        goalKind: true,
         conquestType: true,
         completed: true,
         reminderTime: true,
         scheduleConfig: true,
-        frequency: true,
         createdAt: true,
         plantedTree: {
           select: {
