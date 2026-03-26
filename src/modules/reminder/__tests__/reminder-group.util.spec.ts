@@ -12,7 +12,7 @@ function makeGoal(overrides: Partial<ReminderGoalRecord> = {}): ReminderGoalReco
     userId: 'user-1',
     title: 'Ler',
     description: '',
-    goalType: 'Continua',
+    goalKind: 'Continua',
     conquestType: 'Mente',
     reminderTime: new Date(DateTime.now().toISO()),
     lastReminderSentAt: null,

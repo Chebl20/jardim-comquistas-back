@@ -1,5 +1,4 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma/client';
 import { DateTime } from 'luxon';
 import { WorldsGateway } from '../worlds/worlds.gateway';
@@ -9,6 +8,88 @@ import { normalizeGoalType } from '../ia/goal-type.util';
 import { CommunicationService } from '../shared/communication.service';
 import type { CreateUserGoalInput, ScheduleConfig } from '../ia/conversation/flow.types';
 
+// ---------------------------------------------------------------------------
+// Tipos auxiliares
+// ---------------------------------------------------------------------------
+
+export interface GoalWithRelations {
+  id: string;
+  userId?: string;
+  title: string;
+  description: string | null;
+  goalKind: string;
+  conquestType: string;
+  status?: string;
+  completed: boolean;
+  createdAt: Date;
+  schedule: GoalScheduleRecord | null;
+  reminder: GoalReminderRecord | null;
+  plantedTree?: any;
+  user?: any;
+}
+
+export interface GoalScheduleRecord {
+  id: string;
+  goalId: string;
+  frequency: string;
+  at?: Date | null;
+  times?: any; // string[] as Json
+  daysOfWeek?: any; // number[] as Json
+  durationDays?: number | null;
+  timeZone: string;
+  dtStart?: Date | null;
+  dtEnd?: Date | null;
+}
+
+export interface GoalReminderRecord {
+  id: string;
+  goalId: string;
+  dailyStatus?: string | null;
+  slotsToday?: any; // { time: string }[] as Json
+  lastSentAt?: Date | null;
+  sentCount: number;
+  silenceUntil?: Date | null;
+  minutesBefore: number;
+}
+
+// Adapter: converte qualquer resultado de Goal+relations para o formato legado esperado por
+// reminder.service e policy engine (campos no nível raiz do goal)
+export function goalToLegacyRecord(goal: any) {
+  const sc = goal.schedule;
+  const rem = goal.reminder;
+
+  // Reconstituir scheduleConfig no formato antigo
+  let scheduleConfig: ScheduleConfig | null = null;
+  if (sc) {
+    if (sc.frequency === 'ONCE' && sc.at) {
+      scheduleConfig = { type: 'once', at: sc.at.toISOString() };
+    } else if (sc.frequency === 'DAILY') {
+      scheduleConfig = {
+        type: 'daily',
+        times: Array.isArray(sc.times) ? sc.times : [],
+        ...(sc.durationDays != null ? { durationDays: sc.durationDays } : {}),
+      } as any;
+    } else if (sc.frequency === 'WEEKLY') {
+      scheduleConfig = {
+        type: 'weekly',
+        times: Array.isArray(sc.times) ? sc.times : [],
+        daysOfWeek: Array.isArray(sc.daysOfWeek) ? sc.daysOfWeek : [],
+      } as any;
+    }
+  }
+
+  return {
+    ...goal,
+    // Campos legados reconstruídos para compatibilidade com policy engine
+    scheduleConfig,
+    reminderTime: null, // migrado para GoalSchedule.at
+    reminderSlotsToday: rem?.slotsToday ?? null,
+    lastReminderSentAt: rem?.lastSentAt ?? null,
+    reminderCount: rem?.sentCount ?? 0,
+    dailyStatus: rem?.dailyStatus ?? null,
+    silenceUntil: rem?.silenceUntil ?? null,
+  };
+}
 
 @Injectable()
 export class UserGoalService {
@@ -23,63 +104,38 @@ export class UserGoalService {
   ) {}
 
   /**
-   * Cria uma meta de usuário (UserGoal) e planta a árvore correspondente (PlantedTree).
-   * @param data Dados da meta vindos da IA
-   * @returns UserGoal criado (com relação à árvore)
+   * Cria uma meta de usuário (Goal), a árvore (PlantedTree), o GoalSchedule
+   * e o GoalReminder inicial em uma única transação.
    */
   async createUserGoalWithTree(
     data: Omit<CreateUserGoalInput, 'reminderTime'> & { reminderTime?: Date | string; scheduleConfig?: ScheduleConfig },
   ) {
-    // 1. Normalizar e validar conquestType recebido (garante consistência vindo de qualquer caminho)
+    // 1. Normalizar e validar conquestType
     const normalizedConquest = normalizeConquestType(data.conquestType);
     if (!normalizedConquest) {
       throw new BadRequestException(`conquestType inválido: '${data.conquestType}'. Opções válidas: ${CONQUEST_TYPES.join(', ')}`);
     }
-    // 1b. Mapear conquestType para family conforme regra de pontual/contínua
-    // Para pontuais: Espiritual → a, Corpo → b, Saúde → c, Água → d
-    // Para contínuas: Corpo, Espiritual, Saúde, Água → 'a'; demais → 'b'
+
+    // 1b. Mapear conquestType → family da árvore
     const conquest = String(normalizedConquest).toLowerCase();
     let family = 'b';
     if (data.goalType && data.goalType.toLowerCase() === 'pontual') {
-      // Novo mapeamento por switch (pontual)
       switch (true) {
-        case conquest.includes('corpo'):
-          family = 'a';
-          break;
-        case conquest.includes('espiritual'):
-          family = 'b';
-          break;
-        case conquest.includes('financeiro'):
-          family = 'c';
-          break;
-        case conquest.includes('hobby') || conquest.includes('lazer'):
-          family = 'd';
-          break;
-        default:
-          // mantém comportamento padrão para casos não mapeados
-          family = 'b';
+        case conquest.includes('corpo'):    family = 'a'; break;
+        case conquest.includes('espiritual'): family = 'b'; break;
+        case conquest.includes('financeiro'): family = 'c'; break;
+        case conquest.includes('hobby') || conquest.includes('lazer'): family = 'd'; break;
+        default: family = 'b';
       }
     } else {
-      // Metas contínuas: mapear para a, b, c, d
       switch (true) {
-        case conquest.includes('corpo') || conquest.includes('espiritual') || conquest.includes('saud') || conquest.includes('agua'):
-          family = 'a';
-          break;
-        case conquest.includes('financeiro'):
-          family = 'c';
-          break;
-        case conquest.includes('hobby') || conquest.includes('lazer'):
-          family = 'd';
-          break;
-        default:
-          // Mente, Familia, Trabalho, Social → 'b'
-          family = 'b';
+        case conquest.includes('corpo') || conquest.includes('espiritual') || conquest.includes('saud') || conquest.includes('agua'): family = 'a'; break;
+        case conquest.includes('financeiro'): family = 'c'; break;
+        case conquest.includes('hobby') || conquest.includes('lazer'): family = 'd'; break;
+        default: family = 'b';
       }
     }
-    // Inferir o type a partir do contexto/pasta (exemplo: pode vir de data.path ou outro campo)
-    // Aqui, como exemplo, se não houver path, assume 'continua' (mantém compatibilidade)
-    // Se data tiver path, infere o type; senão, mantém 'continua'
-    // Determina o type a partir do goalType (normalizado em runtime)
+
     let type = 'continua';
     const ng = normalizeGoalType(data.goalType as any);
     if (ng === 'Pontual') type = 'pontual';
@@ -88,165 +144,119 @@ export class UserGoalService {
       type = inferTypeFromPath((data as any).path);
     }
     const normalizedGoalType = ng ?? (type === 'pontual' ? 'Pontual' : 'Continua');
-    const treeCatalog = await prisma.treeCatalog.findFirst({ where: { family, type } });
-    if (!treeCatalog) throw new BadRequestException(`Tipo de árvore (family='${family}', type='${type}') não encontrado no catálogo para conquestType '${data.conquestType}'`);
 
-    // 2. Buscar um anchorId livre no worldId
+    const treeCatalog = await prisma.treeCatalog.findFirst({ where: { family, type } });
+    if (!treeCatalog) {
+      throw new BadRequestException(`Tipo de árvore (family='${family}', type='${type}') não encontrado no catálogo para conquestType '${data.conquestType}'`);
+    }
+
+    // 2. Buscar anchor livre no mundo
     const worldConfig = await prisma.worldConfig.findUnique({ where: { worldId: data.worldId } });
     if (!worldConfig) {
-      throw new BadRequestException('Configuração de anchors não encontrada para o mundo: worldConfig ausente. Use POST /api/worlds/:id/anchors-config/regenerate');
+      throw new BadRequestException('Configuração de anchors não encontrada para o mundo: worldConfig ausente.');
     }
     if (!worldConfig.anchors || (Array.isArray(worldConfig.anchors) && worldConfig.anchors.length === 0)) {
-      throw new BadRequestException('Configuração de anchors presente mas vazia. Execute POST /api/worlds/:id/anchors-config/regenerate para gerar anchors a partir do SVG');
+      throw new BadRequestException('Configuração de anchors presente mas vazia.');
     }
+
     let anchorsArr: any[] = [];
     if (Array.isArray(worldConfig.anchors)) {
       anchorsArr = worldConfig.anchors;
     } else if (worldConfig.anchors && typeof worldConfig.anchors === 'object' && 'anchors' in worldConfig.anchors && Array.isArray((worldConfig.anchors as any).anchors)) {
       anchorsArr = (worldConfig.anchors as any).anchors;
     }
+
     const isPontual = type === 'pontual';
     let chosenAnchorId: string | null = null;
     for (const anchor of anchorsArr) {
       const aid = anchor && (anchor.anchorId || anchor.id || anchor.slot || '') ? String(anchor.anchorId || anchor.id || anchor.slot) : '';
       if (!aid) continue;
       const at = (anchor && (anchor.treeType || anchor.type || anchor.dataType)) ? String(anchor.treeType || anchor.type || anchor.dataType).toLowerCase() : '';
-      // Se é pontual, só aceitar anchors que tenham treeType === 'sky'
-      if (isPontual) {
-        if (at !== 'sky') continue;
-      } else {
-        // Para metas contínuas, não aceitar anchors do tipo 'sky'
-        if (at === 'sky') continue;
-      }
-      // Agora filtra só pelas árvores do usuário no mundo
+      if (isPontual) { if (at !== 'sky') continue; } else { if (at === 'sky') continue; }
       const exists = await prisma.plantedTree.findFirst({ where: { worldId: data.worldId, anchorId: aid, goal: { is: { userId: data.userId } } } });
-      if (!exists) {
-        chosenAnchorId = aid;
-        break;
-      }
+      if (!exists) { chosenAnchorId = aid; break; }
     }
     if (!chosenAnchorId) {
       if (isPontual) throw new BadRequestException('Não há anchors livres do tipo "sky" disponíveis para este usuário neste mundo');
       throw new BadRequestException('Não há anchors livres disponíveis para este usuário neste mundo');
     }
 
-    // 3. Preparar validações finais e normalizações antes de criar
-    // Validação de userId
+    // 3. Validações
     if (!data.userId || typeof data.userId !== 'string' || data.userId.length < 10) {
       throw new Error('userId inválido ao criar meta: ' + String(data.userId));
     }
 
-    // scheduleConfig: nova fonte de agendamento (prioridade sobre reminderTime)
-    let scheduleConfigJson: object | undefined = undefined;
-    if (data.scheduleConfig && typeof data.scheduleConfig === 'object') {
-      const sc = data.scheduleConfig as ScheduleConfig;
+    // 3a. Determinar timezone do usuário
+    let userTimezone = 'America/Sao_Paulo';
+    try {
+      const u = await prisma.user.findUnique({ where: { id: data.userId }, select: { timezone: true } });
+      if (u && (u as any).timezone) userTimezone = (u as any).timezone;
+    } catch { /* ignore */ }
+
+    // 3b. Interpreter scheduleConfig → dados do GoalSchedule
+    const sc = data.scheduleConfig;
+    let scheduleFrequency: string | null = null;
+    let scheduleAt: Date | null = null;
+    let scheduleTimes: string[] | null = null;
+    let scheduleDaysOfWeek: number[] | null = null;
+    let scheduleDurationDays: number | null = null;
+
+    if (sc && typeof sc === 'object') {
       if (sc.type === 'once' && sc.at) {
-        const at = String(sc.at).trim();
-        const timeOnly = at.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        scheduleFrequency = 'ONCE';
+        const atStr = String(sc.at).trim();
+        const timeOnly = atStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
         if (timeOnly) {
-          let tz = 'America/Sao_Paulo';
-          try {
-            const u = await prisma.user.findUnique({ where: { id: data.userId }, select: { timezone: true } });
-            if (u && (u as any).timezone) tz = (u as any).timezone;
-          } catch {
-            // ignore
-          }
           const hh = parseInt(timeOnly[1], 10);
           const mm = parseInt(timeOnly[2], 10);
           const ss = parseInt(timeOnly[3] || '0', 10);
-          const dt = DateTime.now()
-            .setZone(tz)
-            .set({ hour: hh, minute: mm, second: ss, millisecond: 0 });
-          scheduleConfigJson = { ...sc, at: dt.toISO()! };
+          const dt = DateTime.now().setZone(userTimezone).set({ hour: hh, minute: mm, second: ss, millisecond: 0 });
+          scheduleAt = dt.toUTC().toJSDate();
         } else {
-          scheduleConfigJson = sc;
+          const dt = DateTime.fromISO(atStr, { zone: userTimezone });
+          scheduleAt = dt.isValid ? dt.toUTC().toJSDate() : new Date(atStr);
         }
-      } else if (sc.type === 'daily' && Array.isArray(sc.times) && sc.times.length > 0) scheduleConfigJson = sc;
-      else if (sc.type === 'weekly' && Array.isArray(sc.daysOfWeek) && Array.isArray(sc.times) && sc.times.length > 0)
-        scheduleConfigJson = sc;
-    }
-
-    // Validação/normalização de reminderTime (usado quando scheduleConfig type=once ou legado)
-    let reminderTime: Date | undefined = undefined;
-    const scOnce = scheduleConfigJson as ScheduleConfig;
-    if (scOnce && scOnce.type === 'once' && 'at' in scOnce) {
-      const at = scOnce.at;
-      try {
-        reminderTime = new Date(at);
-        if (Number.isNaN(reminderTime.getTime())) reminderTime = undefined;
-      } catch {
-        reminderTime = undefined;
+      } else if (sc.type === 'daily' && Array.isArray((sc as any).times) && (sc as any).times.length > 0) {
+        scheduleFrequency = 'DAILY';
+        scheduleTimes = (sc as any).times;
+        scheduleDurationDays = (sc as any).durationDays ?? null;
+      } else if (sc.type === 'weekly' && Array.isArray((sc as any).daysOfWeek) && Array.isArray((sc as any).times) && (sc as any).times.length > 0) {
+        scheduleFrequency = 'WEEKLY';
+        scheduleTimes = (sc as any).times;
+        scheduleDaysOfWeek = (sc as any).daysOfWeek;
       }
     }
-    if (!reminderTime && data.reminderTime) {
-      try {
-        // Determinar timezone do usuário (fallback Brasília)
-        let tz = 'America/Sao_Paulo';
-        try {
-          const u = await prisma.user.findUnique({ where: { id: data.userId }, select: { timezone: true } });
-          if (u && (u as any).timezone) tz = (u as any).timezone;
-        } catch (e) {
-          // ignore
-        }
 
-        // Se for string, tentar tratar time-only (ex: "08:30")
+    // Legado: reminderTime sem scheduleConfig
+    if (!scheduleFrequency && data.reminderTime) {
+      scheduleFrequency = normalizedGoalType === 'Pontual' ? 'ONCE' : 'DAILY';
+      try {
         if (typeof data.reminderTime === 'string') {
           const s = data.reminderTime.trim();
           const timeOnly = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
           if (timeOnly) {
             const hh = parseInt(timeOnly[1], 10);
             const mm = parseInt(timeOnly[2], 10);
-            let dt = DateTime.now().setZone(tz).set({ hour: hh, minute: mm, second: Number(timeOnly[3] || 0), millisecond: 0 });
-            // se já passou hoje, agendar para amanhã
-            if (dt <= DateTime.now().setZone(tz)) dt = dt.plus({ days: 1 });
-            reminderTime = dt.toUTC().toJSDate();
+            let dt = DateTime.now().setZone(userTimezone).set({ hour: hh, minute: mm, second: Number(timeOnly[3] || 0), millisecond: 0 });
+            if (dt <= DateTime.now().setZone(userTimezone)) dt = dt.plus({ days: 1 });
+            if (scheduleFrequency === 'ONCE') scheduleAt = dt.toUTC().toJSDate();
+            else scheduleTimes = [`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`];
           } else {
-            // tentar parse ISO com timezone do usuário
-            let dt = DateTime.fromISO(s, { zone: tz });
-            if (!dt.isValid) {
-              // tentar parse como number timestamp
-              const n = Number(s);
-              if (!isNaN(n)) dt = DateTime.fromMillis(n, { zone: tz });
-            }
-            if (dt.isValid) reminderTime = dt.toUTC().toJSDate();
-            else {
-              // fallback para Date constructor
-              const d = new Date(s as any);
-              if (!isNaN(d.getTime())) reminderTime = d;
-              else console.warn('[UserGoal] reminderTime inválido (string):', data.reminderTime);
+            const dt = DateTime.fromISO(s, { zone: userTimezone });
+            if (dt.isValid) {
+              if (scheduleFrequency === 'ONCE') scheduleAt = dt.toUTC().toJSDate();
+              else scheduleTimes = [`${String(dt.hour).padStart(2,'0')}:${String(dt.minute).padStart(2,'0')}`];
             }
           }
         } else if (data.reminderTime instanceof Date) {
-          const d: Date = data.reminderTime as Date;
-          const dt = DateTime.fromJSDate(d).setZone(tz);
-          // se o ano da data fornecida for muito antigo/fora do esperado, tratar como time-only
-          const nowYear = DateTime.now().setZone(tz).year;
-          if (dt.year < nowYear - 1) {
-            // usar horas/minutos e combinar com hoje
-            let combined = DateTime.now().setZone(tz).set({ hour: dt.hour, minute: dt.minute, second: dt.second, millisecond: 0 });
-            if (combined <= DateTime.now().setZone(tz)) combined = combined.plus({ days: 1 });
-            reminderTime = combined.toUTC().toJSDate();
-          } else {
-            reminderTime = dt.toUTC().toJSDate();
-          }
-        } else {
-          // tentar conversão genérica
-          const d = new Date(data.reminderTime as any);
-          if (!isNaN(d.getTime())) reminderTime = d;
-          else console.warn('[UserGoal] reminderTime inválido (tipo desconhecido):', data.reminderTime);
+          const dt = DateTime.fromJSDate(data.reminderTime).setZone(userTimezone);
+          if (scheduleFrequency === 'ONCE') scheduleAt = dt.toUTC().toJSDate();
+          else scheduleTimes = [`${String(dt.hour).padStart(2,'0')}:${String(dt.minute).padStart(2,'0')}`];
         }
-      } catch (e) {
-        console.warn('[UserGoal] Erro ao normalizar reminderTime:', e, data.reminderTime);
-      }
+      } catch { /* ignore */ }
     }
 
-    // Coerce frequency: expected Int? in Prisma. If incoming value is string non-numérico, ignore (store null).
-    let frequencyInt: number | undefined = undefined;
-    if (typeof data.frequency === 'number') {
-      frequencyInt = data.frequency;
-    }
-
-    // before persisting, make sure there is a title/description
+    // 3c. Título/descrição (gera via IA se vazio)
     let title = data.title || '';
     let description = data.description || '';
     if ((!title || !description) && data.userId) {
@@ -254,12 +264,10 @@ export class UserGoalService {
         const md = await this.communicationService.generateProgressMetadata(data.userId, { goalTitle: title });
         title = title || md.title;
         description = description || md.description;
-      } catch (e) {
-        // ignore, fallback to whatever we have
-      }
+      } catch { /* ignore */ }
     }
 
-    // 4. Criar a árvore (PlantedTree), growthEvent inicial e UserGoal em transação
+    // 4. Transação: PlantedTree → GrowthEvent → Goal → GoalSchedule → GoalReminder
     const txResult = await prisma.$transaction(async (tx) => {
       const planted = await tx.plantedTree.create({
         data: {
@@ -269,7 +277,7 @@ export class UserGoalService {
           actualStage: 1,
         },
       });
-      // Cria growthEvent inicial
+
       await tx.growthEvent.create({
         data: {
           plantedTreeId: planted.id,
@@ -280,7 +288,6 @@ export class UserGoalService {
         },
       });
 
-      // Criar a meta (Goal) associada à árvore dentro da mesma transação
       const goal = await tx.goal.create({
         data: {
           userId: data.userId,
@@ -288,20 +295,45 @@ export class UserGoalService {
           description,
           conquestType: normalizedConquest,
           goalKind: normalizedGoalType,
-          reminderTime,
-          scheduleConfig: scheduleConfigJson ?? undefined,
           plantedTreeId: planted.id,
+        },
+      });
+
+      // Criar GoalSchedule se há configuração de agendamento
+      if (scheduleFrequency) {
+        await tx.goalSchedule.create({
+          data: {
+            goalId: goal.id,
+            frequency: scheduleFrequency,
+            timeZone: userTimezone,
+            at: scheduleAt ?? undefined,
+            times: scheduleTimes ?? undefined,
+            daysOfWeek: scheduleDaysOfWeek ?? undefined,
+            durationDays: scheduleDurationDays ?? undefined,
+            dtStart: scheduleAt ?? (scheduleTimes ? DateTime.now().setZone(userTimezone).toJSDate() : undefined),
+          },
+        });
+      }
+
+      // Criar GoalReminder com estado inicial
+      await tx.goalReminder.create({
+        data: {
+          goalId: goal.id,
+          dailyStatus: null,
+          sentCount: 0,
+          minutesBefore: 0,
         },
       });
 
       return { planted, goal };
     });
 
-    const plantedTreeFull = await prisma.plantedTree.findUnique({ where: { id: txResult.planted.id }, include: { treeCatalog: true } });
+    const plantedTreeFull = await prisma.plantedTree.findUnique({
+      where: { id: txResult.planted.id },
+      include: { treeCatalog: true },
+    });
 
-    // Emitir evento socket para frontend atualizar quadro
     this.worldsGateway.emitTreePlanted(data.worldId, plantedTreeFull);
-    // Emitir também o progresso inicial
     this.worldsGateway.emitTreeProgress(data.worldId, txResult.planted.id, 1, undefined, data.userId);
 
     return txResult.goal;
@@ -320,23 +352,24 @@ export class UserGoalService {
       select: { goalKind: true },
     });
     const actualType = goal?.goalKind ? normalizeGoalType(goal.goalKind) : normalizeGoalType(goalType as any);
+
     if (actualType === 'Continua') {
-      return prisma.goal.update({
-        where: { id: goalId },
-        data: {
-          dailyStatus: 'DONE',
-          silenceUntil: null,
-        },
+      await prisma.goalReminder.upsert({
+        where: { goalId },
+        update: { dailyStatus: 'DONE', silenceUntil: null },
+        create: { goalId, dailyStatus: 'DONE', sentCount: 0 },
       });
+      return prisma.goal.findUnique({ where: { id: goalId } });
     }
 
+    await prisma.goalReminder.upsert({
+      where: { goalId },
+      update: { dailyStatus: 'DONE', silenceUntil: null },
+      create: { goalId, dailyStatus: 'DONE', sentCount: 0 },
+    });
     return prisma.goal.update({
       where: { id: goalId },
-      data: {
-        completed: true,
-        dailyStatus: 'DONE',
-        silenceUntil: null,
-      },
+      data: { completed: true },
     });
   }
 
@@ -344,23 +377,31 @@ export class UserGoalService {
     goalId: string,
     data: { dailyStatus?: string | null; silenceUntil?: Date | null },
   ) {
-    return prisma.goal.update({
-      where: { id: goalId },
-      data: {
+    return prisma.goalReminder.upsert({
+      where: { goalId },
+      update: {
         ...(data.dailyStatus !== undefined ? { dailyStatus: data.dailyStatus } : {}),
         ...(data.silenceUntil !== undefined ? { silenceUntil: data.silenceUntil } : {}),
+      },
+      create: {
+        goalId,
+        dailyStatus: data.dailyStatus ?? null,
+        silenceUntil: data.silenceUntil ?? null,
+        sentCount: 0,
       },
     });
   }
 
   /**
-   * Busca metas ativas para lembretes
+   * Busca metas ativas para lembretes (com schedule e reminder incluídos)
    */
   async getActiveGoalsForReminders() {
-    return prisma.goal.findMany({
+    const goals = await prisma.goal.findMany({
       where: {
         completed: false,
-        OR: [{ scheduleConfig: { not: Prisma.DbNull } }, { reminderTime: { not: null } }],
+        schedule: {
+          isNot: null,
+        },
       },
       select: {
         id: true,
@@ -369,15 +410,34 @@ export class UserGoalService {
         description: true,
         goalKind: true,
         conquestType: true,
-        reminderTime: true,
-        scheduleConfig: true,
-        reminderSlotsToday: true,
-        lastReminderSentAt: true,
-        dailyStatus: true,
-        silenceUntil: true,
         completed: true,
-        reminderCount: true,
         createdAt: true,
+        schedule: {
+          select: {
+            id: true,
+            goalId: true,
+            frequency: true,
+            at: true,
+            times: true,
+            daysOfWeek: true,
+            durationDays: true,
+            timeZone: true,
+            dtStart: true,
+            dtEnd: true,
+          },
+        },
+        reminder: {
+          select: {
+            id: true,
+            goalId: true,
+            dailyStatus: true,
+            slotsToday: true,
+            lastSentAt: true,
+            sentCount: true,
+            silenceUntil: true,
+            minutesBefore: true,
+          },
+        },
         user: {
           select: {
             id: true,
@@ -400,11 +460,10 @@ export class UserGoalService {
         },
       },
     });
+
+    return goals.map(goalToLegacyRecord);
   }
 
-  /**
-   * Retorna metas por IDs (para mapear pendingGoalIds em otherGoals).
-   */
   async getGoalsByIds(goalIds: string[]) {
     if (goalIds.length === 0) return [];
     return prisma.goal.findMany({
@@ -413,13 +472,6 @@ export class UserGoalService {
     });
   }
 
-  /**
-   * Retorna metas que já receberam lembrete hoje e o usuário ignorou
-   * (não completou, não dispensou).
-   * Status considerados: WAITING_OPERATIONAL_REPLY, WAITING_FOLLOW_UP_REPLY,
-   * WAITING_REACTIVATION_REPLY, MISSED.
-   * Usado para a seção "Além disso, estas metas ainda estão pendentes hoje" em mensagens subsequentes.
-   */
   async getIgnoredGoalsForToday(
     userId: string,
     timezone = 'America/Sao_Paulo',
@@ -433,7 +485,6 @@ export class UserGoalService {
     const todayGoalIds = todayGoals.map((g: any) => g.id).filter(
       (id: string) => !excludeGoalIds.includes(id),
     );
-
     if (todayGoalIds.length === 0) return [];
 
     const ignored = await prisma.goal.findMany({
@@ -441,36 +492,37 @@ export class UserGoalService {
         userId,
         id: { in: todayGoalIds },
         completed: false,
-        lastReminderSentAt: { gte: todayStart, lte: todayEnd },
-        dailyStatus: {
-          in: [
-            'WAITING_OPERATIONAL_REPLY',
-            'WAITING_FOLLOW_UP_REPLY',
-            'WAITING_REACTIVATION_REPLY',
-            'MISSED',
-          ],
+        reminder: {
+          lastSentAt: { gte: todayStart, lte: todayEnd },
+          dailyStatus: {
+            in: [
+              'WAITING_OPERATIONAL_REPLY',
+              'WAITING_FOLLOW_UP_REPLY',
+              'WAITING_REACTIVATION_REPLY',
+              'MISSED',
+            ],
+          },
         },
       },
       select: {
         id: true,
         title: true,
-        dailyStatus: true,
+        reminder: { select: { dailyStatus: true } },
       },
     });
 
-    return ignored;
+    return ignored.map((g) => ({
+      id: g.id,
+      title: g.title,
+      dailyStatus: g.reminder?.dailyStatus ?? null,
+    }));
   }
 
-  /**
-   * Retorna metas do dia com dailyStatus e completed, excluindo as com silenceUntil > now
-   * (ex: usuário disse "não vou conseguir hoje").
-   * Usado para montar mensagens de lembrete (outras pendentes, progresso X/Y).
-   */
   async getGoalsForTodayWithStatus(userId: string, timezone = 'America/Sao_Paulo') {
     const todayGoals = await this.getGoalsForTodayForUser(userId, timezone);
     const now = DateTime.now().setZone(timezone).toJSDate();
 
-    const goalsWithStatus = await prisma.goal.findMany({
+    const goals = await prisma.goal.findMany({
       where: {
         userId,
         id: { in: todayGoals.map((g: any) => g.id) },
@@ -479,23 +531,26 @@ export class UserGoalService {
       select: {
         id: true,
         title: true,
-        dailyStatus: true,
-        silenceUntil: true,
         completed: true,
+        reminder: { select: { dailyStatus: true, silenceUntil: true } },
       },
     });
 
-    return goalsWithStatus.filter((g) => {
-      const silenceUntil = g.silenceUntil ? new Date(g.silenceUntil) : null;
-      if (silenceUntil && silenceUntil > now) return false;
-      return true;
-    });
+    return goals
+      .filter((g) => {
+        const silenceUntil = g.reminder?.silenceUntil ? new Date(g.reminder.silenceUntil) : null;
+        if (silenceUntil && silenceUntil > now) return false;
+        return true;
+      })
+      .map((g) => ({
+        id: g.id,
+        title: g.title,
+        completed: g.completed,
+        dailyStatus: g.reminder?.dailyStatus ?? null,
+        silenceUntil: g.reminder?.silenceUntil ?? null,
+      }));
   }
 
-  /**
-   * Retorna metas relevantes para uma data específica (no timezone do usuário).
-   * @param includeCompleted - quando true, inclui pontuais concluídas (para exibição "metas para hoje")
-   */
   async getGoalsForDateForUser(
     userId: string,
     targetDate: DateTime,
@@ -503,14 +558,15 @@ export class UserGoalService {
     options?: { includeCompleted?: boolean },
   ) {
     const all = await this.getGoalsForUser(userId);
-    const targetDow = targetDate.weekday === 7 ? 0 : targetDate.weekday; // 0=Dom, 1=Seg..6=Sab
+    const targetDow = targetDate.weekday === 7 ? 0 : targetDate.weekday;
     const targetStart = targetDate.startOf('day');
 
     return all.filter((g: any) => {
       const isPontualCompleted = g.goalKind === 'Pontual' && g.completed === true;
       if (!(options?.includeCompleted ?? false) && isPontualCompleted) return false;
 
-      const sc = g.scheduleConfig as import('../ia/conversation/flow.types').ScheduleConfig | null;
+      // Ler do scheduleConfig reconstruído (adapter)
+      const sc = g.scheduleConfig as ScheduleConfig | null;
       if (sc && typeof sc === 'object') {
         if (sc.type === 'once') {
           const at = new Date(sc.at);
@@ -518,53 +574,34 @@ export class UserGoalService {
           return userAt.hasSame(targetStart, 'day');
         }
         if (sc.type === 'daily') {
-          if (sc.durationDays) {
+          if ((sc as any).durationDays) {
             const createdAt = DateTime.fromJSDate(new Date(g.createdAt)).setZone(timezone);
             const daysSince = Math.floor(targetDate.diff(createdAt, 'days').days);
-            return daysSince < sc.durationDays;
+            return daysSince < (sc as any).durationDays;
           }
           return true;
         }
         if (sc.type === 'weekly') {
-          return sc.daysOfWeek.includes(targetDow);
+          return (sc as any).daysOfWeek.includes(targetDow);
         }
       }
-      // Legado: reminderTime ou frequency
-      if (g.reminderTime) return true;
-      if (g.frequency && g.frequency >= 1) return true;
       return false;
     });
   }
 
-  /**
-   * Retorna metas que têm lembretes agendados para hoje (no timezone do usuário).
-   * Usado pelo resumo diário (DailyDigest).
-   */
   async getGoalsForTodayForUser(userId: string, timezone = 'America/Sao_Paulo') {
     const now = DateTime.now().setZone(timezone);
     return this.getGoalsForDateForUser(userId, now, timezone, { includeCompleted: false });
   }
 
-  /**
-   * Retorna metas que estarão pendentes amanhã (no timezone do usuário).
-   * Usado pelo GoalStatus para perguntas "metas para amanhã".
-   */
   async getGoalsForTomorrowForUser(userId: string, timezone = 'America/Sao_Paulo') {
     const now = DateTime.now().setZone(timezone);
     const tomorrow = now.plus({ days: 1 });
     return this.getGoalsForDateForUser(userId, tomorrow, timezone, { includeCompleted: false });
   }
 
-  /**
-   * Recupera todas as metas do usuário. Útil para fornecer contexto à IA.
-   */
   async getGoalsForUser(userId: string) {
-    // traz também alguns dados da árvore plantada associada à meta,
-    // para que o orquestrador possa expor essas informações ao modelo
-    // e ele seja capaz de responder perguntas relacionadas à árvore.
-    // Campos selecionados são deliberadamente limitados para não vazar
-    // informação desnecessária (por ex. stages completas do catálogo).
-    return prisma.goal.findMany({
+    const goals = await prisma.goal.findMany({
       where: { userId },
       select: {
         id: true,
@@ -573,9 +610,30 @@ export class UserGoalService {
         goalKind: true,
         conquestType: true,
         completed: true,
-        reminderTime: true,
-        scheduleConfig: true,
         createdAt: true,
+        schedule: {
+          select: {
+            id: true,
+            goalId: true,
+            frequency: true,
+            at: true,
+            times: true,
+            daysOfWeek: true,
+            durationDays: true,
+            timeZone: true,
+          },
+        },
+        reminder: {
+          select: {
+            id: true,
+            goalId: true,
+            dailyStatus: true,
+            slotsToday: true,
+            lastSentAt: true,
+            sentCount: true,
+            silenceUntil: true,
+          },
+        },
         plantedTree: {
           select: {
             id: true,
@@ -583,20 +641,10 @@ export class UserGoalService {
             actualStage: true,
             createdAt: true,
             treeCatalog: {
-              select: {
-                family: true,
-                type: true,
-              },
+              select: { family: true, type: true },
             },
             growthEvents: {
-              select: {
-                id: true,
-                stage: true,
-                createdAt: true,
-                title: true,
-                description: true,
-                progressIndex: true,
-              },
+              select: { id: true, stage: true, createdAt: true, title: true, description: true, progressIndex: true },
               orderBy: { createdAt: 'desc' },
               take: 30,
             },
@@ -604,5 +652,7 @@ export class UserGoalService {
         },
       },
     });
+
+    return goals.map(goalToLegacyRecord);
   }
 }

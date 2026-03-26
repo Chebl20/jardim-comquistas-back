@@ -32,8 +32,13 @@ export class WorldsPlantedController {
     const userId = req?.user?.userId;
     if (!userId) throw new BadRequestException('userId não encontrado no contexto da requisição');
 
-    const where: any = { worldId: safeId };
-    where.userGoals = { some: { userId } };
+    const where: any = { 
+      worldId: safeId,
+      OR: [
+        { userGoals: { some: { userId } } },
+        { goal: { userId } }
+      ]
+    };
     if (anchorId) where.anchorId = String(anchorId).trim();
     if (treeCatalogId) where.treeCatalogId = String(treeCatalogId).trim();
     if (stage !== undefined) {
@@ -74,6 +79,7 @@ export class WorldsPlantedController {
       if (planted.worldId !== safeId) throw new BadRequestException('planted tree does not belong to this world');
 
       await tx.userGoal.deleteMany({ where: { plantedTreeId: pid } });
+      await tx.goal.deleteMany({ where: { plantedTreeId: pid } });
 
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: pid } });
       await tx.plantedTree.delete({ where: { id: pid } });
@@ -101,6 +107,7 @@ export class WorldsPlantedController {
       if (!ids.length) return { ok: true, deletedPlantedTrees: 0, deletedEvents: 0 };
 
       await tx.userGoal.deleteMany({ where: { plantedTreeId: { in: ids } } });
+      await tx.goal.deleteMany({ where: { plantedTreeId: { in: ids } } });
 
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: { in: ids } } });
       const deletedPlanted = await tx.plantedTree.deleteMany({ where: { id: { in: ids } } });

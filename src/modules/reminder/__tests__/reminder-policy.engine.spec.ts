@@ -14,7 +14,7 @@ function makeGoal(overrides: Partial<ReminderGoalRecord> = {}): ReminderGoalReco
     userId: 'user-1',
     title: 'Ler',
     description: 'Ler 10 páginas',
-    goalType: 'Pontual',
+    goalKind: 'Pontual',
     conquestType: 'Mente',
     reminderTime: '2026-03-05T13:00:00.000Z',
     lastReminderSentAt: null,
@@ -192,7 +192,7 @@ describe('ReminderPolicyEngine', () => {
 
   it('troca operacional por reativação em meta contínua antiga e sem progresso', () => {
     const goal = makeGoal({
-      goalType: 'Continua',
+    goalKind: 'Continua',
       reminderTime: '2026-03-05T13:00:00.000Z',
       reminderCount: 4,
       createdAt: '2026-01-01T13:00:00.000Z',

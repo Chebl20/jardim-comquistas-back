@@ -1,3 +1,12 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
 model User {
   id             String   @id @default(uuid())
   name           String
@@ -17,17 +26,9 @@ model User {
   conversationSessions ConversationSession[]
 }
 
-model World {
-  id        String   @id @default(uuid())
-  worldId   String   @unique // identifier like 'mundo2'
-  name      String
-  svgPath   String // relative path to SVG file
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  config WorldConfig?
-}
-
+// ---------------------------------------------------------------------------
+// Goal – meta do usuário (normalizada)
+// ---------------------------------------------------------------------------
 model Goal {
   id            String   @id @default(uuid())
   userId        String
@@ -37,55 +38,88 @@ model Goal {
   goalKind      String // 'PONTUAL' | 'CONTINUA'
   status        String   @default("ACTIVE") // 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'COMPLETED'
   plantedTreeId String?  @unique // FK opcional para PlantedTree (1:1)
-  reminderTime  DateTime? // legado; compatibilidade com código existente
-  scheduleConfig Json? // once.at=ISO; daily/weekly.times=HH:MM
-  reminderSlotsToday Json? // [{ "time": "08:00" }] slots já enviados hoje (reset diário)
-  lastReminderSentAt DateTime? // última vez que o lembrete foi enviado
-  reminderCount      Int       @default(0) // quantas vezes o lembrete foi enviado
-  dailyStatus        String? // PENDING | SENT | WAITING | DONE | SKIPPED
-  silenceUntil       DateTime? // quando pode cobrar de novo
-  completed          Boolean   @default(false)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  completed     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  plantedTree PlantedTree? @relation(fields: [plantedTreeId], references: [id])
-  user        User        @relation(fields: [userId], references: [id])
+  plantedTree PlantedTree?          @relation(fields: [plantedTreeId], references: [id])
+  user        User                  @relation(fields: [userId], references: [id])
   schedule    GoalSchedule?
-  reminders   GoalReminder[]
+  reminder    GoalReminder?
   exceptions  GoalOccurrenceException[]
 
   @@index([userId, createdAt])
 }
 
+// ---------------------------------------------------------------------------
+// GoalSchedule – frequência e horários do lembrete (1:1 com Goal)
+// ---------------------------------------------------------------------------
 model GoalSchedule {
-  id            String   @id @default(uuid())
-  goalId        String   @unique // 1:1 com Goal
-  frequency     String // 'ONCE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
-  timeZone      String   @default("UTC") // IANA timezone
-  dtStart       DateTime // início da série
-  dtEnd         DateTime? // fim da série (opcional)
-  rrule         String? // RFC 5545 recurrence rule string
-  seriesEndDate DateTime? // data final da série (opcional)
-  extra         Json? // configurações adicionais
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String    @id @default(uuid())
+  goalId      String    @unique // 1:1 com Goal
+  // Tipo de recorrência
+  frequency   String // 'ONCE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
+  // Para ONCE: data/hora exata do lembrete (UTC)
+  at          DateTime?
+  // Para DAILY / WEEKLY: horários no dia, ex: ["08:00", "18:00"]
+  times       Json? // String[]
+  // Para WEEKLY: dias da semana, ex: [1, 3, 5] (0=Dom, 1=Seg ... 6=Sab)
+  daysOfWeek  Json? // number[]
+  // Limitar duração (apenas DAILY): encerrar após N dias
+  durationDays Int?
+  // Timezone do usuário no momento da criação
+  timeZone    String    @default("UTC")
+  // Início/fim da série (opcional, para suporte a RFC 5545 futuro)
+  dtStart     DateTime?
+  dtEnd       DateTime?
+  rrule       String? // RFC 5545 recurrence rule string
+  extra       Json? // configurações adicionais
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   goal       Goal                      @relation(fields: [goalId], references: [id], onDelete: Cascade)
   exceptions GoalOccurrenceException[]
 }
 
+// ---------------------------------------------------------------------------
+// GoalReminder – estado de dispatch do lembrete (1:1 com Goal)
+// ---------------------------------------------------------------------------
+model GoalReminder {
+  id              String    @id @default(uuid())
+  goalId          String    @unique // 1:1 com Goal
+  // Estado atual do ciclo diário
+  dailyStatus     String? // PENDING | SENT | WAITING_OPERATIONAL_REPLY | WAITING_FOLLOW_UP_REPLY | WAITING_REACTIVATION_REPLY | DONE | SKIPPED | MISSED | SNOOZED | DISMISSED | REACTIVATION_COOLDOWN
+  // Slots já enviados hoje: [{ "time": "08:00" }]
+  slotsToday      Json? // { time: string }[]
+  // Última vez que o lembrete foi enviado
+  lastSentAt      DateTime?
+  // Quantas vezes o lembrete foi enviado (total)
+  sentCount       Int       @default(0)
+  // Silenciar até: quando pode cobrar novamente
+  silenceUntil    DateTime?
+  // Minutos antes da ocorrência para enviar (legado, compatibilidade)
+  minutesBefore   Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// GoalOccurrenceException – exceções / overrides de ocorrências na série
+// ---------------------------------------------------------------------------
 model GoalOccurrenceException {
-  id                     String   @id @default(uuid())
-  goalId                 String
-  scheduleId             String
+  id                      String   @id @default(uuid())
+  goalId                  String
+  scheduleId              String
   originalOccurrenceStart DateTime // timestamp original da ocorrência na série
-  isCancelled            Boolean  @default(false)
-  titleOverride          String?
-  startOverride          DateTime?
-  endOverride            DateTime?
-  payloadOverride        Json?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  isCancelled             Boolean  @default(false)
+  titleOverride           String?
+  startOverride           DateTime?
+  endOverride             DateTime?
+  payloadOverride         Json?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   goal     Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
   schedule GoalSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
@@ -93,15 +127,9 @@ model GoalOccurrenceException {
   @@unique([scheduleId, originalOccurrenceStart])
 }
 
-model GoalReminder {
-  id            String   @id @default(uuid())
-  goalId        String
-  minutesBefore Int      @default(0) // minutos antes da ocorrência para enviar lembrete
-  createdAt     DateTime @default(now())
-
-  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
-}
-
+// ---------------------------------------------------------------------------
+// UserGoal – meta legada (mantida para compatibilidade enquanto migra)
+// ---------------------------------------------------------------------------
 model UserGoal {
   id                   String    @id @default(uuid())
   userId               String
@@ -109,14 +137,14 @@ model UserGoal {
   description          String?
   goalType             String // 'Pontual' ou 'Continua'
   conquestType         String // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
-  frequency            Int? // legado; preferir scheduleConfig
-  reminderTime         DateTime? // legado; preferir scheduleConfig
-  scheduleConfig       Json? // once.at=ISO; daily/weekly.times=HH:MM
-  reminderSlotsToday   Json? // [{ "time": "08:00" }] slots já enviados hoje (reset diário)
-  lastReminderSentAt   DateTime? // última vez que o lembrete foi enviado
-  reminderCount        Int       @default(0) // quantas vezes o lembrete foi enviado
-  dailyStatus          String? // PENDING | SENT | WAITING | DONE | SKIPPED
-  silenceUntil         DateTime? // quando pode cobrar de novo
+  frequency            Int? // legado; preferir GoalSchedule
+  reminderTime         DateTime? // legado; preferir GoalSchedule
+  scheduleConfig       Json? // legado; preferir GoalSchedule
+  reminderSlotsToday   Json? // legado; preferir GoalReminder
+  lastReminderSentAt   DateTime? // legado; preferir GoalReminder
+  reminderCount        Int       @default(0) // legado; preferir GoalReminder
+  dailyStatus          String? // legado; preferir GoalReminder
+  silenceUntil         DateTime? // legado; preferir GoalReminder
   completed            Boolean   @default(false)
   plantedTreeId        String // ligação com a árvore que representa a meta
   anchorId             String // ligação direta com o anchor usado
@@ -127,13 +155,18 @@ model UserGoal {
   user        User        @relation(fields: [userId], references: [id])
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
+// ---------------------------------------------------------------------------
+// World models
+// ---------------------------------------------------------------------------
+model World {
+  id        String   @id @default(uuid())
+  worldId   String   @unique // identifier like 'mundo2'
+  name      String
+  svgPath   String // relative path to SVG file
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  config WorldConfig?
 }
 
 model WorldConfig {

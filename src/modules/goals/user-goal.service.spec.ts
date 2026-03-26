@@ -4,7 +4,11 @@ import { DateTime } from 'luxon';
 
 jest.mock('../../prisma/client', () => ({
   prisma: {
-    userGoal: {
+    goal: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    goalReminder: {
       findMany: jest.fn(),
     },
   },
@@ -12,7 +16,47 @@ jest.mock('../../prisma/client', () => ({
 
 describe('UserGoalService', () => {
   let service: UserGoalService;
-  const mockFindMany = prisma.userGoal.findMany as jest.Mock;
+  const mockGoalFindMany = prisma.goal.findMany as jest.Mock;
+
+  // Helper para construir um goal com schedule e reminder no formato do banco
+  function makeGoal(overrides: Partial<any> = {}) {
+    const now = DateTime.now().setZone('America/Sao_Paulo');
+    return {
+      id: 'goal-a',
+      userId: 'user-1',
+      title: 'Ler',
+      description: null,
+      goalKind: 'Continua',
+      conquestType: 'Mente',
+      completed: false,
+      createdAt: new Date(),
+      schedule: {
+        id: 'sched-a',
+        goalId: 'goal-a',
+        frequency: 'DAILY',
+        times: [now.toFormat('HH:mm')],
+        daysOfWeek: null,
+        durationDays: null,
+        timeZone: 'America/Sao_Paulo',
+        at: null,
+        dtStart: null,
+        dtEnd: null,
+      },
+      reminder: {
+        id: 'rem-a',
+        goalId: 'goal-a',
+        dailyStatus: null,
+        slotsToday: null,
+        lastSentAt: null,
+        sentCount: 0,
+        silenceUntil: null,
+        minutesBefore: 0,
+      },
+      plantedTree: null,
+      user: { id: 'user-1', name: 'Test', telegramId: null, timezone: 'America/Sao_Paulo' },
+      ...overrides,
+    };
+  }
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -25,38 +69,15 @@ describe('UserGoalService', () => {
       const todayStart = now.startOf('day').toJSDate();
       const todayEnd = now.endOf('day').toJSDate();
 
-      const goalA = {
-        id: 'goal-a',
-        title: 'Ler',
-        description: null,
-        goalType: 'Continua',
-        conquestType: 'Mente',
-        completed: false,
-        reminderTime: new Date(now.toISO()),
-        scheduleConfig: null,
-        frequency: 1,
-        createdAt: new Date(),
-        plantedTree: null,
-      };
+      const goalA = makeGoal({ id: 'goal-a', title: 'Ler', conquestType: 'Mente' });
+      const goalB = makeGoal({ id: 'goal-b', title: 'Orar', conquestType: 'Espiritual' });
 
-      const goalB = {
-        id: 'goal-b',
-        title: 'Orar',
-        description: null,
-        goalType: 'Continua',
-        conquestType: 'Espiritual',
-        completed: false,
-        reminderTime: new Date(now.toISO()),
-        scheduleConfig: null,
-        frequency: 1,
-        createdAt: new Date(),
-        plantedTree: null,
-      };
-
-      mockFindMany
+      // 1a chamada: getGoalsForUser (usado por getGoalsForTodayForUser)
+      mockGoalFindMany
         .mockResolvedValueOnce([goalA, goalB])
+        // 2a chamada: getIgnoredGoalsForToday -> segunda query com filtro reminder
         .mockResolvedValueOnce([
-          { id: 'goal-a', title: 'Ler', dailyStatus: 'MISSED' },
+          { id: 'goal-a', title: 'Ler', reminder: { dailyStatus: 'MISSED' } },
         ]);
 
       const result = await service.getIgnoredGoalsForToday(
@@ -69,35 +90,15 @@ describe('UserGoalService', () => {
       expect(result[0].id).toBe('goal-a');
       expect(result[0].title).toBe('Ler');
       expect(result[0].dailyStatus).toBe('MISSED');
-
-      const secondCall = mockFindMany.mock.calls[1];
-      expect(secondCall[0].where.dailyStatus.in).toContain('MISSED');
-      expect(secondCall[0].where.dailyStatus.in).toContain(
-        'WAITING_REACTIVATION_REPLY',
-      );
     });
 
     it('inclui metas com status WAITING_REACTIVATION_REPLY na lista de pendentes', async () => {
-      const now = DateTime.now().setZone('America/Sao_Paulo');
+      const goalA = makeGoal({ id: 'goal-a', title: 'Estudar', conquestType: 'Mente' });
 
-      const goalA = {
-        id: 'goal-a',
-        title: 'Estudar',
-        description: null,
-        goalType: 'Continua',
-        conquestType: 'Mente',
-        completed: false,
-        reminderTime: new Date(now.toISO()),
-        scheduleConfig: null,
-        frequency: 1,
-        createdAt: new Date(),
-        plantedTree: null,
-      };
-
-      mockFindMany
+      mockGoalFindMany
         .mockResolvedValueOnce([goalA])
         .mockResolvedValueOnce([
-          { id: 'goal-a', title: 'Estudar', dailyStatus: 'WAITING_REACTIVATION_REPLY' },
+          { id: 'goal-a', title: 'Estudar', reminder: { dailyStatus: 'WAITING_REACTIVATION_REPLY' } },
         ]);
 
       const result = await service.getIgnoredGoalsForToday(

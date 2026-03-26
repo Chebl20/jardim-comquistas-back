@@ -166,17 +166,18 @@ export class ReminderService {
       }
     } catch (error) {
       this.logger.error(`Erro ao entregar batch de reminders`, error as Error);
+      // Rollback: restaurar estado anterior no GoalReminder
       for (const prev of previousStates) {
-        await prisma.userGoal.update({
-          where: { id: prev.id },
+        await prisma.goalReminder.updateMany({
+          where: { goalId: prev.id },
           data: {
             dailyStatus: prev.dailyStatus,
-            lastReminderSentAt: prev.lastReminderSentAt
+            lastSentAt: prev.lastReminderSentAt
               ? new Date(prev.lastReminderSentAt)
               : null,
             silenceUntil: prev.silenceUntil ? new Date(prev.silenceUntil) : null,
-            reminderCount: { decrement: 1 },
-            reminderSlotsToday: prev.reminderSlotsToday ?? undefined,
+            sentCount: { decrement: 1 } as any,
+            slotsToday: prev.reminderSlotsToday ?? undefined,
           },
         });
       }
@@ -199,6 +200,7 @@ export class ReminderService {
     const marked = await this.markReminderDispatch(goal, now, decision);
     if (!marked) return;
 
+    // Atualizar os campos do goal em memória (para delivery)
     goal.dailyStatus = decision.nextStatus ?? goal.dailyStatus;
     goal.lastReminderSentAt = now.toJSDate();
     goal.silenceUntil = decision.silenceUntil ?? null;
@@ -220,18 +222,19 @@ export class ReminderService {
         `Erro ao entregar reminder para goal=${goal.id}`,
         error as Error,
       );
-      await prisma.userGoal.update({
-        where: { id: goal.id },
+      // Rollback: restaurar estado anterior no GoalReminder
+      await prisma.goalReminder.updateMany({
+        where: { goalId: goal.id },
         data: {
           dailyStatus: previousState.dailyStatus,
-          lastReminderSentAt: previousState.lastReminderSentAt
+          lastSentAt: previousState.lastReminderSentAt
             ? new Date(previousState.lastReminderSentAt)
             : null,
           silenceUntil: previousState.silenceUntil
             ? new Date(previousState.silenceUntil)
             : null,
-          reminderCount: { decrement: 1 },
-          reminderSlotsToday: previousState.reminderSlotsToday ?? undefined,
+          sentCount: { decrement: 1 } as any,
+          slotsToday: previousState.reminderSlotsToday ?? undefined,
         },
       });
     }
@@ -255,18 +258,19 @@ export class ReminderService {
 
   @Cron('0 0 * * *') // Reset diário às 00:00
   async resetDailyStatus() {
-    await prisma.userGoal.updateMany({
+    // Reset nos registros GoalReminder (tabela normalizada)
+    await prisma.goalReminder.updateMany({
       where: {
-        completed: false,
         OR: [
           { dailyStatus: 'DONE' },
           { silenceUntil: { lte: DateTime.now().toUTC().toJSDate() } },
         ],
+        goal: { completed: false },
       },
       data: {
         dailyStatus: null,
         silenceUntil: null,
-        reminderSlotsToday: [],
+        slotsToday: [],
       },
     });
   }
@@ -276,14 +280,14 @@ export class ReminderService {
     now: DateTime,
     decision: ReminderPolicyDecision,
   ) {
-    const where: Record<string, unknown> = { id: goal.id };
+    const where: Record<string, unknown> = { goalId: goal.id };
 
+    // Otimistic lock: só atualiza se o estado não mudou desde que lemos
     if (goal.lastReminderSentAt) {
-      where.lastReminderSentAt = new Date(goal.lastReminderSentAt);
+      where.lastSentAt = new Date(goal.lastReminderSentAt);
     } else {
-      where.lastReminderSentAt = null;
+      where.lastSentAt = null;
     }
-
     if (goal.dailyStatus) {
       where.dailyStatus = goal.dailyStatus;
     }
@@ -295,15 +299,15 @@ export class ReminderService {
 
     const updateData: Record<string, unknown> = {
       dailyStatus: decision.nextStatus ?? null,
-      lastReminderSentAt: now.toJSDate(),
+      lastSentAt: now.toJSDate(),
       silenceUntil: decision.silenceUntil ?? null,
-      reminderCount: { increment: 1 },
+      sentCount: { increment: 1 },
     };
     if (decision.slotKey) {
-      updateData.reminderSlotsToday = slots;
+      updateData.slotsToday = slots;
     }
 
-    const result = await prisma.userGoal.updateMany({
+    const result = await prisma.goalReminder.updateMany({
       where,
       data: updateData,
     });

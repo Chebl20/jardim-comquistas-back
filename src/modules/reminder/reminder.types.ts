@@ -35,6 +35,13 @@ export const REMINDER_STATUSES = {
 export type ReminderStatus =
   typeof REMINDER_STATUSES[keyof typeof REMINDER_STATUSES];
 
+/**
+ * ReminderGoalRecord – flat shape usada pelo policy engine e grouping util.
+ *
+ * Os campos de reminder state (dailyStatus, silenceUntil, etc.) residem agora
+ * na tabela GoalReminder, mas são "achatados" aqui pelo adapter `goalToLegacyRecord`
+ * para não precisar mudar o contrato do policy engine.
+ */
 export interface ReminderGoalRecord {
   id: string;
   userId: string;
@@ -42,8 +49,10 @@ export interface ReminderGoalRecord {
   description: string | null;
   goalKind: string;
   conquestType: string;
+  // Reconstruído pelo adapter a partir de GoalSchedule
   reminderTime: Date | string | null;
   scheduleConfig?: unknown;
+  // Estado de dispatch – achatado a partir de GoalReminder pelo adapter
   reminderSlotsToday?: unknown;
   lastReminderSentAt: Date | string | null;
   dailyStatus: string | null;
