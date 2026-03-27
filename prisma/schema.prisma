@@ -22,7 +22,6 @@ model User {
   updatedAt      DateTime @updatedAt
 
   goals                Goal[]
-  userGoals            UserGoal[]
   conversationSessions ConversationSession[]
 }
 
@@ -128,34 +127,6 @@ model GoalOccurrenceException {
 }
 
 // ---------------------------------------------------------------------------
-// UserGoal – meta legada (mantida para compatibilidade enquanto migra)
-// ---------------------------------------------------------------------------
-model UserGoal {
-  id                   String    @id @default(uuid())
-  userId               String
-  title                String
-  description          String?
-  goalType             String // 'Pontual' ou 'Continua'
-  conquestType         String // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
-  frequency            Int? // legado; preferir GoalSchedule
-  reminderTime         DateTime? // legado; preferir GoalSchedule
-  scheduleConfig       Json? // legado; preferir GoalSchedule
-  reminderSlotsToday   Json? // legado; preferir GoalReminder
-  lastReminderSentAt   DateTime? // legado; preferir GoalReminder
-  reminderCount        Int       @default(0) // legado; preferir GoalReminder
-  dailyStatus          String? // legado; preferir GoalReminder
-  silenceUntil         DateTime? // legado; preferir GoalReminder
-  completed            Boolean   @default(false)
-  plantedTreeId        String // ligação com a árvore que representa a meta
-  anchorId             String // ligação direta com o anchor usado
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  plantedTree PlantedTree @relation(fields: [plantedTreeId], references: [id])
-  user        User        @relation(fields: [userId], references: [id])
-}
-
-// ---------------------------------------------------------------------------
 // World models
 // ---------------------------------------------------------------------------
 model World {
@@ -204,7 +175,6 @@ model PlantedTree {
   treeCatalog  TreeCatalog   @relation(fields: [treeCatalogId], references: [id])
   growthEvents GrowthEvent[]
   goal         Goal?         @relation
-  userGoals    UserGoal[]
 }
 
 model GrowthEvent {

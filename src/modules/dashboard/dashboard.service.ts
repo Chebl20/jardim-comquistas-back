@@ -4,7 +4,7 @@ import { prisma } from '../../prisma/client';
 @Injectable()
 export class DashboardService {
   async getDashboardDay(userId: string, date: string, areaId?: string) {
-    const goals = await prisma.userGoal.findMany({
+    const goals = await prisma.goal.findMany({
       where: {
         userId,
         ...(areaId ? { conquestType: areaId } : {})

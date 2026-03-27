@@ -54,7 +54,7 @@ export class WorldsEventsService {
       const found = anchorsArr.find((x) => String(x.anchorId || x.id || x.slot || '') === aid);
       if (!found) throw new BadRequestException('anchorId not found in world config');
       // Verifica se já existe árvore do usuário nesse anchor
-      const exists = await (prisma as any).plantedTree.findFirst({ where: { worldId: safeId, anchorId: aid, userGoals: { some: { userId } } } });
+      const exists = await (prisma as any).plantedTree.findFirst({ where: { worldId: safeId, anchorId: aid, goal: { some: { userId } } } });
       if (exists) throw new BadRequestException('anchorId já ocupado por este usuário');
       chosenAnchorId = aid;
     } else {
@@ -62,7 +62,7 @@ export class WorldsEventsService {
         const aid = anchor && (anchor.anchorId || anchor.id || anchor.slot || '') ? String(anchor.anchorId || anchor.id || anchor.slot) : '';
         if (!aid) continue;
         // Só considera anchors livres para o usuário
-        const exists = await (prisma as any).plantedTree.findFirst({ where: { worldId: safeId, anchorId: aid, userGoals: { some: { userId } } } });
+        const exists = await (prisma as any).plantedTree.findFirst({ where: { worldId: safeId, anchorId: aid, goal: { some: { userId } } } });
         if (!exists) {
           chosenAnchorId = aid;
           break;
@@ -98,16 +98,15 @@ export class WorldsEventsService {
       // Cria árvore
       const planted = await tx.plantedTree.create({ data: { worldId: safeId, anchorId: aid, treeCatalogId: catalog.id, actualStage: 1 } });
 
-      // Cria UserGoal associada à árvore
-      await tx.userGoal.create({
+      // Cria Goal associada à árvore
+      await tx.goal.create({
         data: {
           userId,
           title: title || '',
           description: description || '',
-          goalType: 'Automático',
+          goalKind: 'Continua',
           conquestType: catalog.family,
           plantedTreeId: planted.id,
-          anchorId: aid,
         },
       });
 
@@ -152,7 +151,7 @@ export class WorldsEventsService {
     // Resolve plantedTreeId from goalId if necessary
     let resolvedPlantedId = plantedTreeId as string | undefined;
     if (!resolvedPlantedId && goalId) {
-      const g = await (prisma as any).userGoal.findUnique({ where: { id: goalId } });
+      const g = await (prisma as any).goal.findUnique({ where: { id: goalId } });
       if (!g || !g.plantedTreeId) throw new BadRequestException('goal not found or not linked to a plantedTree');
       resolvedPlantedId = g.plantedTreeId;
     }
@@ -170,7 +169,7 @@ export class WorldsEventsService {
     if (needsMetadata && userId) {
       let goalTitle = '';
       if (goalId) {
-        const g = await prisma.userGoal.findUnique({ where: { id: goalId }, select: { title: true } });
+        const g = await prisma.goal.findUnique({ where: { id: goalId }, select: { title: true } });
         if (g?.title) goalTitle = g.title;
       }
       const md = await this.communicationService.generateProgressMetadata(userId, { goalTitle, userMessage });

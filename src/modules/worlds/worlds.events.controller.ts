@@ -79,7 +79,7 @@ export class WorldsEventsController {
     const planted = await (prisma as any).plantedTree.findUnique({ where: { id: plantedTreeId } });
     if (!planted) throw new BadRequestException('planted tree not found');
 
-    const goal = await (prisma as any).userGoal.findFirst({ where: { plantedTreeId, userId } });
+    const goal = await (prisma as any).goal.findFirst({ where: { plantedTreeId, userId } });
     if (!goal) throw new BadRequestException('planted tree does not belong to user');
 
     const worldId = planted.worldId;

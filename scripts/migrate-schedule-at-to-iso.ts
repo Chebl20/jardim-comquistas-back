@@ -14,15 +14,16 @@ import { prisma } from '../src/prisma/client';
 const HH_MM_REGEX = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/;
 
 async function main() {
-  const goals = await prisma.userGoal.findMany({
-    where: { scheduleConfig: { not: Prisma.DbNull } },
+  const goals = await prisma.goal.findMany({
+    where: { schedule: { isNot: null } },
+    include: { schedule: true },
   });
 
   const toMigrate: { goal: (typeof goals)[0]; atIso: string }[] = [];
 
   for (const goal of goals) {
-    const sc = goal.scheduleConfig as { type?: string; at?: string } | null;
-    if (!sc || sc.type !== 'once' || !sc.at) continue;
+    const sc = goal.schedule;
+    if (!sc || sc.frequency !== 'ONCE' || !sc.at) continue;
 
     const at = String(sc.at).trim();
     const timeOnly = at.match(HH_MM_REGEX);
@@ -37,9 +38,7 @@ async function main() {
     const mm = parseInt(timeOnly[2], 10);
     const ss = parseInt(timeOnly[3] || '0', 10);
 
-    const dt = DateTime.now()
-      .setZone(tz)
-      .set({ hour: hh, minute: mm, second: ss, millisecond: 0 });
+    const dt = DateTime.fromJSDate(sc.at).setZone(tz);
     const atIso = dt.toISO()!;
 
     toMigrate.push({ goal, atIso });
@@ -53,11 +52,10 @@ async function main() {
   console.log(`Encontradas ${toMigrate.length} meta(s) para migrar.`);
 
   for (const { goal, atIso } of toMigrate) {
-    const sc = goal.scheduleConfig as { type: string; at: string };
-    const updated = { ...sc, at: atIso };
-    await prisma.userGoal.update({
-      where: { id: goal.id },
-      data: { scheduleConfig: updated as object },
+    const sc = goal.schedule!;
+    await prisma.goalSchedule.update({
+      where: { goalId: goal.id },
+      data: { at: new Date(atIso) },
     });
     console.log(`  [${goal.id}] "${goal.title}" at: ${sc.at} -> ${atIso}`);
   }

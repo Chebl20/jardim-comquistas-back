@@ -35,7 +35,6 @@ export class WorldsPlantedController {
     const where: any = { 
       worldId: safeId,
       OR: [
-        { userGoals: { some: { userId } } },
         { goal: { userId } }
       ]
     };
@@ -78,7 +77,7 @@ export class WorldsPlantedController {
       if (!planted) throw new BadRequestException('planted tree not found');
       if (planted.worldId !== safeId) throw new BadRequestException('planted tree does not belong to this world');
 
-      await tx.userGoal.deleteMany({ where: { plantedTreeId: pid } });
+      await tx.goal.deleteMany({ where: { plantedTreeId: pid } });
       await tx.goal.deleteMany({ where: { plantedTreeId: pid } });
 
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: pid } });
@@ -106,7 +105,7 @@ export class WorldsPlantedController {
       const ids = (plantedRows || []).map((r: any) => r.id);
       if (!ids.length) return { ok: true, deletedPlantedTrees: 0, deletedEvents: 0 };
 
-      await tx.userGoal.deleteMany({ where: { plantedTreeId: { in: ids } } });
+      await tx.goal.deleteMany({ where: { plantedTreeId: { in: ids } } });
       await tx.goal.deleteMany({ where: { plantedTreeId: { in: ids } } });
 
       const deletedEvents = await tx.growthEvent.deleteMany({ where: { plantedTreeId: { in: ids } } });
