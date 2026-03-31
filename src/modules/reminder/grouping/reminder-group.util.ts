@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon';
 import type { ScheduleConfig } from '../../ia/conversation/flow.types';
 import type { ReminderGoalRecord } from '../reminder.types';
+import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../../shared/weekday.util';
+import { isOnOrAfterGoalCreationDay } from '../../shared/schedule-occurrence.util';
 
 export interface ReminderGroup {
   goals: ReminderGoalRecord[];
@@ -34,20 +36,26 @@ export function getScheduledTimeToday(
 ): DateTime | null {
   const now = DateTime.now().setZone(timezone);
   const todayStart = now.startOf('day');
-  const todayDow = now.weekday === 7 ? 0 : now.weekday;
+  const todayDow = luxonWeekdayToJsDayOfWeek(now.weekday);
 
   const slotsSent = getSlotsSentToday(goal);
 
   const sc = goal.scheduleConfig as ScheduleConfig | null;
   if (sc && typeof sc === 'object') {
+    if (!isOnOrAfterGoalCreationDay(now, goal.createdAt, timezone)) return null;
     if (sc.type === 'once') {
       const at = new Date(sc.at);
       const userAt = DateTime.fromJSDate(at).setZone(timezone);
       if (!userAt.hasSame(todayStart, 'day')) return null;
       return userAt;
     }
-    if (sc.type === 'daily' || sc.type === 'weekly') {
-      if (sc.type === 'weekly' && !sc.daysOfWeek.includes(todayDow)) return null;
+    if (sc.type === 'daily' || sc.type === 'weekly' || sc.type === 'monthly') {
+      if (sc.type === 'weekly' && !normalizeDaysOfWeekJson(sc.daysOfWeek).includes(todayDow)) return null;
+      if (sc.type === 'monthly') {
+        const dom =
+          typeof sc.dayOfMonth === 'number' ? Math.trunc(sc.dayOfMonth) : parseInt(String(sc.dayOfMonth), 10);
+        if (!Number.isFinite(dom) || todayStart.day !== dom) return null;
+      }
       if (sc.type === 'daily' && sc.durationDays) {
         const createdAt = DateTime.fromJSDate(new Date(goal.createdAt)).setZone(timezone);
         const daysSince = Math.floor(now.diff(createdAt, 'days').days);
@@ -63,6 +71,7 @@ export function getScheduledTimeToday(
   }
 
   if (goal.reminderTime) {
+    if (!isOnOrAfterGoalCreationDay(now, goal.createdAt, timezone)) return null;
     const rt = DateTime.fromJSDate(new Date(goal.reminderTime)).setZone(timezone);
     const scheduledToday = todayStart.set({
       hour: rt.hour,
@@ -92,11 +101,12 @@ export function filterGoalsForToday(
   timezone: string,
 ): ReminderGoalRecord[] {
   const now = DateTime.now().setZone(timezone);
-  const todayDow = now.weekday === 7 ? 0 : now.weekday;
+  const todayDow = luxonWeekdayToJsDayOfWeek(now.weekday);
   const todayStart = now.startOf('day');
 
   return goals.filter((g) => {
     if (g.completed) return false;
+    if (!isOnOrAfterGoalCreationDay(now, g.createdAt, timezone)) return false;
     const sc = g.scheduleConfig as ScheduleConfig | null;
     if (sc && typeof sc === 'object') {
       if (sc.type === 'once') {
@@ -113,7 +123,12 @@ export function filterGoalsForToday(
         return true;
       }
       if (sc.type === 'weekly') {
-        return sc.daysOfWeek.includes(todayDow);
+        return normalizeDaysOfWeekJson(sc.daysOfWeek).includes(todayDow);
+      }
+      if (sc.type === 'monthly') {
+        const dom =
+          typeof sc.dayOfMonth === 'number' ? Math.trunc(sc.dayOfMonth) : parseInt(String(sc.dayOfMonth), 10);
+        return Number.isFinite(dom) && todayStart.day === dom;
       }
     }
     if (g.reminderTime) return true;

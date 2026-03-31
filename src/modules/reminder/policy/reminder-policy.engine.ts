@@ -9,6 +9,8 @@ import {
   ReminderPolicyInput,
 } from '../reminder.types';
 import type { ScheduleConfig } from '../../ia/conversation/flow.types';
+import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../../shared/weekday.util';
+import { isOnOrAfterGoalCreationDay } from '../../shared/schedule-occurrence.util';
 import { getGroupLastOperationalAt } from '../grouping/reminder-group.util';
 import type { ReminderGroup } from '../grouping/reminder-group.util';
 
@@ -107,6 +109,13 @@ export class ReminderPolicyEngine {
     if (o.type === 'daily' && Array.isArray(o.times) && o.times.length > 0) return sc as ScheduleConfig;
     if (o.type === 'weekly' && Array.isArray(o.daysOfWeek) && Array.isArray(o.times) && o.times.length > 0)
       return sc as ScheduleConfig;
+    if (
+      o.type === 'monthly' &&
+      typeof o.dayOfMonth === 'number' &&
+      Array.isArray(o.times) &&
+      o.times.length > 0
+    )
+      return sc as ScheduleConfig;
     return null;
   }
 
@@ -116,6 +125,9 @@ export class ReminderPolicyEngine {
     now: DateTime,
     timezone: string,
   ): ReminderPolicyDecision {
+    if (!isOnOrAfterGoalCreationDay(now.setZone(timezone), new Date(goal.createdAt as Date), timezone)) {
+      return this.wait('before_goal_creation');
+    }
     if (sc.type === 'once') {
       const reminderAt = this.toDateTime(sc.at, timezone);
       if (!reminderAt) return this.wait('invalid_schedule');
@@ -126,7 +138,7 @@ export class ReminderPolicyEngine {
       return this.wait('not_due');
     }
 
-    if (sc.type === 'daily' || sc.type === 'weekly') {
+    if (sc.type === 'daily' || sc.type === 'weekly' || sc.type === 'monthly') {
       const userNow = now.setZone(timezone);
       if (sc.type === 'daily' && sc.durationDays) {
         const createdAt = this.toDateTime(goal.createdAt, timezone);
@@ -137,8 +149,11 @@ export class ReminderPolicyEngine {
           }
         }
       }
-      const todayDow = userNow.weekday === 7 ? 0 : userNow.weekday; // 0=Dom, 1=Seg..6=Sab
-      if (sc.type === 'weekly' && !sc.daysOfWeek.includes(todayDow)) {
+      const todayDow = luxonWeekdayToJsDayOfWeek(userNow.weekday);
+      if (sc.type === 'weekly' && !normalizeDaysOfWeekJson(sc.daysOfWeek).includes(todayDow)) {
+        return this.wait('not_scheduled_today');
+      }
+      if (sc.type === 'monthly' && userNow.day !== sc.dayOfMonth) {
         return this.wait('not_scheduled_today');
       }
 

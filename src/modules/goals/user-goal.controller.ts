@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Req, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
 import { UserGoalService } from './user-goal.service';
 import { AuthGuard } from '../../auth/auth.guard';
 import { prisma } from '../../prisma/client';
+import { DateTime } from 'luxon';
 
 @ApiTags('Metas')
 @Controller('api/goals')
@@ -59,9 +60,24 @@ export class GoalInstanceController {
 
   @Get()
   @ApiOperation({ summary: 'Listar instâncias de metas por data' })
+  @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD no fuso do usuário; omite = hoje' })
   @ApiResponse({ status: 200, description: 'Lista retornada' })
-  async getInstances(@Req() req: any) {
-    return this.userGoalService.getGoalsForTodayForUser(req.user.userId);
+  async getInstances(@Req() req: any, @Query('date') date?: string) {
+    const userId = req.user.userId;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    const tz = user?.timezone && String(user.timezone).trim() ? user.timezone : 'America/Sao_Paulo';
+    const datePart = date && String(date).trim() ? String(date).trim().slice(0, 10) : null;
+    if (datePart) {
+      const d = DateTime.fromISO(datePart, { zone: tz });
+      if (!d.isValid) {
+        return this.userGoalService.getGoalsForTodayForUser(userId, tz);
+      }
+      return this.userGoalService.getGoalsForDateForUser(userId, d, tz, { includeCompleted: false });
+    }
+    return this.userGoalService.getGoalsForTodayForUser(userId, tz);
   }
 
   @Post(':id/complete')

@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../prisma/client';
 import { DateTime } from 'luxon';
 import { WorldsGateway } from '../worlds/worlds.gateway';
@@ -7,6 +8,8 @@ import { normalizeConquestType, CONQUEST_TYPES } from '../ia/conquest-type.enum'
 import { normalizeGoalType } from '../ia/goal-type.util';
 import { CommunicationService } from '../shared/communication.service';
 import type { CreateUserGoalInput, ScheduleConfig } from '../ia/conversation/flow.types';
+import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../shared/weekday.util';
+import { isOnOrAfterGoalCreationDay } from '../shared/schedule-occurrence.util';
 
 // ---------------------------------------------------------------------------
 // Tipos auxiliares
@@ -39,6 +42,7 @@ export interface GoalScheduleRecord {
   timeZone: string;
   dtStart?: Date | null;
   dtEnd?: Date | null;
+  extra?: unknown;
 }
 
 export interface GoalReminderRecord {
@@ -73,8 +77,24 @@ export function goalToLegacyRecord(goal: any) {
       scheduleConfig = {
         type: 'weekly',
         times: Array.isArray(sc.times) ? sc.times : [],
-        daysOfWeek: Array.isArray(sc.daysOfWeek) ? sc.daysOfWeek : [],
+        daysOfWeek: normalizeDaysOfWeekJson(sc.daysOfWeek),
       } as any;
+    } else if (sc.frequency === 'MONTHLY') {
+      const extra = sc.extra && typeof sc.extra === 'object' ? (sc.extra as Record<string, unknown>) : {};
+      const raw = extra.dayOfMonth;
+      const dom =
+        typeof raw === 'number'
+          ? Math.trunc(raw)
+          : typeof raw === 'string'
+            ? parseInt(raw, 10)
+            : NaN;
+      if (Number.isFinite(dom) && dom >= 1 && dom <= 31) {
+        scheduleConfig = {
+          type: 'monthly',
+          dayOfMonth: dom,
+          times: Array.isArray(sc.times) ? sc.times : [],
+        } as any;
+      }
     }
   }
 
@@ -200,6 +220,7 @@ export class UserGoalService {
     let scheduleTimes: string[] | null = null;
     let scheduleDaysOfWeek: number[] | null = null;
     let scheduleDurationDays: number | null = null;
+    let scheduleExtra: Record<string, unknown> | null = null;
 
     if (sc && typeof sc === 'object') {
       if (sc.type === 'once' && sc.at) {
@@ -223,7 +244,16 @@ export class UserGoalService {
       } else if (sc.type === 'weekly' && Array.isArray((sc as any).daysOfWeek) && Array.isArray((sc as any).times) && (sc as any).times.length > 0) {
         scheduleFrequency = 'WEEKLY';
         scheduleTimes = (sc as any).times;
-        scheduleDaysOfWeek = (sc as any).daysOfWeek;
+        scheduleDaysOfWeek = normalizeDaysOfWeekJson((sc as any).daysOfWeek);
+      } else if (sc.type === 'monthly' && Array.isArray((sc as any).times) && (sc as any).times.length > 0) {
+        const rawDom = (sc as any).dayOfMonth;
+        const dom =
+          typeof rawDom === 'number' ? Math.trunc(rawDom) : parseInt(String(rawDom), 10);
+        if (Number.isFinite(dom) && dom >= 1 && dom <= 31) {
+          scheduleFrequency = 'MONTHLY';
+          scheduleTimes = (sc as any).times;
+          scheduleExtra = { dayOfMonth: dom };
+        }
       }
     }
 
@@ -310,6 +340,7 @@ export class UserGoalService {
             times: scheduleTimes ?? undefined,
             daysOfWeek: scheduleDaysOfWeek ?? undefined,
             durationDays: scheduleDurationDays ?? undefined,
+            extra: scheduleExtra ? (scheduleExtra as Prisma.InputJsonValue) : undefined,
             dtStart: scheduleAt ?? (scheduleTimes ? DateTime.now().setZone(userTimezone).toJSDate() : undefined),
           },
         });
@@ -424,6 +455,7 @@ export class UserGoalService {
             timeZone: true,
             dtStart: true,
             dtEnd: true,
+            extra: true,
           },
         },
         reminder: {
@@ -558,12 +590,14 @@ export class UserGoalService {
     options?: { includeCompleted?: boolean },
   ) {
     const all = await this.getGoalsForUser(userId);
-    const targetDow = targetDate.weekday === 7 ? 0 : targetDate.weekday;
+    const targetDow = luxonWeekdayToJsDayOfWeek(targetDate.weekday);
     const targetStart = targetDate.startOf('day');
 
     return all.filter((g: any) => {
       const isPontualCompleted = g.goalKind === 'Pontual' && g.completed === true;
       if (!(options?.includeCompleted ?? false) && isPontualCompleted) return false;
+
+      if (!isOnOrAfterGoalCreationDay(targetDate, g.createdAt, timezone)) return false;
 
       // Ler do scheduleConfig reconstruído (adapter)
       const sc = g.scheduleConfig as ScheduleConfig | null;
@@ -582,7 +616,15 @@ export class UserGoalService {
           return true;
         }
         if (sc.type === 'weekly') {
-          return (sc as any).daysOfWeek.includes(targetDow);
+          return normalizeDaysOfWeekJson((sc as any).daysOfWeek).includes(targetDow);
+        }
+        if (sc.type === 'monthly') {
+          const dom =
+            typeof (sc as any).dayOfMonth === 'number'
+              ? Math.trunc((sc as any).dayOfMonth)
+              : parseInt(String((sc as any).dayOfMonth), 10);
+          if (!Number.isFinite(dom) || dom < 1 || dom > 31) return false;
+          return targetStart.day === dom;
         }
       }
       return false;
@@ -621,6 +663,7 @@ export class UserGoalService {
             daysOfWeek: true,
             durationDays: true,
             timeZone: true,
+            extra: true,
           },
         },
         reminder: {

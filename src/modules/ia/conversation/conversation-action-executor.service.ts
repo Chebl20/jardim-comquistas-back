@@ -19,8 +19,42 @@ function isValidatedGoalPayload(payload: ValidatedGoalPayload | null | undefined
   if (payload.frequency !== undefined && (!Number.isInteger(payload.frequency) || payload.frequency <= 0)) return false;
   if (payload.reminderTime !== undefined && typeof payload.reminderTime !== 'string') return false;
   if (payload.scheduleConfig !== undefined && payload.scheduleConfig !== null) {
-    const sc = payload.scheduleConfig as { type?: string };
-    if (!sc.type || !['once', 'daily', 'weekly'].includes(sc.type)) return false;
+    const sc = payload.scheduleConfig as {
+      type?: string;
+      at?: string;
+      times?: unknown[];
+      daysOfWeek?: unknown[];
+      dayOfMonth?: unknown;
+      durationDays?: unknown;
+    };
+    if (!sc.type || !['once', 'daily', 'weekly', 'monthly'].includes(sc.type)) return false;
+    if (sc.type === 'once' && (typeof sc.at !== 'string' || !sc.at.trim())) return false;
+    if (sc.type === 'daily') {
+      if (!Array.isArray(sc.times) || sc.times.length === 0 || !sc.times.every((t) => typeof t === 'string'))
+        return false;
+      if (
+        sc.durationDays !== undefined &&
+        (typeof sc.durationDays !== 'number' || !Number.isInteger(sc.durationDays) || sc.durationDays < 1)
+      )
+        return false;
+    }
+    if (sc.type === 'weekly') {
+      if (
+        !Array.isArray(sc.daysOfWeek) ||
+        sc.daysOfWeek.length === 0 ||
+        !sc.daysOfWeek.every((d) => typeof d === 'number' && Number.isInteger(d))
+      )
+        return false;
+      if (!Array.isArray(sc.times) || sc.times.length === 0 || !sc.times.every((t) => typeof t === 'string'))
+        return false;
+    }
+    if (sc.type === 'monthly') {
+      const dom =
+        typeof sc.dayOfMonth === 'number' ? sc.dayOfMonth : parseInt(String(sc.dayOfMonth), 10);
+      if (!Number.isInteger(dom) || dom < 1 || dom > 31) return false;
+      if (!Array.isArray(sc.times) || sc.times.length === 0 || !sc.times.every((t) => typeof t === 'string'))
+        return false;
+    }
   }
   return true;
 }

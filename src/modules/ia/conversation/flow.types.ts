@@ -38,7 +38,8 @@ export interface RedirectAction {
 export type ScheduleConfig =
   | { type: 'once'; at: string }
   | { type: 'daily'; times: string[]; durationDays?: number }
-  | { type: 'weekly'; daysOfWeek: number[]; times: string[] };
+  | { type: 'weekly'; daysOfWeek: number[]; times: string[] }
+  | { type: 'monthly'; dayOfMonth: number; times: string[] };
 
 // payload flexível produzido pelo LLM; ainda precisa de saneamento antes
 // de chegar à camada de persistência.

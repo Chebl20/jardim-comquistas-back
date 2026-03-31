@@ -113,6 +113,16 @@ function isValidScheduleConfig(sc: unknown): sc is ScheduleConfig {
   }
   if (o.type === 'weekly' && Array.isArray(o.daysOfWeek) && Array.isArray(o.times) && o.times.length > 0)
     return true;
+  if (
+    o.type === 'monthly' &&
+    typeof o.dayOfMonth === 'number' &&
+    Number.isInteger(o.dayOfMonth) &&
+    o.dayOfMonth >= 1 &&
+    o.dayOfMonth <= 31 &&
+    Array.isArray(o.times) &&
+    o.times.length > 0
+  )
+    return true;
   return false;
 }
 

@@ -6,7 +6,8 @@
 export type ScheduleConfig =
   | { type: 'once'; at: string }
   | { type: 'daily'; times: string[]; durationDays?: number }
-  | { type: 'weekly'; daysOfWeek: number[]; times: string[] };
+  | { type: 'weekly'; daysOfWeek: number[]; times: string[] }
+  | { type: 'monthly'; dayOfMonth: number; times: string[] };
 
 const DAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 // Ordem para tabela: Seg primeiro (padrão pt-BR)
@@ -27,6 +28,15 @@ function isValidScheduleConfig(obj: unknown): obj is ScheduleConfig {
     return (
       Array.isArray(o.daysOfWeek) &&
       o.daysOfWeek.every((d) => typeof d === 'number') &&
+      Array.isArray(o.times) &&
+      o.times.every((t) => typeof t === 'string')
+    );
+  if (type === 'monthly')
+    return (
+      typeof o.dayOfMonth === 'number' &&
+      Number.isInteger(o.dayOfMonth) &&
+      o.dayOfMonth >= 1 &&
+      o.dayOfMonth <= 31 &&
       Array.isArray(o.times) &&
       o.times.every((t) => typeof t === 'string')
     );
@@ -128,6 +138,12 @@ export function formatScheduleForUser(
     return `${titleLine}               ${dayHeaders}\n${timeRows}`;
   }
 
+  if (scheduleConfig.type === 'monthly') {
+    const { dayOfMonth, times } = scheduleConfig;
+    const timesStr = times.length > 1 ? times.join(' e ') : times[0] || '—';
+    return `${titleLine}Todo mês no dia ${dayOfMonth}:\n  ${timesStr}`;
+  }
+
   return '';
 }
 
@@ -166,6 +182,13 @@ export function formatScheduleSummary(
       ? scheduleConfig.times.join(' e ')
       : scheduleConfig.times[0] || '—';
     return `${daysStr} às ${timesStr}`;
+  }
+
+  if (scheduleConfig.type === 'monthly') {
+    const timesStr = scheduleConfig.times.length > 1
+      ? scheduleConfig.times.join(' e ')
+      : scheduleConfig.times[0] || '—';
+    return `dia ${scheduleConfig.dayOfMonth} de cada mês às ${timesStr}`;
   }
 
   return '';

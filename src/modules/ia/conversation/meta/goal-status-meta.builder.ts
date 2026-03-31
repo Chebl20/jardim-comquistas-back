@@ -4,6 +4,7 @@ import { UserGoalService } from '../../../goals/user-goal.service';
 import { FLOW_STATES } from '../flow.types';
 import { NucleusMetaBuilder, NucleusMetaBuildContext } from './nucleus-meta.builder';
 import { formatScheduleSummary } from '../../../shared/schedule-formatter.util';
+import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../../../shared/weekday.util';
 import type { ScheduleConfig } from '../flow.types';
 
 @Injectable()
@@ -196,12 +197,14 @@ export class GoalStatusMetaBuilder implements NucleusMetaBuilder {
 
       const todaySummarized = todayGoals.map((g: any) => summarizeGoal(g));
       const nowDt = DateTime.now().setZone(timezone);
-      const todayDow = nowDt.weekday === 7 ? 0 : nowDt.weekday;
+      const todayDow = luxonWeekdayToJsDayOfWeek(nowDt.weekday);
       meta.userGoalsSummaryForToday = todaySummarized.filter((s: any) => {
         const nr = String(s?.nextReminder || '');
         if (s?.type === 'Pontual' && (nr.startsWith('amanhã') || nr.startsWith('em '))) return false;
         const sc = s?.scheduleConfig;
-        if (sc?.type === 'weekly' && Array.isArray(sc.daysOfWeek) && !sc.daysOfWeek.includes(todayDow)) return false;
+        if (sc?.type === 'weekly' && !normalizeDaysOfWeekJson(sc.daysOfWeek).includes(todayDow)) return false;
+        if (sc?.type === 'monthly' && typeof sc.dayOfMonth === 'number' && nowDt.day !== sc.dayOfMonth)
+          return false;
         return true;
       });
       meta.userGoalsSummaryForTomorrow = tomorrowGoals.map((g: any) => summarizeGoal(g));

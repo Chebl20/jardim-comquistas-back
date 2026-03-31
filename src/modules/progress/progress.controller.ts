@@ -15,7 +15,11 @@ export class ProgressController {
   @ApiQuery({ name: 'date', required: true })
   @ApiQuery({ name: 'areaId', required: false })
   @ApiResponse({ status: 200, description: 'Estatísticas semanais' })
-  async getWeeklyProgress(@Query('date') date: string, @Query('areaId') areaId: string, @Req() req: any) {
+  async getWeeklyProgress(
+    @Query('date') date: string,
+    @Query('areaId') areaId: string | undefined,
+    @Req() req: any,
+  ) {
     return this.progressService.getWeeklyProgress(req.user.userId, date, areaId);
   }
 
