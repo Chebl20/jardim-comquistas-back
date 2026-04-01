@@ -52,6 +52,7 @@ export interface DraftGoalPayload {
   reminderTime?: string | null;
   timeToken?: string | null;
   scheduleConfig?: ScheduleConfig | null;
+  worldId?: string | null;
 }
 
 // payload seguro para persistência. Depois dessa fronteira, nenhum valor
@@ -65,6 +66,7 @@ export interface ValidatedGoalPayload {
   reminderTime?: string;
   timeToken?: string | null;
   scheduleConfig?: ScheduleConfig | null;
+  worldId?: string;
 }
 
 export interface CreateUserGoalInput extends ValidatedGoalPayload {

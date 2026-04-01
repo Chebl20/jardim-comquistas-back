@@ -192,6 +192,7 @@ function sanitizeGoalPayload(
 
   if (reminderTime) payload.reminderTime = reminderTime;
   if (scheduleConfig) payload.scheduleConfig = scheduleConfig;
+  if (draft.worldId) payload.worldId = draft.worldId;
 
   if (normalizedGoalType === 'Continua') {
     const frequency = normalizeFrequency(draft.frequency);

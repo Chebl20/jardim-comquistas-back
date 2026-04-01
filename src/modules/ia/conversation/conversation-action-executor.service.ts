@@ -136,7 +136,7 @@ export class ConversationActionExecutorService {
           const createData = {
             ...goalData,
             userId,
-            worldId,
+            worldId: goalData.worldId || worldId, // Priorizar worldId extraído pelo usuário
             scheduleConfig: goalData.scheduleConfig ?? undefined,
           };
           const created = await this.userGoalService.createUserGoalWithTree(createData);
