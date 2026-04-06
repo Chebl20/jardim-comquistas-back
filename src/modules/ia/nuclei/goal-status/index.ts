@@ -47,10 +47,37 @@ export class GoalStatusNucleus implements Nucleus {
 
       // Derivar decisão a partir da classificação (contrato padrão dos núcleos)
       if (classification === CLASSIFICATIONS.NEW_INTENT) {
+        // Extrair metadata da meta mencionada se possível
+        // Isso ajuda o Router a passar contexto para o próximo núcleo (ex: REMINDER)
+        let extractedPayload: Record<string, any> = {};
+        
+        if (input.text && input.meta?.userGoalsSummary) {
+          const userGoals = (input.meta.userGoalsSummary as any[]) || [];
+          const textLower = input.text.toLowerCase();
+          
+          // Tentar encontrar a meta mencionada pelo usuário
+          const mentionedGoal = userGoals.find(g => 
+            textLower.includes((g.title || '').toLowerCase())
+          );
+          
+          if (mentionedGoal) {
+            // Passar informações da meta para o próximo núcleo
+            extractedPayload = {
+              goalId: mentionedGoal.id,
+              goalTitle: mentionedGoal.title,
+              goalDescription: mentionedGoal.description || '',
+              goalType: mentionedGoal.type,
+              conquestType: mentionedGoal.conquestType,
+            };
+            this.logger.debug(`GoalStatus extracted meta: ${mentionedGoal.title} (id: ${mentionedGoal.id})`);
+          }
+        }
+        
         return {
           actions: [],
           decision: DECISIONS.NOT_MY_JOB,
           confidence,
+          extracted: { payload: extractedPayload },
         };
       }
 

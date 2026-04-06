@@ -139,4 +139,112 @@ describe('Goal creation hardening', () => {
     );
     expect(stateService.resetFlow).toHaveBeenCalledWith('user-1234567890');
   });
+
+  it('detecta e rejeita alteração suspeita de schedule (remover dia de semana)', async () => {
+    const llm = {
+      analyze: jest.fn().mockResolvedValue({
+        classification: CLASSIFICATIONS.CONTINUE,
+        confidence: 0.95,
+        extracted: {
+          payload: {
+            title: 'Estudar',
+            goalType: 'Continua',
+            conquestType: 'Mente',
+            reminderTime: '16:40',
+            scheduleConfig: {
+              type: 'weekly',
+              daysOfWeek: [2, 3, 4, 5], // removeu segunda-feira (1)
+              times: ['16:40'],
+            },
+          },
+        },
+        suggestedReply: 'Ok, ajustado!',
+        finished: true,
+      }),
+    };
+    const comm = {
+      generateProgressMetadata: jest.fn(),
+    };
+
+    const nucleus = new GoalCreationNucleus(llm as any, comm as any);
+    const result = await nucleus.analyze({
+      userId: 'user-1234567890',
+      currentSession: FLOW_STATES.GOAL_CREATION,
+      text: 'Não me lembre de estudar no dia de hoje',
+      meta: {
+        title: 'Estudar',
+        goalId: 'goal-estudar',
+        scheduleConfig: {
+          type: 'weekly',
+          daysOfWeek: [1, 2, 3, 4, 5], // originalmente seg-sex
+          times: ['16:40'],
+        },
+      },
+    });
+
+    expect(result.decision).toBe('handled');
+    expect(result.actions).toHaveLength(2);
+    expect(result.actions[0]).toMatchObject({
+      type: 'continue',
+      to: FLOW_STATES.GOAL_CREATION,
+    });
+    // Deve sugerir pausar em vez de remover permanentemente
+    expect(result.actions[1].type).toBe('reply');
+    const replyText = (result.actions[1] as any).text;
+    expect(replyText).toContain('pausar');
+    // Deve marcar no continue payload que foi detectada redução suspeita
+    const continueAction = result.actions[0] as any;
+    expect(continueAction.payload.suspiciousScheduleReductionDetected).toBe(true);
+  });
+
+  it('executa dismiss_goal_for_today quando usuário confirma pausar lembrete', async () => {
+    const llm = {
+      analyze: jest.fn().mockResolvedValue({
+        classification: CLASSIFICATIONS.CONTINUE,
+        confidence: 0.99,
+        extracted: {
+          payload: {
+            title: 'Estudar',
+            goalType: 'Continua',
+            conquestType: 'Mente',
+          },
+        },
+        suggestedReply: 'Confirma pausar?',
+        finished: true,
+      }),
+    };
+    const comm = {
+      generateProgressMetadata: jest.fn(),
+    };
+
+    const nucleus = new GoalCreationNucleus(llm as any, comm as any);
+    const result = await nucleus.analyze({
+      userId: 'user-1234567890',
+      currentSession: FLOW_STATES.GOAL_CREATION,
+      text: 'Sim, pausar',
+      meta: {
+        title: 'Estudar',
+        goalId: 'goal-estudar',
+        timezone: 'America/Sao_Paulo',
+        suspiciousScheduleReductionDetected: true, // marcado na turno anterior
+      },
+    });
+
+    expect(result.decision).toBe('handled');
+    expect(result.actions).toContainEqual(
+      expect.objectContaining({
+        type: 'dismiss_goal_for_today',
+        payload: expect.objectContaining({
+          goalId: 'goal-estudar',
+        }),
+      }),
+    );
+    // Deve ter reply de confirmação
+    expect(result.actions).toContainEqual(
+      expect.objectContaining({
+        type: 'reply',
+      }),
+    );
+  });
 });
+

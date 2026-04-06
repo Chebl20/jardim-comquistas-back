@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { DateTime } from 'luxon';
 import { NucleusInput, Nucleus, GoalCreationMeta } from '../nucleus.interface';
 import {
   FlowResult,
@@ -126,9 +127,36 @@ function isValidScheduleConfig(sc: unknown): sc is ScheduleConfig {
   return false;
 }
 
+/**
+ * Detecta se o payload está removendo dias de uma schedule semanal existente,
+ * sinalizando possível confusão entre "skip today" vs "remove this day permanently"
+ */
+function detectSuspiciousScheduleReduction(
+  meta: Record<string, unknown>,
+  newSchedule: unknown,
+): boolean {
+  const prevSchedule = (meta.scheduleConfig as any);
+  if (!prevSchedule || prevSchedule.type !== 'weekly') return false;
+  
+  const newSc = (newSchedule as any);
+  if (!newSc || newSc.type !== 'weekly') return false;
+  
+  const prevDays = (Array.isArray(prevSchedule.daysOfWeek) 
+    ? prevSchedule.daysOfWeek 
+    : []) as number[];
+  const newDays = (Array.isArray(newSc.daysOfWeek) 
+    ? newSc.daysOfWeek 
+    : []) as number[];
+  
+  // Se removeu dias (newDays é subset de prevDays com menos elementos)
+  const removedDays = prevDays.filter(d => !newDays.includes(d));
+  return removedDays.length > 0;
+}
+
 function sanitizeGoalPayload(
   draft: DraftGoalPayload,
   now: Date,
+  meta?: Record<string, unknown>,
 ): GoalPayloadGuardResult {
   const title = cleanText(draft.title);
   const description = cleanText(draft.description);
@@ -192,11 +220,24 @@ function sanitizeGoalPayload(
 
   if (reminderTime) payload.reminderTime = reminderTime;
   if (scheduleConfig) payload.scheduleConfig = scheduleConfig;
-  if (draft.worldId) payload.worldId = draft.worldId;
 
   if (normalizedGoalType === 'Continua') {
     const frequency = normalizeFrequency(draft.frequency);
     if (frequency) payload.frequency = frequency;
+  }
+
+  // 🔴 Validação: detectar confusão entre "pular hoje" vs "remover este dia permanentemente"
+  if (
+    meta &&
+    scheduleConfig &&
+    detectSuspiciousScheduleReduction(meta, scheduleConfig)
+  ) {
+    return {
+      ok: false,
+      reply:
+        'Percebi que você quis remover um dia da sua agenda. Se era só para hoje não receber lembrete, eu posso pausar por umas horas em vez de remover permanentemente. Quer que eu faça isso?',
+      continuePayload: draft,
+    };
   }
 
   return {
@@ -371,13 +412,54 @@ export class GoalCreationNucleus implements Nucleus<ReplyAction | ContinueAction
           }
         }
 
-        const guardedPayload = sanitizeGoalPayload(finalPayload, now);
+        const guardedPayload = sanitizeGoalPayload(finalPayload, now, meta);
+
+        // 🔴 SPECIAL CASE: Detectado skip-today suspeito na turno anterior e usuário confirma agora
+        // Se estava esperando confirmação para pausar e agora confirma → dismiss_goal_for_today
+        if (
+          meta?.suspiciousScheduleReductionDetected === true &&
+          (text.toLowerCase().includes('sim') || text.toLowerCase().includes('pode') || text.toLowerCase().includes('pausar'))
+        ) {
+          const goalId = (meta.goalId as string | undefined);
+          if (goalId) {
+            const tz = (meta.timezone as string) || 'America/Sao_Paulo';
+            const eodDateTime = DateTime.now().setZone(tz).endOf('day');
+            const silenceUntil = eodDateTime.toJSDate();
+
+            const actions: Array<ReplyAction | ContinueAction | CreateGoalAction | CancelAction> = [
+              {
+                type: 'dismiss_goal_for_today',
+                payload: {
+                  goalId,
+                  silenceUntil,
+                },
+              } as any, // dismiss_goal_for_today exists in conversation-action-executor
+              {
+                type: 'reply',
+                text: `Entendido! Vou pausar os lembretes de "${(meta.title as string) || 'sua meta'}" só para hoje. Amanhã volto a lembrar. 🌙`,
+              } as ReplyAction,
+            ];
+
+            this.logger.log(`GoalCreation: returning dismiss_goal_for_today for ${goalId} until ${silenceUntil}`);
+            return {
+              actions,
+              decision: DECISIONS.HANDLED,
+              confidence: 0.95,
+            };
+          }
+        }
 
         if (!guardedPayload.ok) {
           const actions: Array<ReplyAction | ContinueAction | CreateGoalAction | CancelAction> = [
             {
               type: 'continue',
-              payload: guardedPayload.continuePayload,
+              payload: {
+                ...guardedPayload.continuePayload,
+                // Marcar que detectamos redução suspeita para próxima turno poder executar dismiss
+                ...(detectSuspiciousScheduleReduction(meta, guardedPayload.continuePayload.scheduleConfig)
+                  ? { suspiciousScheduleReductionDetected: true }
+                  : {}),
+              },
               to: FLOW_STATES.GOAL_CREATION,
             } as ContinueAction,
             {

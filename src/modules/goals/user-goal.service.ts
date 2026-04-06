@@ -130,6 +130,20 @@ export class UserGoalService {
   async createUserGoalWithTree(
     data: Omit<CreateUserGoalInput, 'reminderTime'> & { reminderTime?: Date | string; scheduleConfig?: ScheduleConfig },
   ) {
+    // 0. Verificar se a meta já existe (deduplicação)
+    const existingGoal = await prisma.goal.findFirst({
+      where: {
+        userId: data.userId,
+        title: data.title,
+        status: 'ACTIVE',
+      },
+    });
+
+    if (existingGoal) {
+      this.logger.warn(`Meta duplicada detectada: "${data.title}" já existe para o usuário. Retornando meta existente.`);
+      return existingGoal;
+    }
+
     // 1. Normalizar e validar conquestType
     const normalizedConquest = normalizeConquestType(data.conquestType);
     if (!normalizedConquest) {
@@ -408,6 +422,12 @@ export class UserGoalService {
     goalId: string,
     data: { dailyStatus?: string | null; silenceUntil?: Date | null },
   ) {
+    // 🔴 Validar se goal existe antes de atualizar/criar GoalReminder
+    const goal = await prisma.goal.findUnique({ where: { id: goalId } });
+    if (!goal) {
+      throw new Error(`Goal ${goalId} not found — cannot update reminder state`);
+    }
+
     return prisma.goalReminder.upsert({
       where: { goalId },
       update: {
@@ -642,6 +662,18 @@ export class UserGoalService {
     return this.getGoalsForDateForUser(userId, tomorrow, timezone, { includeCompleted: false });
   }
 
+  /**
+   * Carrega apenas o timezone do usuário
+   */
+  async getUserTimezone(userId: string): Promise<string> {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+      return user?.timezone || 'America/Sao_Paulo';
+    } catch {
+      return 'America/Sao_Paulo';
+    }
+  }
+
   async getGoalsForUser(userId: string) {
     const goals = await prisma.goal.findMany({
       where: { userId },
@@ -694,8 +726,23 @@ export class UserGoalService {
           },
         },
       },
+      orderBy: { createdAt: 'desc' }, // Ordenar por data de criação descendente
     });
 
-    return goals.map(goalToLegacyRecord);
+    // 🔴 DEDUPLICAÇÃO: Manter apenas a meta mais recente de cada título
+    const seen = new Map<string, typeof goals[0]>();
+    for (const goal of goals) {
+      const key = `${goal.title}`.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, goal);
+      }
+    }
+    const dedupedGoals = Array.from(seen.values());
+
+    this.logger.debug(
+      `getGoalsForUser: ${goals.length} metas no total → ${dedupedGoals.length} após deduplicação`
+    );
+
+    return dedupedGoals.map(goalToLegacyRecord);
   }
 }

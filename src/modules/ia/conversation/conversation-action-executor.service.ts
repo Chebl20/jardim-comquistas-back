@@ -136,7 +136,7 @@ export class ConversationActionExecutorService {
           const createData = {
             ...goalData,
             userId,
-            worldId: goalData.worldId || worldId, // Priorizar worldId extraído pelo usuário
+            worldId,
             scheduleConfig: goalData.scheduleConfig ?? undefined,
           };
           const created = await this.userGoalService.createUserGoalWithTree(createData);
@@ -233,11 +233,20 @@ export class ConversationActionExecutorService {
         const { goalId, silenceUntil } = (action.payload as { goalId: string; silenceUntil?: string | Date });
         try {
           if (goalId) {
+            // 🔴 Validar se goal existe antes de atualizar reminder
+            const goal = await this.userGoalService.getGoalsByIds([goalId]);
+            if (!goal || goal.length === 0) {
+              this.logger.warn(
+                `dismiss_goal_for_today: goal ${goalId} not found or already deleted — skipping reminder update`,
+              );
+              return {};
+            }
+
             const until = typeof silenceUntil === 'string' ? new Date(silenceUntil) : silenceUntil;
             await this.userGoalService.updateReminderState(goalId, {
               silenceUntil: until ?? undefined,
             });
-            this.logger.log(`Goal ${goalId} dismissed for today`);
+            this.logger.log(`Goal ${goalId} dismissed for today until ${until}`);
           }
         } catch (e) {
           this.logger.error('dismiss_goal_for_today action failed', e);

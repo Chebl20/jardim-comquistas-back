@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NucleusInput, Nucleus, ReminderMeta } from '../nucleus.interface';
-import { FlowResult, Action, FLOW_STATES, DECISIONS, CLASSIFICATIONS } from '../../conversation/flow.types';
+import { FlowResult, Action, ReplyAction, FLOW_STATES, DECISIONS, CLASSIFICATIONS } from '../../conversation/flow.types';
 import { ConversationAIService } from '../../conversation-ai.service';
 import { REMINDER_PROMPT } from './prompt';
 import { decisionFromClassification } from '../prompt-utils';
@@ -36,6 +36,18 @@ export class ReminderNucleus implements Nucleus<Action> {
     const text = (input.text || '').trim();
     let meta = this.normalizeMeta((input.meta as ReminderMeta) || {}, text);
 
+    // 🔴 IMPORTANTE: Garantir que temos timezone (para carregar otherGoals)
+    // Se vem de CLARIFICATION, timezone pode ser undefined
+    if (!meta.timezone) {
+      try {
+        meta.timezone = await this.userGoalService.getUserTimezone(input.userId);
+        this.logger.debug(`ReminderNucleus: carregou timezone "${meta.timezone}" do usuário`);
+      } catch (e) {
+        this.logger.debug(`ReminderNucleus: não conseguiu carregar timezone do usuário`, e);
+      }
+    }
+
+    // Carregar otherGoals para dar contexto ao LLM
     if (text && meta.timezone) {
       if (meta.pendingGoalIds && meta.pendingGoalIds.length > 0) {
         const goals = await this.userGoalService.getGoalsByIds(meta.pendingGoalIds);
@@ -47,6 +59,7 @@ export class ReminderNucleus implements Nucleus<Action> {
         );
         meta = { ...meta, otherGoals: goalsWithStatus.map((g) => ({ id: g.id, title: g.title })) };
       }
+      this.logger.debug(`ReminderNucleus: carregou ${meta.otherGoals?.length || 0} metas para contexto`);
     }
 
     try {
@@ -88,7 +101,55 @@ export class ReminderNucleus implements Nucleus<Action> {
       }
 
       const goalsCompleted = llmRes.goalsCompleted as Array<{ id: string; title?: string; description?: string }> | undefined;
-      const dismissGoalId = llmRes.dismissGoalId as string | undefined;
+      let dismissGoalId = llmRes.dismissGoalId as string | undefined;
+
+      // 🔴 Validar dismissGoalId — pode ser ID ou título (extraído do LLM)
+      if (dismissGoalId) {
+        const validGoalIds = [
+          meta.goalId,
+          ...(Array.isArray(meta.otherGoals) ? meta.otherGoals.map((g: any) => g.id) : []),
+        ].filter((id) => id != null); // remover nulls
+
+        // Primeira tentativa: é um ID válido?
+        if (!validGoalIds.includes(dismissGoalId)) {
+          // Tenta matching por título (o LLM pode ter extraído o título)
+          const matchedGoal = Array.isArray(meta.otherGoals)
+            ? meta.otherGoals.find((g: any) => g.title?.toLowerCase() === dismissGoalId?.toLowerCase())
+            : null;
+
+          if (matchedGoal?.id) {
+            this.logger.debug(
+              `ReminderNucleus: dismissGoalId "${dismissGoalId}" é título. Mapeado para ID: ${matchedGoal.id}`,
+            );
+            dismissGoalId = matchedGoal.id;
+          } else {
+            this.logger.warn(
+              `ReminderNucleus: dismissGoalId "${dismissGoalId}" não é ID válido nem título reconhecido. Valid IDs: ${JSON.stringify(validGoalIds)}, Valid titles: ${Array.isArray(meta.otherGoals) ? meta.otherGoals.map((g: any) => g.title).join(', ') : 'none'}`,
+            );
+
+            // Fallback: usar meta.goalId se estamos respondendo a um lembrete específico
+            if (meta.goalId && validGoalIds.includes(meta.goalId)) {
+              dismissGoalId = meta.goalId;
+              this.logger.debug(`ReminderNucleus: usando meta.goalId como fallback: ${meta.goalId}`);
+            } else {
+              // Não conseguimos identificar qual meta
+              const goalList = Array.isArray(meta.otherGoals)
+                ? meta.otherGoals.map((g: any) => `"${g.title}"`).join(', ')
+                : 'nenhuma';
+              return {
+                actions: [
+                  {
+                    type: 'reply' as const,
+                    text: `Desculpe, não consegui identificar qual meta você quer pausar. Suas metas disponíveis: ${goalList}.`,
+                  } as ReplyAction,
+                ],
+                decision: DECISIONS.HANDLED,
+                confidence: 0.3,
+              };
+            }
+          }
+        }
+      }
 
       if (goalsCompleted && goalsCompleted.length > 0) {
         const goals = goalsCompleted.map((g) => ({
