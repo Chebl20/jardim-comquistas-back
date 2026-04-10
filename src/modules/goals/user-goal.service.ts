@@ -9,7 +9,7 @@ import { normalizeGoalType } from '../ia/goal-type.util';
 import { CommunicationService } from '../shared/communication.service';
 import type { CreateUserGoalInput, ScheduleConfig } from '../ia/conversation/flow.types';
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../shared/weekday.util';
-import { isOnOrAfterGoalCreationDay } from '../shared/schedule-occurrence.util';
+import { isOnOrAfterGoalCreationDay, getCancelledExceptionsForDate } from '../shared/schedule-occurrence.util';
 
 // ---------------------------------------------------------------------------
 // Tipos auxiliares
@@ -613,7 +613,13 @@ export class UserGoalService {
     const targetDow = luxonWeekdayToJsDayOfWeek(targetDate.weekday);
     const targetStart = targetDate.startOf('day');
 
+    // Buscar exceções canceladas para os goals na data alvo
+    const goalIds = all.map((g: any) => g.id).filter((id: string) => !!id);
+    const cancelledGoalIds = await getCancelledExceptionsForDate(goalIds, targetDate, timezone);
+
     return all.filter((g: any) => {
+      // Verificar se esta meta foi pulada (tem exceção de cancelamento para a data)
+      if (g.id && cancelledGoalIds.has(g.id)) return false;
       const isPontualCompleted = g.goalKind === 'Pontual' && g.completed === true;
       if (!(options?.includeCompleted ?? false) && isPontualCompleted) return false;
 

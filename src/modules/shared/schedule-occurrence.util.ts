@@ -1,11 +1,54 @@
 import { DateTime } from 'luxon';
 import type { ScheduleConfig } from '../ia/conversation/flow.types';
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from './weekday.util';
+import { prisma } from '../../prisma/client';
 
 type GoalLike = {
+  id?: string;
   createdAt: Date;
   scheduleConfig?: ScheduleConfig | null;
 };
+
+/**
+ * Busca exceções canceladas (isCancelled=true) para um conjunto de goals em uma data específica.
+ * Retorna um Set de goalIds que têm exceções de cancelamento para a data.
+ */
+export async function getCancelledExceptionsForDate(
+  goalIds: string[],
+  targetDate: DateTime,
+  timezone: string,
+): Promise<Set<string>> {
+  if (goalIds.length === 0) return new Set();
+
+  const targetStart = targetDate.setZone(timezone).startOf('day');
+  const targetEnd = targetDate.setZone(timezone).endOf('day');
+
+  const exceptions = await prisma.goalOccurrenceException.findMany({
+    where: {
+      goalId: { in: goalIds },
+      isCancelled: true,
+      originalOccurrenceStart: {
+        gte: targetStart.toJSDate(),
+        lte: targetEnd.toJSDate(),
+      },
+    },
+    select: { goalId: true },
+  });
+
+  return new Set(exceptions.map((e) => e.goalId));
+}
+
+/**
+ * Verifica se um goal específico tem exceção de cancelamento para uma data.
+ */
+export async function hasCancelledExceptionForDate(
+  goalId: string,
+  targetDate: DateTime,
+  timezone: string,
+): Promise<boolean> {
+  const cancelled = await getCancelledExceptionsForDate([goalId], targetDate, timezone);
+  return cancelled.has(goalId);
+}
 
 /** `day` é o mesmo dia civil ou posterior ao dia em que a meta foi criada (fuso `tz`). */
 export function isOnOrAfterGoalCreationDay(day: DateTime, createdAt: Date | string, tz: string): boolean {

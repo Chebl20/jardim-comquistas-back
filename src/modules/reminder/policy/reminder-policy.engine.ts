@@ -10,7 +10,7 @@ import {
 } from '../reminder.types';
 import type { ScheduleConfig } from '../../ia/conversation/flow.types';
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../../shared/weekday.util';
-import { isOnOrAfterGoalCreationDay } from '../../shared/schedule-occurrence.util';
+import { isOnOrAfterGoalCreationDay, hasCancelledExceptionForDate } from '../../shared/schedule-occurrence.util';
 import { getGroupLastOperationalAt } from '../grouping/reminder-group.util';
 import type { ReminderGroup } from '../grouping/reminder-group.util';
 
@@ -53,7 +53,7 @@ export class ReminderPolicyEngine {
     process.env.REMINDER_SNOOZE_MINUTES || 90,
   );
 
-  evaluate(input: ReminderPolicyInput): ReminderPolicyDecision {
+  async evaluate(input: ReminderPolicyInput): Promise<ReminderPolicyDecision> {
     const { goal, now, timezone } = input;
     const status = String(goal.dailyStatus || '');
     const silenceUntil = this.toDateTime(goal.silenceUntil, timezone);
@@ -70,6 +70,14 @@ export class ReminderPolicyEngine {
 
     if (silenceUntil && silenceUntil > now) {
       return this.wait('cooldown_active');
+    }
+
+    // Verificar se esta meta foi pulada para hoje (exceção de cancelamento)
+    if (goal.id) {
+      const isCancelledForToday = await hasCancelledExceptionForDate(goal.id, now, timezone);
+      if (isCancelledForToday) {
+        return this.wait('occurrence_cancelled_exception');
+      }
     }
 
     if (status === REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY) {

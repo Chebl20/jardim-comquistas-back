@@ -46,7 +46,7 @@ export class ReminderService {
 
     for (const [userId, userGoals] of byUser) {
       const timezone = userGoals[0]?.user?.timezone || 'America/Sao_Paulo';
-      const todayGoals = filterGoalsForToday(userGoals, timezone);
+      const todayGoals = await filterGoalsForToday(userGoals, timezone);
       const groups = clusterGoalsIntoGroups(
         todayGoals,
         timezone,
@@ -71,7 +71,7 @@ export class ReminderService {
 
         if (groupKey && processedGroupKeys.has(groupKey)) continue;
 
-        const decision = this.policyEngine.evaluate({
+        const decision = await this.policyEngine.evaluate({
           goal,
           now,
           timezone,

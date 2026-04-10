@@ -2,7 +2,7 @@ import { DateTime } from 'luxon';
 import type { ScheduleConfig } from '../../ia/conversation/flow.types';
 import type { ReminderGoalRecord } from '../reminder.types';
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../../shared/weekday.util';
-import { isOnOrAfterGoalCreationDay } from '../../shared/schedule-occurrence.util';
+import { isOnOrAfterGoalCreationDay, getCancelledExceptionsForDate } from '../../shared/schedule-occurrence.util';
 
 export interface ReminderGroup {
   goals: ReminderGoalRecord[];
@@ -95,16 +95,24 @@ function getSlotsSentToday(goal: ReminderGoalRecord): string[] {
 
 /**
  * Filtra metas que têm lembretes agendados para hoje.
+ * Verifica exceções de cancelamento (GoalOccurrenceException) para não mostrar metas puladas.
  */
-export function filterGoalsForToday(
+export async function filterGoalsForToday(
   goals: ReminderGoalRecord[],
   timezone: string,
-): ReminderGoalRecord[] {
+): Promise<ReminderGoalRecord[]> {
   const now = DateTime.now().setZone(timezone);
   const todayDow = luxonWeekdayToJsDayOfWeek(now.weekday);
   const todayStart = now.startOf('day');
 
+  // Buscar exceções canceladas para os goals filtrados
+  const goalIds = goals.map((g) => g.id).filter((id): id is string => !!id);
+  const cancelledGoalIds = await getCancelledExceptionsForDate(goalIds, now, timezone);
+
   return goals.filter((g) => {
+    // Verificar se esta meta foi pulada (tem exceção de cancelamento para hoje)
+    if (g.id && cancelledGoalIds.has(g.id)) return false;
+
     if (g.completed) return false;
     if (!isOnOrAfterGoalCreationDay(now, g.createdAt, timezone)) return false;
     const sc = g.scheduleConfig as ScheduleConfig | null;

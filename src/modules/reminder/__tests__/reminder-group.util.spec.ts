@@ -113,15 +113,15 @@ describe('reminder-group.util', () => {
   });
 
   describe('filterGoalsForToday', () => {
-    it('inclui metas com scheduleConfig daily', () => {
+    it('inclui metas com scheduleConfig daily', async () => {
       const goal = makeGoal({ scheduleConfig: { type: 'daily', times: ['08:00'] } });
-      const result = filterGoalsForToday([goal], 'America/Sao_Paulo');
+      const result = await filterGoalsForToday([goal], 'America/Sao_Paulo');
       expect(result).toHaveLength(1);
     });
 
-    it('exclui metas completed', () => {
+    it('exclui metas completed', async () => {
       const goal = makeGoal({ completed: true, scheduleConfig: { type: 'daily', times: ['08:00'] } });
-      const result = filterGoalsForToday([goal], 'America/Sao_Paulo');
+      const result = await filterGoalsForToday([goal], 'America/Sao_Paulo');
       expect(result).toHaveLength(0);
     });
   });
