@@ -1,12 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { prisma } from '../../prisma/client';
 import { UserGoalService } from '../goals/user-goal.service';
 import { formatScheduleSummary } from '../shared/schedule-formatter.util';
 import { pickGoalEmoji } from '../shared/goal-emoji.util';
 import type { ScheduleConfig } from '../ia/conversation/flow.types';
-import type { TelegramService } from '../telegram/telegram.service';
+import { MessagingService } from '../messaging/messaging.service';
 
 /**
  * Formata os horários do dia para o resumo diário (chega na manhã).
@@ -90,7 +89,8 @@ export class DailyDigestService {
 
   constructor(
     private readonly userGoalService: UserGoalService,
-    private readonly moduleRef: ModuleRef,
+    @Inject(forwardRef(() => MessagingService))
+    private readonly messagingService: MessagingService,
   ) {}
 
   /**
@@ -100,10 +100,17 @@ export class DailyDigestService {
   async sendDigestForUser(userId: string): Promise<string | null> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { name: true, telegramId: true, timezone: true },
+      select: {
+        id: true,
+        name: true,
+        telegramId: true,
+        whatsappId: true,
+        preferredChannel: true,
+        timezone: true,
+      },
     });
-    if (!user?.telegramId) {
-      this.logger.warn(`sendDigestForUser: user ${userId} sem telegramId`);
+    if (!user || !this.messagingService.hasAnyChannel(user)) {
+      this.logger.warn(`sendDigestForUser: user ${userId} sem canal de mensagem`);
       return null;
     }
 
@@ -131,13 +138,11 @@ export class DailyDigestService {
     }
 
     const message = lines.join('\n');
-    // Dynamic import para evitar dependência circular (telegram.service importa daily-digest.service)
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('../telegram/telegram.service');
-    const telegram = this.moduleRef.get(mod.TelegramService as new (...args: unknown[]) => TelegramService, {
-      strict: false,
-    }) as TelegramService;
-    await telegram.sendReply(Number(user.telegramId), message, 'daily-digest');
+    const sent = await this.messagingService.sendToUser(user, message, 'daily-digest');
+    if (!sent) {
+      this.logger.warn(`sendDigestForUser: falha ao enviar para user ${userId}`);
+      return null;
+    }
     return message;
   }
 }

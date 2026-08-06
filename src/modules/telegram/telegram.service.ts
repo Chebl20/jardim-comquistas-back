@@ -116,6 +116,8 @@ export class TelegramService implements OnModuleInit {
         return;
       }
 
+      await this.userLinkService.setPreferredChannel(user.id, 'TELEGRAM');
+
       // Gatilho manual para teste do resumo diário (envia a msg diretamente no DailyDigestService)
       if (text.trim().toUpperCase() === MANUAL_DIGEST_TRIGGER) {
         try {

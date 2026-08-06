@@ -64,6 +64,8 @@ export interface ReminderGoalRecord {
     id: string;
     name: string;
     telegramId: string | null;
+    whatsappId?: string | null;
+    preferredChannel?: string | null;
     timezone: string | null;
   } | null;
   plantedTree?: {

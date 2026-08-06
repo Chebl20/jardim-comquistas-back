@@ -4,7 +4,6 @@ import { ReminderNucleus } from '../../ia/nuclei/reminder';
 import { pickGoalEmoji } from '../../shared/goal-emoji.util';
 import { ConversationSessionService } from '../../shared/conversation-session.service';
 import { FLOW_STATES } from '../../ia/conversation/flow.types';
-import { TelegramService } from '../../telegram/telegram.service';
 import { UserGoalService } from '../../goals/user-goal.service';
 import {
   ReminderBatchDeliveryRequest,
@@ -14,6 +13,7 @@ import {
   ReminderSessionContext,
 } from '../reminder.types';
 import { ReminderObservabilityService } from '../observability/reminder-observability.service';
+import { MessagingService } from '../../messaging/messaging.service';
 
 @Injectable()
 export class ReminderDeliveryService {
@@ -22,7 +22,7 @@ export class ReminderDeliveryService {
   );
 
   constructor(
-    private readonly telegramService: TelegramService,
+    private readonly messagingService: MessagingService,
     private readonly reminderNucleus: ReminderNucleus,
     private readonly conversationSession: ConversationSessionService,
     private readonly userGoalService: UserGoalService,
@@ -31,23 +31,29 @@ export class ReminderDeliveryService {
 
   async deliver(request: ReminderDeliveryRequest) {
     const user = request.goal.user;
-    if (!user?.telegramId) {
+    if (!user || !this.messagingService.hasAnyChannel(user)) {
       this.observability.delivery({
         kind: request.kind,
         goalId: request.goal.id,
         userId: request.goal.userId,
         status: 'skipped',
-        reason: 'missing_telegram',
+        reason: 'missing_channel',
       });
       return false;
     }
 
     const message = await this.buildMessage(request.goal, request.kind, request.timezone);
-    await this.telegramService.sendReply(
-      Number(user.telegramId),
-      message,
-      'reminder',
-    );
+    const sent = await this.messagingService.sendToUser(user, message, 'reminder');
+    if (!sent) {
+      this.observability.delivery({
+        kind: request.kind,
+        goalId: request.goal.id,
+        userId: request.goal.userId,
+        status: 'skipped',
+        reason: 'missing_channel',
+      });
+      return false;
+    }
 
     const ignoredGoals = await this.userGoalService.getIgnoredGoalsForToday(
       request.goal.userId,
@@ -102,13 +108,13 @@ export class ReminderDeliveryService {
     if (request.goals.length === 0) return false;
     const firstGoal = request.goals[0];
     const user = firstGoal.user;
-    if (!user?.telegramId) {
+    if (!user || !this.messagingService.hasAnyChannel(user)) {
       this.observability.delivery({
         kind: request.kind,
         goalId: firstGoal.id,
         userId: request.userId,
         status: 'skipped',
-        reason: 'missing_telegram',
+        reason: 'missing_channel',
       });
       return false;
     }
@@ -121,11 +127,17 @@ export class ReminderDeliveryService {
       request.timezone,
     );
 
-    await this.telegramService.sendReply(
-      Number(user.telegramId),
-      message,
-      'reminder',
-    );
+    const sent = await this.messagingService.sendToUser(user, message, 'reminder');
+    if (!sent) {
+      this.observability.delivery({
+        kind: request.kind,
+        goalId: firstGoal.id,
+        userId: request.userId,
+        status: 'skipped',
+        reason: 'missing_channel',
+      });
+      return false;
+    }
 
     const ignoredGoals = await this.userGoalService.getIgnoredGoalsForToday(
       request.userId,

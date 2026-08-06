@@ -1,5 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { TelegramService } from './telegram.service';
+import { WhatsAppService } from './whatsapp.service';
+import { WhatsAppController } from './whatsapp.controller';
+import { WuzapiClient } from './wuzapi.client';
 import { AiModule } from '../ia/ai.module';
 import { UserModule } from '../users/user.module';
 import { SharedModule } from '../shared/shared.module';
@@ -14,7 +16,8 @@ import { DailyDigestModule } from '../daily-digest/daily-digest.module';
     UserGoalModule,
     forwardRef(() => DailyDigestModule),
   ],
-  providers: [TelegramService],
-  exports: [TelegramService],
+  controllers: [WhatsAppController],
+  providers: [WhatsAppService, WuzapiClient],
+  exports: [WhatsAppService, WuzapiClient],
 })
-export class TelegramModule {}
+export class WhatsappModule {}

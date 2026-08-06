@@ -495,6 +495,8 @@ export class UserGoalService {
             id: true,
             name: true,
             telegramId: true,
+            whatsappId: true,
+            preferredChannel: true,
             timezone: true,
           },
         },

@@ -10,7 +10,7 @@ if (!globalThis.crypto) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   // Habilita CORS em desenvolvimento para o frontend consumir o SVG
   app.enableCors();
 
@@ -20,7 +20,7 @@ async function bootstrap() {
   // Swagger
   const config = new DocumentBuilder()
     .setTitle('Jardim das Conquistas API')
-    .setDescription('API do backend do Jardim das Conquistas — gerenciamento de metas, mundos, árvores e integração com Telegram.')
+    .setDescription('API do backend do Jardim das Conquistas — gerenciamento de metas, mundos, árvores e integração com Telegram/WhatsApp.')
     .setVersion('1.0')
     .addBearerAuth()
     .build();

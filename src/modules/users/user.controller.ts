@@ -27,6 +27,32 @@ export class UserController {
     return { linked: !!user?.telegramId };
   }
 
+  @Get(':id/channels-linked')
+  @ApiOperation({
+    summary: 'Verificar canais vinculados',
+    description: 'Verifica se o usuário possui Telegram e/ou WhatsApp vinculados e o canal preferido.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Status da vinculação por canal.',
+    schema: {
+      type: 'object',
+      properties: {
+        telegramLinked: { type: 'boolean' },
+        whatsappLinked: { type: 'boolean' },
+        preferredChannel: { type: 'string', nullable: true },
+      },
+    },
+  })
+  async isChannelsLinked(@Param('id') id: string) {
+    const user = await this.userService.getUserById(id);
+    return {
+      telegramLinked: !!user?.telegramId,
+      whatsappLinked: !!user?.whatsappId,
+      preferredChannel: user?.preferredChannel ?? null,
+    };
+  }
+
   @Post('login')
   @ApiOperation({ summary: 'Login', description: 'Autentica o usuário e retorna um token JWT.' })
   @ApiBody({ schema: { type: 'object', required: ['email', 'password'], properties: { email: { type: 'string' }, password: { type: 'string' } } } })

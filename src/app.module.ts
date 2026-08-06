@@ -6,10 +6,12 @@ import { WorldsModule } from './modules/worlds/worlds.module';
 import { SharedModule } from './modules/shared/shared.module';
 
 import { TelegramModule } from './modules/telegram/telegram.module';
+import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
+import { DailyDigestModule } from './modules/daily-digest/daily-digest.module';
 import { AiModule } from './modules/ia/ai.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ReminderModule } from './modules/reminder/reminder.module';
-;
 
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ProgressModule } from './modules/progress/progress.module';
@@ -17,7 +19,23 @@ import { AreasModule } from './modules/areas/areas.module';
 import { EventsModule } from './modules/events/events.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), TelegramModule, AiModule, UserGoalModule, UserModule, ReminderModule, SharedModule, WorldsModule, DashboardModule, ProgressModule, AreasModule, EventsModule],
+  imports: [
+    ScheduleModule.forRoot(),
+    TelegramModule,
+    WhatsappModule,
+    MessagingModule,
+    DailyDigestModule,
+    AiModule,
+    UserGoalModule,
+    UserModule,
+    ReminderModule,
+    SharedModule,
+    WorldsModule,
+    DashboardModule,
+    ProgressModule,
+    AreasModule,
+    EventsModule,
+  ],
   controllers: [HealthController],
   providers: [],
 })

@@ -12,9 +12,11 @@ model User {
   name           String
   email          String   @unique
   password       String
-  linkCode       String?  @unique // código para vincular com o bot
-  telegramId     String?  @unique // id do usuário no Telegram
-  timezone       String   @default("UTC") // IANA timezone, ex: 'America/Sao_Paulo'
+  linkCode           String?  @unique // código para vincular com o bot
+  telegramId         String?  @unique // id do usuário no Telegram
+  whatsappId         String?  @unique // telefone DDI sem +, ex: 5511999999999
+  preferredChannel   String? // 'TELEGRAM' | 'WHATSAPP'
+  timezone           String   @default("UTC") // IANA timezone, ex: 'America/Sao_Paulo'
   currentWorldId String? // mundo atual do usuário
   digestEnabled  Boolean  @default(false) // mensagem diária ativa
   digestTime     String? // "HH:MM" horário do resumo diário (timezone do usuário)
