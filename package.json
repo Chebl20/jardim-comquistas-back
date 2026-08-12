@@ -18,9 +18,12 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "migrate:schedule-at": "ts-node -r tsconfig-paths/register scripts/migrate-schedule-at-to-iso.ts"
+    "migrate:schedule-at": "ts-node -r tsconfig-paths/register scripts/migrate-schedule-at-to-iso.ts",
+    "migrate:tree-catalog-keys": "ts-node -r tsconfig-paths/register scripts/migrate-tree-catalog-keys.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1109.0",
+    "@aws-sdk/s3-request-presigner": "^3.1109.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",

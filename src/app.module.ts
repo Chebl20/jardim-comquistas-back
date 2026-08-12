@@ -17,9 +17,11 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { ProgressModule } from './modules/progress/progress.module';
 import { AreasModule } from './modules/areas/areas.module';
 import { EventsModule } from './modules/events/events.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
+    StorageModule,
     ScheduleModule.forRoot(),
     TelegramModule,
     WhatsappModule,

@@ -7,6 +7,7 @@ import { inferTypeFromPath } from '../worlds/infer-type-from-path.util';
 import { normalizeConquestType, CONQUEST_TYPES } from '../ia/conquest-type.enum';
 import { normalizeGoalType } from '../ia/goal-type.util';
 import { CommunicationService } from '../shared/communication.service';
+import { StorageService } from '../../storage/storage.service';
 import type { CreateUserGoalInput, ScheduleConfig } from '../ia/conversation/flow.types';
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../shared/weekday.util';
 import { isOnOrAfterGoalCreationDay, getCancelledExceptionsForDate } from '../shared/schedule-occurrence.util';
@@ -121,6 +122,7 @@ export class UserGoalService {
   constructor(
     private readonly worldsGateway: WorldsGateway,
     private readonly communicationService: CommunicationService,
+    private readonly storageService: StorageService,
   ) {}
 
   /**
@@ -378,7 +380,10 @@ export class UserGoalService {
       include: { treeCatalog: true },
     });
 
-    this.worldsGateway.emitTreePlanted(data.worldId, plantedTreeFull);
+    this.worldsGateway.emitTreePlanted(
+      data.worldId,
+      await this.storageService.signPlantedTree(plantedTreeFull),
+    );
     this.worldsGateway.emitTreeProgress(data.worldId, txResult.planted.id, 1, undefined, data.userId);
 
     return txResult.goal;

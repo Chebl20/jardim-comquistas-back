@@ -5,6 +5,7 @@ import { WorldsConfigService } from './worlds-config.service';
 import { TreesImportService } from './trees-import.service';
 import { WorldsGateway } from './worlds.gateway';
 import { CommunicationService } from '../shared/communication.service';
+import { StorageService } from '../../storage/storage.service';
 
 @Injectable()
 export class WorldsEventsService {
@@ -15,6 +16,7 @@ export class WorldsEventsService {
     private readonly importService: TreesImportService,
     private readonly gateway: WorldsGateway,
     private readonly communicationService: CommunicationService,
+    private readonly storageService: StorageService,
   ) {}
 
 
@@ -123,7 +125,7 @@ export class WorldsEventsService {
     try {
       const plantedFull = await (prisma as any).plantedTree.findUnique({ where: { id: out.plantedId }, include: { treeCatalog: true } });
       if (plantedFull) {
-        this.gateway.emitTreePlanted(safeId, plantedFull);
+        this.gateway.emitTreePlanted(safeId, await this.storageService.signPlantedTree(plantedFull));
       }
       if (out.created) {
         this.gateway.emitTreeProgress(safeId, out.plantedId, out.created.stage, undefined, null);
@@ -271,7 +273,12 @@ export class WorldsEventsService {
         id: planted.id,
         worldId: planted.worldId,
         anchorId: planted.anchorId,
-        treeCatalog: { id: treeCatalog.id, family: treeCatalog.family, stages: treeCatalog.stages, createdAt: treeCatalog.createdAt },
+        treeCatalog: await this.storageService.signTreeCatalog({
+          id: treeCatalog.id,
+          family: treeCatalog.family,
+          stages: treeCatalog.stages,
+          createdAt: treeCatalog.createdAt,
+        }),
         actualStage: planted.actualStage,
         currentStageSummary: currentStageInfo,
         growthEvents: grouped,

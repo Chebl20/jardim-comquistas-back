@@ -60,7 +60,7 @@ describe('UserGoalService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new UserGoalService({} as any, {} as any);
+    service = new UserGoalService({} as any, {} as any, {} as any);
   });
 
   describe('getIgnoredGoalsForToday', () => {

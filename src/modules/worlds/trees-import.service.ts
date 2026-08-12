@@ -110,13 +110,6 @@ export class TreesImportService {
     const already: any[] = [];
     const catalogsOutput: any[] = [];
     const explicitFamily = folderNorm.includes('/') ? folderNorm.split('/').pop() : undefined;
-    const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/+$/g, '');
-    const makePublicUrl = (p?: string) => {
-      if (!p) return undefined;
-      // ensure no leading slash on path
-      const path = p.replace(/^\/+/, '');
-      return `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`;
-    };
     for (const famKey of targetFamilies) {
       const { family, type } = famKeyToFam[famKey];
       const stages = familyMap[famKey].stages || {};
@@ -141,21 +134,21 @@ export class TreesImportService {
 
       // Build a single TreeCatalog para cada combinação {family, type}
       const catalogStages = stages; // Record<number, {svg?, png?}>
-      // build stages mapped to public URLs (to persist in DB)
+      // Persist S3 keys only (no Coolify/Supabase domain)
       const stagesWithUrlsForDb: Record<number, any> = {};
       for (const k of Object.keys(catalogStages || {})) {
         const num = Number(k);
         const rec = (catalogStages as any)[k] || {};
         stagesWithUrlsForDb[num] = {};
-        if (rec.png) stagesWithUrlsForDb[num].png = makePublicUrl(rec.png);
-        if (rec.svg) stagesWithUrlsForDb[num].svg = makePublicUrl(rec.svg);
+        if (rec.png) stagesWithUrlsForDb[num].png = rec.png;
+        if (rec.svg) stagesWithUrlsForDb[num].svg = rec.svg;
       }
 
       if ((prisma as any).treeCatalog) {
         // Busca por family+type
         const existing = await (prisma as any).treeCatalog.findFirst({ where: { family, type } });
         if (existing) {
-          // compare stored stages with new public-url stages
+          // compare stored stages with new keys
           try {
             const existingJson = JSON.stringify(existing.stages || {});
             const newJson = JSON.stringify(stagesWithUrlsForDb || {});
@@ -167,7 +160,7 @@ export class TreesImportService {
           } catch (e) {
             // fallthrough to update if comparison fails
           }
-          // different content or type -> update DB with public URLs and type
+          // different content or type -> update DB with keys and type
           const up = await (prisma as any).treeCatalog.update({ where: { id: existing.id }, data: { stages: stagesWithUrlsForDb, type } });
           updated.push({ family, type, id: up.id });
           catalogsOutput.push({ family, type, stages: stagesWithUrlsForDb, maxStage, catalogId: up.id, status: 'updated' });

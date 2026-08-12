@@ -2,12 +2,15 @@ import { Controller, Get, Delete, Param, Query, BadRequestException, UseGuards, 
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '../../auth/auth.guard';
 import { prisma } from '../../prisma/client';
+import { StorageService } from '../../storage/storage.service';
 
 @ApiTags('Mundos — Árvores Plantadas')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
 @Controller('api/worlds')
 export class WorldsPlantedController {
+  constructor(private readonly storageService: StorageService) {}
+
   @Get(':id/planted-trees')
   @ApiOperation({ summary: 'Listar árvores plantadas', description: 'Retorna as árvores plantadas do usuário autenticado no mundo especificado.' })
   @ApiParam({ name: 'id', description: 'ID do mundo' })
@@ -57,8 +60,9 @@ export class WorldsPlantedController {
     });
 
     const total = await (prisma as any).plantedTree.count({ where });
+    const plantedTrees = await Promise.all(rows.map((row: any) => this.storageService.signPlantedTree(row)));
 
-    return { plantedTrees: rows, total };
+    return { plantedTrees, total };
   }
 
   @Delete(':id/planted-trees/:plantedTreeId')

@@ -3,13 +3,17 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth }
 import { AuthGuard } from '../../auth/auth.guard';
 import { TreesImportService } from './trees-import.service';
 import { prisma } from '../../prisma/client';
+import { StorageService } from '../../storage/storage.service';
 
 @ApiTags('Mundos — Catálogo de Árvores')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
 @Controller('api/worlds')
 export class WorldsTreesController {
-  constructor(private readonly importService: TreesImportService) {}
+  constructor(
+    private readonly importService: TreesImportService,
+    private readonly storageService: StorageService,
+  ) {}
 
   @Post(':id/trees/import-from-supabase')
   @ApiOperation({ summary: 'Importar árvores do Supabase', description: 'Importa o catálogo de árvores a partir do bucket do Supabase para um mundo específico.' })
@@ -57,7 +61,8 @@ export class WorldsTreesController {
   @ApiParam({ name: 'id', description: 'ID do mundo' })
   @ApiResponse({ status: 200, description: 'Catálogo retornado.' })
   async listTreeCatalog(@Param('id') id: string) {
-    return prisma.treeCatalog.findMany({ orderBy: { family: 'asc' } });
+    const catalogs = await prisma.treeCatalog.findMany({ orderBy: { family: 'asc' } });
+    return Promise.all(catalogs.map((catalog) => this.storageService.signTreeCatalog(catalog)));
   }
 
   @Delete(':id/trees')
