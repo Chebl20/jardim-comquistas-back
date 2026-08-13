@@ -41,7 +41,33 @@ export class WuzapiClient {
   }
 
   async sendText(phone: string, body: string): Promise<unknown> {
-    return this.request('POST', '/chat/send/text', { Phone: phone, Body: body });
+    return this.sendTextWithTargets([phone], body);
+  }
+
+  async sendTextWithTargets(
+    targets: string[],
+    body: string,
+  ): Promise<unknown> {
+    const uniqueTargets = targets.filter(
+      (target, index, list) => target && list.indexOf(target) === index,
+    );
+    let lastError: Error | null = null;
+
+    for (const target of uniqueTargets) {
+      try {
+        return await this.request('POST', '/chat/send/text', {
+          Phone: target,
+          Body: body,
+        });
+      } catch (e) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        this.logger.debug(
+          `[WUZAPI] sendText falhou para Phone=${target}: ${lastError.message}`,
+        );
+      }
+    }
+
+    throw lastError ?? new Error('WUZAPI sendText failed');
   }
 
   async setPresence(phone: string, state: ChatPresenceState): Promise<unknown> {
@@ -104,7 +130,12 @@ export class WuzapiClient {
         this.logger.debug(
           `WUZAPI ${method} ${path} failed: ${res.status} ${JSON.stringify(data)}`,
         );
-        throw new Error(`WUZAPI ${method} ${path} failed with status ${res.status}`);
+        const detail =
+          payload?.error ||
+          (typeof data === 'string' ? data : JSON.stringify(data));
+        throw new Error(
+          `WUZAPI ${method} ${path} failed with status ${res.status}: ${detail}`,
+        );
       }
       return data;
     } catch (e) {

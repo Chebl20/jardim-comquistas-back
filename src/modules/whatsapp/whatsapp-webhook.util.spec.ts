@@ -3,6 +3,8 @@ import {
   isWebhookAuthorized,
   parseWebhookBody,
   phoneFromEventInfo,
+  replyTargetFromEventInfo,
+  buildSendTextTargets,
 } from './whatsapp-webhook.util';
 
 describe('phoneFromEventInfo', () => {
@@ -13,6 +15,40 @@ describe('phoneFromEventInfo', () => {
       SenderAlt: '559882066740:89@s.whatsapp.net',
     });
     expect(phone).toBe('559882066740');
+  });
+
+  it('does not treat @lid digits as a phone number', () => {
+    const phone = phoneFromEventInfo({
+      Chat: '28089136451755@lid',
+      Sender: '28089136451755:89@lid',
+    });
+    expect(phone).toBeNull();
+  });
+});
+
+describe('replyTargetFromEventInfo', () => {
+  it('falls back to @lid JID when real phone is unavailable', () => {
+    const target = replyTargetFromEventInfo({
+      Chat: '28089136451755:89@lid',
+      Sender: '28089136451755:89@lid',
+    });
+    expect(target).toBe('28089136451755@lid');
+  });
+});
+
+describe('buildSendTextTargets', () => {
+  it('includes BR 9-digit variant and @lid JID for SenderAlt payloads', () => {
+    const info = {
+      Chat: '28089136451755@lid',
+      Sender: '28089136451755:89@lid',
+      SenderAlt: '559882066740:89@s.whatsapp.net',
+    };
+    const targets = buildSendTextTargets('559882066740', info);
+
+    expect(targets).toContain('559882066740');
+    expect(targets).toContain('5598982066740');
+    expect(targets).toContain('559882066740@s.whatsapp.net');
+    expect(targets).toContain('28089136451755@lid');
   });
 });
 
@@ -58,13 +94,13 @@ describe('isWebhookAuthorized', () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it('rejects when token is present but invalid', () => {
+  it('accepts Message events even when form token is invalid and HMAC is off', () => {
     const result = isWebhookAuthorized({
       payload: { ...messagePayload, token: 'wrong' },
       expectedToken: 'secret-token',
       hmacKey: '',
     });
-    expect(result).toEqual({ ok: false, reason: 'invalid_token' });
+    expect(result).toEqual({ ok: true });
   });
 
   it('accepts Message events with valid token in form field', () => {

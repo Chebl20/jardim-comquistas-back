@@ -6,11 +6,13 @@ import { DailyDigestService } from '../daily-digest/daily-digest.service';
 import { WuzapiClient } from './wuzapi.client';
 import type { ConfigureWuzApiResult, ConfigureWuzApiStepResult } from './wuzapi.types';
 import {
+  buildSendTextTargets,
   extractTextFromMessage,
   isMessageEvent,
   isWebhookAuthorized,
   parseWebhookBody,
   phoneFromEventInfo,
+  replyTargetFromEventInfo,
   WuzapiWebhookPayload,
 } from './whatsapp-webhook.util';
 
@@ -205,10 +207,16 @@ export class WhatsAppService implements OnModuleInit {
     return { status: 200, payload };
   }
 
-  public async sendReply(phone: string, text: string, origin?: string) {
+  public async sendReply(
+    target: string,
+    text: string,
+    origin?: string,
+    eventInfo?: any,
+  ) {
     try {
-      const normalized = String(phone).replace(/\D/g, '');
-      if (this.lastSentByPhone.get(normalized) === String(text).trim()) {
+      const normalizedTarget = String(target).trim();
+      const cacheKey = normalizedTarget.replace(/\D/g, '') || normalizedTarget;
+      if (this.lastSentByPhone.get(cacheKey) === String(text).trim()) {
         this.logger.debug(
           'sendReply deduped by in-memory cache; skipping send',
         );
@@ -216,18 +224,25 @@ export class WhatsAppService implements OnModuleInit {
       }
 
       const tag = origin ? `\n\n(origin: ${origin})` : '';
-      const res = await this.wuzapi.sendText(normalized, `${text}${tag}`);
+      const message = `${text}${tag}`;
+      const targets = buildSendTextTargets(normalizedTarget, eventInfo);
+      const res = await this.wuzapi.sendTextWithTargets(targets, message);
+      this.logger.log(
+        `[WHATSAPP] Resposta enviada para ${normalizedTarget} (tentativas: ${targets.join(' -> ')})`,
+      );
       try {
-        this.lastSentByPhone.set(normalized, String(text).trim());
+        this.lastSentByPhone.set(cacheKey, String(text).trim());
         setTimeout(() => {
           try {
-            this.lastSentByPhone.delete(normalized);
+            this.lastSentByPhone.delete(cacheKey);
           } catch (_) {}
         }, 5000);
       } catch (_) {}
       return res;
     } catch (e) {
-      this.logger.warn('sendReply failed', e);
+      this.logger.warn(
+        `[WHATSAPP] Falha ao enviar resposta para ${target}: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 
@@ -293,21 +308,35 @@ export class WhatsAppService implements OnModuleInit {
     }
 
     const phone = phoneFromEventInfo(info);
-    if (!phone) {
+    const replyTarget = replyTargetFromEventInfo(info);
+    if (!replyTarget) {
       this.logger.warn(
-        `[WHATSAPP] Webhook ignorado: telefone não identificado (Chat=${info.Chat ?? 'n/a'})`,
+        `[WHATSAPP] Webhook ignorado: destino não identificado (Chat=${info.Chat ?? 'n/a'})`,
       );
       return;
     }
 
     const text = extractTextFromMessage(event?.Message);
-    this.logger.log(`[WHATSAPP] phone=${phone}, text=${text}`);
+    this.logger.log(
+      `[WHATSAPP] target=${replyTarget}, phone=${phone ?? 'n/a'}, text=${text}`,
+    );
 
     if (typeof text !== 'string') {
       await this.sendReply(
-        phone,
+        replyTarget,
         'Envie uma mensagem de texto.',
         'whatsapp-service',
+        info,
+      );
+      return;
+    }
+
+    if (!phone) {
+      await this.sendReply(
+        replyTarget,
+        'Não consegui identificar seu número WhatsApp. Tente enviar o código novamente em alguns segundos.',
+        'whatsapp-service',
+        info,
       );
       return;
     }
@@ -325,25 +354,28 @@ export class WhatsAppService implements OnModuleInit {
             `[WHATSAPP] Vinculação realizada: phone=${phone}, userId=${linkedUser.id}${nome ? `, name=${nome}` : ''}`,
           );
           await this.sendReply(
-            phone,
+            replyTarget,
             `✅ Vinculação realizada com sucesso${nome ? ', ' + nome : ''}! Agora você pode criar suas metas.`,
             'whatsapp-service',
+            info,
           );
         } catch (e) {
           this.logger.log(
             `[WHATSAPP] Vinculação recusada: phone=${phone}, code=${text.trim()}`,
           );
           await this.sendReply(
-            phone,
+            replyTarget,
             '❌ Código de vinculação inválido. Gere um novo código no app/web e envie aqui.',
             'whatsapp-service',
+            info,
           );
         }
       } else {
         await this.sendReply(
-          phone,
+          replyTarget,
           '👋 Olá! Para começar, envie aqui o código de acesso gerado no app/web para vincular sua conta.',
           'whatsapp-service',
+          info,
         );
       }
       return;
@@ -356,26 +388,28 @@ export class WhatsAppService implements OnModuleInit {
         const msg = await this.dailyDigestService.sendDigestForUser(user.id);
         if (!msg) {
           await this.sendReply(
-            phone,
+            replyTarget,
             'Não foi possível enviar o resumo. Verifique se você tem metas com lembretes.',
             'whatsapp-service',
+            info,
           );
         }
       } catch (e) {
         this.logger.warn('Manual digest trigger failed', e);
         await this.sendReply(
-          phone,
+          replyTarget,
           'Erro ao gerar o resumo diário.',
           'whatsapp-service',
+          info,
         );
       }
       return;
     }
 
     try {
-      this.wuzapi.setPresence(phone, 'composing').catch(() => {});
+      this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
       let typingInterval: ReturnType<typeof setInterval> = setInterval(() => {
-        this.wuzapi.setPresence(phone, 'composing').catch(() => {});
+        this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
       }, 4000);
 
       try {
@@ -387,10 +421,10 @@ export class WhatsAppService implements OnModuleInit {
 
       const onAck = async (msg: string) => {
         clearInterval(typingInterval);
-        await this.sendReply(phone, msg);
-        this.wuzapi.setPresence(phone, 'composing').catch(() => {});
+        await this.sendReply(replyTarget, msg, undefined, info);
+        this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
         typingInterval = setInterval(() => {
-          this.wuzapi.setPresence(phone, 'composing').catch(() => {});
+          this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
         }, 4000);
       };
 
@@ -405,16 +439,17 @@ export class WhatsAppService implements OnModuleInit {
         this.logger.warn('InterpreterManager failed', e);
       } finally {
         clearInterval(typingInterval);
-        this.wuzapi.setPresence(phone, 'paused').catch(() => {});
+        this.wuzapi.setPresence(replyTarget, 'paused').catch(() => {});
       }
 
       if (!outcome) return;
 
       if (outcome.reply) {
         await this.sendReply(
-          phone,
+          replyTarget,
           outcome.reply,
           outcome.origin || 'orchestrator',
+          info,
         );
       }
 
@@ -424,17 +459,19 @@ export class WhatsAppService implements OnModuleInit {
         outcome.result.suggestedReply
       ) {
         await this.sendReply(
-          phone,
+          replyTarget,
           outcome.result.suggestedReply,
           outcome.result.origin || 'orchestrator',
+          info,
         );
       }
     } catch (e) {
       try {
         await this.sendReply(
-          phone,
+          replyTarget,
           'Erro ao processar sua mensagem.',
           'whatsapp-service',
+          info,
         );
       } catch (_) {}
     }
