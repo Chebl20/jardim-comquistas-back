@@ -53,22 +53,75 @@ export function extractTextFromMessage(message: any): string | null {
   return null;
 }
 
-export function parseWebhookBody(body: any): WuzapiWebhookPayload | null {
-  if (!body) return null;
+function normalizeWebhookPayload(
+  payload: WuzapiWebhookPayload,
+  token?: string | null,
+): WuzapiWebhookPayload {
+  const normalized: WuzapiWebhookPayload = {
+    ...payload,
+    token: token ?? payload.token,
+  };
 
-  if (typeof body === 'object' && (body.type || body.event || body.jsonData)) {
+  if (!normalized.type && normalized.event?.Info) {
+    normalized.type = 'Message';
+  }
+
+  if (typeof normalized.type === 'string') {
+    normalized.type =
+      normalized.type.toLowerCase() === 'message'
+        ? 'Message'
+        : normalized.type;
+  }
+
+  return normalized;
+}
+
+function parseFormEncodedRawBody(rawBody: Buffer): WuzapiWebhookPayload | null {
+  const raw = rawBody.toString('utf8');
+  const params = new URLSearchParams(raw);
+  const jsonData = params.get('jsonData');
+  if (!jsonData) return null;
+
+  try {
+    const parsed = JSON.parse(jsonData) as WuzapiWebhookPayload;
+    return normalizeWebhookPayload(parsed, params.get('token'));
+  } catch {
+    return null;
+  }
+}
+
+export function isMessageEvent(payload: WuzapiWebhookPayload): boolean {
+  const type = String(payload.type || '').toLowerCase();
+  if (type === 'message') return true;
+  return Boolean(payload.event?.Info);
+}
+
+export function parseWebhookBody(
+  body: any,
+  rawBody?: Buffer,
+): WuzapiWebhookPayload | null {
+  if (body && typeof body === 'object' && (body.type || body.event || body.jsonData)) {
     if (typeof body.jsonData === 'string') {
       try {
-        const parsed = JSON.parse(body.jsonData);
-        return {
-          ...parsed,
-          token: body.token ?? parsed?.token,
-        };
+        const parsed = JSON.parse(body.jsonData) as WuzapiWebhookPayload;
+        return normalizeWebhookPayload(parsed, body.token);
       } catch {
         return null;
       }
     }
-    return body as WuzapiWebhookPayload;
+    return normalizeWebhookPayload(body as WuzapiWebhookPayload);
+  }
+
+  if (rawBody?.length) {
+    const fromRaw = parseFormEncodedRawBody(rawBody);
+    if (fromRaw) return fromRaw;
+
+    try {
+      const parsed = JSON.parse(rawBody.toString('utf8')) as WuzapiWebhookPayload;
+      return normalizeWebhookPayload(parsed);
+    } catch {
+      // fall through
+    }
   }
 
   return null;
@@ -131,15 +184,19 @@ export function isWebhookAuthorized(params: {
     return { ok: true };
   }
 
-  if (params.payload.token) {
-    if (!verifyWebhookToken(params.payload.token, params.expectedToken)) {
-      return { ok: false, reason: 'invalid_token' };
+  if (isMessageEvent(params.payload)) {
+    if (params.payload.token && params.expectedToken) {
+      if (!verifyWebhookToken(params.payload.token, params.expectedToken)) {
+        return { ok: false, reason: 'invalid_token' };
+      }
     }
     return { ok: true };
   }
 
-  // WUZAPI recent versions omit token from the JSON body.
-  if (params.payload.type === 'Message' && params.payload.event?.Info) {
+  if (params.payload.token) {
+    if (!verifyWebhookToken(params.payload.token, params.expectedToken)) {
+      return { ok: false, reason: 'invalid_token' };
+    }
     return { ok: true };
   }
 

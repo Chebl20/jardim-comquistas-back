@@ -1,6 +1,7 @@
 import { webcrypto } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AppLogger } from './logging/app-logger';
@@ -11,10 +12,11 @@ if (!globalThis.crypto) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
     logger: new AppLogger(),
   });
+  app.useBodyParser('urlencoded', { extended: true, limit: '2mb' });
   // Habilita CORS em desenvolvimento para o frontend consumir o SVG
   app.enableCors();
 

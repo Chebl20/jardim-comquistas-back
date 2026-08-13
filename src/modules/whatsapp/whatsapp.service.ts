@@ -7,6 +7,7 @@ import { WuzapiClient } from './wuzapi.client';
 import type { ConfigureWuzApiResult, ConfigureWuzApiStepResult } from './wuzapi.types';
 import {
   extractTextFromMessage,
+  isMessageEvent,
   isWebhookAuthorized,
   parseWebhookBody,
   phoneFromEventInfo,
@@ -172,7 +173,10 @@ export class WhatsAppService implements OnModuleInit {
       this.logger.warn(`Falha ao configurar HMAC WUZAPI: ${result.hmac.error}`);
     }
 
-    if (result.connect.ok && !result.connect.error?.startsWith('skipped')) {
+    const connectData = result.connect.data as { error?: string } | undefined;
+    if (connectData?.error?.toLowerCase() === 'already connected') {
+      this.logger.log('Sessão WUZAPI já estava conectada');
+    } else if (result.connect.ok && !result.connect.error?.startsWith('skipped')) {
       this.logger.log(
         `Sessão WUZAPI conectada/inscrita: ${JSON.stringify(result.connect.data)}`,
       );
@@ -190,9 +194,15 @@ export class WhatsAppService implements OnModuleInit {
     | { status: 401; error: string } {
     const validation = this.validateWebhookRequest(params);
     if (!validation.ok) {
+      this.logger.warn(`[WHATSAPP] Webhook rejeitado: ${validation.reason}`);
       return { status: 401, error: validation.reason };
     }
-    return { status: 200, payload: validation.payload };
+
+    const payload = validation.payload;
+    this.logger.log(
+      `[WHATSAPP] Webhook recebido: type=${payload.type ?? 'unknown'}, chat=${payload.event?.Info?.Chat ?? 'n/a'}`,
+    );
+    return { status: 200, payload };
   }
 
   public async sendReply(phone: string, text: string, origin?: string) {
@@ -237,7 +247,7 @@ export class WhatsAppService implements OnModuleInit {
     const expectedToken = process.env.WUZAPI_TOKEN || '';
     const hmacKey = process.env.WUZAPI_HMAC_KEY || '';
 
-    const payload = parseWebhookBody(params.body);
+    const payload = parseWebhookBody(params.body, params.rawBody);
     if (!payload) {
       return { ok: false, reason: 'invalid_body' };
     }
@@ -264,16 +274,29 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   async handleIncoming(payload: WuzapiWebhookPayload) {
-    if (payload.type !== 'Message') return;
+    if (!isMessageEvent(payload)) {
+      this.logger.log(
+        `[WHATSAPP] Webhook ignorado: type=${payload.type ?? 'unknown'}`,
+      );
+      return;
+    }
 
     const event = payload.event;
     const info = event?.Info;
-    if (!info) return;
-    if (info.IsFromMe === true) return;
+    if (!info) {
+      this.logger.warn('[WHATSAPP] Webhook Message sem event.Info');
+      return;
+    }
+    if (info.IsFromMe === true) {
+      this.logger.log('[WHATSAPP] Webhook ignorado: mensagem enviada por mim');
+      return;
+    }
 
     const phone = phoneFromEventInfo(info);
     if (!phone) {
-      this.logger.debug('Ignoring non-user or group message');
+      this.logger.warn(
+        `[WHATSAPP] Webhook ignorado: telefone não identificado (Chat=${info.Chat ?? 'n/a'})`,
+      );
       return;
     }
 
