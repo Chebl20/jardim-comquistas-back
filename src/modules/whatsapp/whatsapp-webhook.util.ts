@@ -21,6 +21,29 @@ export function phoneFromRemoteJid(remoteJid: string | undefined | null): string
   return digits || null;
 }
 
+/** Prefer real WhatsApp number from SenderAlt when Chat/Sender use @lid. */
+export function phoneFromEventInfo(info: any): string | null {
+  if (!info || typeof info !== 'object') return null;
+
+  const candidates = [info.SenderAlt, info.RemoteJid, info.Chat, info.Sender].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+
+  for (const jid of candidates) {
+    if (jid.includes('@s.whatsapp.net')) {
+      const phone = phoneFromRemoteJid(jid);
+      if (phone) return phone;
+    }
+  }
+
+  for (const jid of candidates) {
+    const phone = phoneFromRemoteJid(jid);
+    if (phone) return phone;
+  }
+
+  return null;
+}
+
 export function extractTextFromMessage(message: any): string | null {
   if (!message || typeof message !== 'object') return null;
   if (typeof message.conversation === 'string') return message.conversation;
@@ -85,4 +108,40 @@ export function verifyHmacSignature(
   const b = Buffer.from(provided);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+export function isWebhookAuthorized(params: {
+  payload: WuzapiWebhookPayload;
+  expectedToken: string;
+  hmacKey: string;
+  rawBody?: Buffer;
+  signatureHeader?: string | string[];
+}): { ok: true } | { ok: false; reason: string } {
+  const hmacConfigured = params.hmacKey.length >= 32;
+  if (hmacConfigured) {
+    if (
+      !verifyHmacSignature(
+        params.rawBody,
+        params.signatureHeader,
+        params.hmacKey,
+      )
+    ) {
+      return { ok: false, reason: 'invalid_hmac' };
+    }
+    return { ok: true };
+  }
+
+  if (params.payload.token) {
+    if (!verifyWebhookToken(params.payload.token, params.expectedToken)) {
+      return { ok: false, reason: 'invalid_token' };
+    }
+    return { ok: true };
+  }
+
+  // WUZAPI recent versions omit token from the JSON body.
+  if (params.payload.type === 'Message' && params.payload.event?.Info) {
+    return { ok: true };
+  }
+
+  return { ok: false, reason: 'invalid_token' };
 }

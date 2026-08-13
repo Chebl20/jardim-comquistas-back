@@ -1,15 +1,15 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
 import { UserLinkService } from '../users/user-link.service';
 import { RateLimiterService } from '../shared/rate-limiter.service';
 import { ConversationOrchestratorService } from '../ia/conversation/conversation-orchestrator.service';
 import { DailyDigestService } from '../daily-digest/daily-digest.service';
 import { WuzapiClient } from './wuzapi.client';
+import type { ConfigureWuzApiResult, ConfigureWuzApiStepResult } from './wuzapi.types';
 import {
   extractTextFromMessage,
+  isWebhookAuthorized,
   parseWebhookBody,
-  phoneFromRemoteJid,
-  verifyHmacSignature,
-  verifyWebhookToken,
+  phoneFromEventInfo,
   WuzapiWebhookPayload,
 } from './whatsapp-webhook.util';
 
@@ -25,11 +25,174 @@ export class WhatsAppService implements OnModuleInit {
     private readonly userLinkService: UserLinkService,
     private readonly rateLimiter: RateLimiterService,
     private readonly interpreterManager: ConversationOrchestratorService,
+    @Inject(forwardRef(() => DailyDigestService))
     private readonly dailyDigestService: DailyDigestService,
   ) {}
 
   async onModuleInit() {
-    await this.registerWebhookOnBoot();
+    const result = await this.configureWuzApi();
+    this.logConfigureResult(result);
+  }
+
+  getWebhookUrl(): string | null {
+    const publicBase = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    if (!publicBase) return null;
+
+    const path =
+      process.env.WUZAPI_WEBHOOK_PATH || '/api/wuzapi/webhook';
+    return `${publicBase}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  getSubscribeEvents(): string[] {
+    const raw = process.env.WUZAPI_SUBSCRIBE_EVENTS || 'Message';
+    return raw
+      .split(',')
+      .map((event) => event.trim())
+      .filter(Boolean);
+  }
+
+  shouldAutoConnect(): boolean {
+    return String(process.env.WUZAPI_AUTO_CONNECT ?? 'true').toLowerCase() !== 'false';
+  }
+
+  async configureWuzApi(): Promise<ConfigureWuzApiResult> {
+    const emptyStep = (): ConfigureWuzApiStepResult => ({
+      ok: false,
+      error: 'skipped',
+    });
+
+    const result: ConfigureWuzApiResult = {
+      webhookUrl: this.getWebhookUrl(),
+      webhook: emptyStep(),
+      verify: emptyStep(),
+      hmac: emptyStep(),
+      connect: emptyStep(),
+    };
+
+    if (!this.wuzapi.isConfigured()) {
+      const error = 'WUZAPI não configurado (WUZAPI_BASE_URL/WUZAPI_TOKEN)';
+      result.webhook.error = error;
+      return result;
+    }
+
+    if (!result.webhookUrl) {
+      const error = 'PUBLIC_BASE_URL não definido';
+      result.webhook.error = error;
+      return result;
+    }
+
+    try {
+      result.webhook = {
+        ok: true,
+        data: await this.wuzapi.setWebhook(result.webhookUrl),
+      };
+    } catch (e) {
+      result.webhook = {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+
+    try {
+      const data = await this.wuzapi.getWebhook();
+      result.verify = { ok: true, data };
+    } catch (e) {
+      result.verify = {
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+
+    const hmacKey = process.env.WUZAPI_HMAC_KEY || '';
+    if (hmacKey.length >= 32) {
+      try {
+        result.hmac = {
+          ok: true,
+          data: await this.wuzapi.setHmacKey(hmacKey),
+        };
+      } catch (e) {
+        result.hmac = {
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    } else {
+      result.hmac = { ok: true, error: 'skipped (WUZAPI_HMAC_KEY vazio ou curto)' };
+    }
+
+    if (this.shouldAutoConnect()) {
+      try {
+        result.connect = {
+          ok: true,
+          data: await this.wuzapi.connectSession(this.getSubscribeEvents(), false),
+        };
+      } catch (e) {
+        result.connect = {
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    } else {
+      result.connect = { ok: true, error: 'skipped (WUZAPI_AUTO_CONNECT=false)' };
+    }
+
+    return result;
+  }
+
+  private logConfigureResult(result: ConfigureWuzApiResult) {
+    if (!this.wuzapi.isConfigured()) {
+      this.logger.warn(
+        'WUZAPI não configurado (WUZAPI_BASE_URL/WUZAPI_TOKEN); WhatsApp desabilitado',
+      );
+      return;
+    }
+
+    if (!result.webhookUrl) {
+      this.logger.warn(
+        'PUBLIC_BASE_URL não definido; webhook WUZAPI não registrado automaticamente',
+      );
+      return;
+    }
+
+    if (result.webhook.ok) {
+      this.logger.log(`Webhook WUZAPI registrado: ${result.webhookUrl}`);
+    } else {
+      this.logger.warn(`Falha ao registrar webhook WUZAPI: ${result.webhook.error}`);
+    }
+
+    if (result.verify.ok) {
+      this.logger.log(`Webhook WUZAPI verificado: ${JSON.stringify(result.verify.data)}`);
+    } else {
+      this.logger.warn(`Falha ao verificar webhook WUZAPI: ${result.verify.error}`);
+    }
+
+    if (result.hmac.ok && !result.hmac.error?.startsWith('skipped')) {
+      this.logger.log('HMAC WUZAPI configurado');
+    } else if (!result.hmac.ok) {
+      this.logger.warn(`Falha ao configurar HMAC WUZAPI: ${result.hmac.error}`);
+    }
+
+    if (result.connect.ok && !result.connect.error?.startsWith('skipped')) {
+      this.logger.log(
+        `Sessão WUZAPI conectada/inscrita: ${JSON.stringify(result.connect.data)}`,
+      );
+    } else if (!result.connect.ok) {
+      this.logger.warn(`Falha ao conectar sessão WUZAPI: ${result.connect.error}`);
+    }
+  }
+
+  handleWebhookHttpRequest(params: {
+    body: any;
+    rawBody?: Buffer;
+    signatureHeader?: string | string[];
+  }):
+    | { status: 200; payload: WuzapiWebhookPayload }
+    | { status: 401; error: string } {
+    const validation = this.validateWebhookRequest(params);
+    if (!validation.ok) {
+      return { status: 401, error: validation.reason };
+    }
+    return { status: 200, payload: validation.payload };
   }
 
   public async sendReply(phone: string, text: string, origin?: string) {
@@ -74,24 +237,20 @@ export class WhatsAppService implements OnModuleInit {
     const expectedToken = process.env.WUZAPI_TOKEN || '';
     const hmacKey = process.env.WUZAPI_HMAC_KEY || '';
 
-    if (hmacKey) {
-      const validHmac = verifyHmacSignature(
-        params.rawBody,
-        params.signatureHeader,
-        hmacKey,
-      );
-      if (!validHmac) {
-        return { ok: false, reason: 'invalid_hmac' };
-      }
-    }
-
     const payload = parseWebhookBody(params.body);
     if (!payload) {
       return { ok: false, reason: 'invalid_body' };
     }
 
-    if (!verifyWebhookToken(payload.token, expectedToken)) {
-      return { ok: false, reason: 'invalid_token' };
+    const auth = isWebhookAuthorized({
+      payload,
+      expectedToken,
+      hmacKey,
+      rawBody: params.rawBody,
+      signatureHeader: params.signatureHeader,
+    });
+    if (!auth.ok) {
+      return auth;
     }
 
     return { ok: true, payload };
@@ -112,7 +271,7 @@ export class WhatsAppService implements OnModuleInit {
     if (!info) return;
     if (info.IsFromMe === true) return;
 
-    const phone = phoneFromRemoteJid(info.RemoteJid || info.Chat || info.Sender);
+    const phone = phoneFromEventInfo(info);
     if (!phone) {
       this.logger.debug('Ignoring non-user or group message');
       return;
@@ -249,40 +408,6 @@ export class WhatsAppService implements OnModuleInit {
           'whatsapp-service',
         );
       } catch (_) {}
-    }
-  }
-
-  private async registerWebhookOnBoot() {
-    if (!this.wuzapi.isConfigured()) {
-      this.logger.warn(
-        'WUZAPI não configurado (WUZAPI_BASE_URL/WUZAPI_TOKEN); WhatsApp desabilitado',
-      );
-      return;
-    }
-
-    const publicBase = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
-    if (!publicBase) {
-      this.logger.warn(
-        'PUBLIC_BASE_URL não definido; webhook WUZAPI não registrado automaticamente',
-      );
-      return;
-    }
-
-    const path =
-      process.env.WUZAPI_WEBHOOK_PATH || '/api/whatsapp/webhook';
-    const webhookUrl = `${publicBase}${path.startsWith('/') ? path : `/${path}`}`;
-
-    try {
-      const hmacKey = process.env.WUZAPI_HMAC_KEY || '';
-      if (hmacKey && hmacKey.length >= 32) {
-        await this.wuzapi.setHmacKey(hmacKey);
-        this.logger.log('HMAC WUZAPI configurado');
-      }
-
-      await this.wuzapi.setWebhook(webhookUrl, ['Message']);
-      this.logger.log(`Webhook WUZAPI registrado: ${webhookUrl}`);
-    } catch (e) {
-      this.logger.warn('Falha ao registrar webhook/HMAC na WUZAPI', e);
     }
   }
 }

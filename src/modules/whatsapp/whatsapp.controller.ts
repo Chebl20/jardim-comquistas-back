@@ -10,6 +10,7 @@ import { ApiExcludeController } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { WhatsAppService } from './whatsapp.service';
 
+/** Alias legado — preferir POST /api/wuzapi/webhook */
 @ApiExcludeController()
 @Controller('api/whatsapp')
 export class WhatsAppController {
@@ -24,19 +25,18 @@ export class WhatsAppController {
     const signature =
       req.headers['x-hmac-signature'] || req.headers['X-HMAC-Signature'];
 
-    const validation = this.whatsappService.validateWebhookRequest({
+    const outcome = this.whatsappService.handleWebhookHttpRequest({
       body: req.body,
       rawBody,
       signatureHeader: signature,
     });
 
-    if (!validation.ok) {
-      this.logger.warn(`Webhook rejeitado: ${validation.reason}`);
-      return res.status(401).json({ success: false, error: validation.reason });
+    if (outcome.status === 401) {
+      this.logger.warn(`Webhook rejeitado: ${outcome.error}`);
+      return res.status(401).json({ success: false, error: outcome.error });
     }
 
-    // Ack rápido para evitar retries da WUZAPI enquanto a IA processa
     res.status(200).json({ success: true });
-    this.whatsappService.processWebhookAsync(validation.payload);
+    this.whatsappService.processWebhookAsync(outcome.payload);
   }
 }
