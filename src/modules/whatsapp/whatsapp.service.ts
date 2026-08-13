@@ -87,7 +87,10 @@ export class WhatsAppService implements OnModuleInit {
     try {
       result.webhook = {
         ok: true,
-        data: await this.wuzapi.setWebhook(result.webhookUrl),
+        data: await this.wuzapi.setWebhook(
+          result.webhookUrl,
+          this.getSubscribeEvents(),
+        ),
       };
     } catch (e) {
       result.webhook = {
@@ -164,7 +167,18 @@ export class WhatsAppService implements OnModuleInit {
     }
 
     if (result.verify.ok) {
-      this.logger.log(`Webhook WUZAPI verificado: ${JSON.stringify(result.verify.data)}`);
+      const verifyData = result.verify.data as {
+        data?: { subscribe?: string[] };
+      };
+      const subscribed = verifyData?.data?.subscribe ?? [];
+      this.logger.log(
+        `Webhook WUZAPI verificado: ${JSON.stringify(result.verify.data)}`,
+      );
+      if (!subscribed.length) {
+        this.logger.warn(
+          'WUZAPI sem eventos inscritos após registrar webhook; mensagens não serão encaminhadas',
+        );
+      }
     } else {
       this.logger.warn(`Falha ao verificar webhook WUZAPI: ${result.verify.error}`);
     }

@@ -74,8 +74,12 @@ export class WuzapiClient {
     return this.request('POST', '/chat/presence', { Phone: phone, State: state });
   }
 
-  async setWebhook(webhookURL: string): Promise<unknown> {
-    return this.request('POST', '/webhook', { webhookURL });
+  async setWebhook(webhookURL: string, events: string[] = ['Message']): Promise<unknown> {
+    return this.request('POST', '/webhook', {
+      webhookurl: webhookURL,
+      webhookURL,
+      events,
+    });
   }
 
   async getWebhook(): Promise<unknown> {

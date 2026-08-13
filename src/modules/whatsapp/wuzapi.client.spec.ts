@@ -16,8 +16,10 @@ describe('WuzapiClient', () => {
     client = new WuzapiClient();
   });
 
-  it('setWebhook sends webhookURL with Token header', async () => {
-    await client.setWebhook('https://api.example.com/api/wuzapi/webhook');
+  it('setWebhook sends webhookurl and events with Token header', async () => {
+    await client.setWebhook('https://api.example.com/api/wuzapi/webhook', [
+      'Message',
+    ]);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://wuzapi.example.com/webhook',
@@ -28,7 +30,9 @@ describe('WuzapiClient', () => {
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({
+          webhookurl: 'https://api.example.com/api/wuzapi/webhook',
           webhookURL: 'https://api.example.com/api/wuzapi/webhook',
+          events: ['Message'],
         }),
       }),
     );
