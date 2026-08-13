@@ -94,14 +94,21 @@ export class WuzapiClient {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        this.logger.warn(
+        const payload = data as { error?: string } | null;
+        const alreadyConnected =
+          path === '/session/connect' &&
+          payload?.error?.toLowerCase() === 'already connected';
+        if (alreadyConnected) {
+          return data;
+        }
+        this.logger.debug(
           `WUZAPI ${method} ${path} failed: ${res.status} ${JSON.stringify(data)}`,
         );
         throw new Error(`WUZAPI ${method} ${path} failed with status ${res.status}`);
       }
       return data;
     } catch (e) {
-      this.logger.warn(`WUZAPI ${method} ${path} error`, e as Error);
+      this.logger.debug(`WUZAPI ${method} ${path} error`, e as Error);
       throw e;
     }
   }

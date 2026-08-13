@@ -298,12 +298,18 @@ export class WhatsAppService implements OnModuleInit {
             phone,
           );
           const nome = linkedUser?.name || '';
+          this.logger.log(
+            `[WHATSAPP] Vinculação realizada: phone=${phone}, userId=${linkedUser.id}${nome ? `, name=${nome}` : ''}`,
+          );
           await this.sendReply(
             phone,
             `✅ Vinculação realizada com sucesso${nome ? ', ' + nome : ''}! Agora você pode criar suas metas.`,
             'whatsapp-service',
           );
         } catch (e) {
+          this.logger.log(
+            `[WHATSAPP] Vinculação recusada: phone=${phone}, code=${text.trim()}`,
+          );
           await this.sendReply(
             phone,
             '❌ Código de vinculação inválido. Gere um novo código no app/web e envie aqui.',
