@@ -5,6 +5,7 @@ import {
   phoneFromEventInfo,
   replyTargetFromEventInfo,
   buildSendTextTargets,
+  buildReplyContextFromEventInfo,
 } from './whatsapp-webhook.util';
 
 describe('phoneFromEventInfo', () => {
@@ -49,6 +50,26 @@ describe('buildSendTextTargets', () => {
     expect(targets).toContain('559882066740');
     expect(targets).toContain('5598982066740');
     expect(targets).toContain('559882066740@s.whatsapp.net');
+  });
+});
+
+describe('buildReplyContextFromEventInfo', () => {
+  it('builds quoted reply context from WUZAPI Message Info', () => {
+    const ctx = buildReplyContextFromEventInfo(
+      {
+        ID: '3EB0FB259FC408FC71E7AE',
+        Sender: '28089136451755:89@lid',
+        Chat: '28089136451755@lid',
+        SenderAlt: '559882066740:89@s.whatsapp.net',
+      },
+      'Quais sao as minhas metas?',
+    );
+
+    expect(ctx).toEqual({
+      stanzaId: '3EB0FB259FC408FC71E7AE',
+      participant: '28089136451755:89@lid',
+      quotedText: 'Quais sao as minhas metas?',
+    });
   });
 });
 

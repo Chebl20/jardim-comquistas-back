@@ -128,6 +128,30 @@ export function buildSendTextTargets(
   return targets;
 }
 
+export type WuzapiReplyContext = {
+  stanzaId: string;
+  participant: string;
+  quotedText: string;
+};
+
+/** ContextInfo for replying in-thread (required for many @lid conversations). */
+export function buildReplyContextFromEventInfo(
+  info: any,
+  quotedText?: string,
+): WuzapiReplyContext | null {
+  if (!info || typeof info !== 'object') return null;
+
+  const stanzaId = info.ID ?? info.Id ?? info.MessageID;
+  const participant = info.Sender ?? info.SenderAlt;
+  if (!stanzaId || !participant) return null;
+
+  return {
+    stanzaId: String(stanzaId),
+    participant: String(participant),
+    quotedText: String(quotedText ?? ''),
+  };
+}
+
 export function extractTextFromMessage(message: any): string | null {
   if (!message || typeof message !== 'object') return null;
   if (typeof message.conversation === 'string') return message.conversation;

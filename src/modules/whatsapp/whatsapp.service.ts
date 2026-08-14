@@ -6,6 +6,7 @@ import { DailyDigestService } from '../daily-digest/daily-digest.service';
 import { WuzapiClient } from './wuzapi.client';
 import type { ConfigureWuzApiResult, ConfigureWuzApiStepResult } from './wuzapi.types';
 import {
+  buildReplyContextFromEventInfo,
   buildSendTextTargets,
   extractTextFromMessage,
   isMessageEvent,
@@ -226,6 +227,7 @@ export class WhatsAppService implements OnModuleInit {
     text: string,
     origin?: string,
     eventInfo?: any,
+    quotedIncomingText?: string,
   ) {
     try {
       const normalizedTarget = String(target).trim();
@@ -240,7 +242,14 @@ export class WhatsAppService implements OnModuleInit {
       const tag = origin ? `\n\n(origin: ${origin})` : '';
       const message = `${text}${tag}`;
       const targets = buildSendTextTargets(normalizedTarget, eventInfo);
-      const res = await this.wuzapi.sendTextWithTargets(targets, message);
+      const replyContext = buildReplyContextFromEventInfo(
+        eventInfo,
+        quotedIncomingText,
+      );
+      const res = await this.wuzapi.sendTextWithTargets(targets, message, {
+        replyContext,
+        eventInfo,
+      });
       this.logger.log(
         `[WHATSAPP] Resposta enviada para ${normalizedTarget} (targets: ${targets.join(' -> ')})`,
       );
@@ -341,6 +350,7 @@ export class WhatsAppService implements OnModuleInit {
         'Envie uma mensagem de texto.',
         'whatsapp-service',
         info,
+        undefined,
       );
       return;
     }
@@ -351,6 +361,7 @@ export class WhatsAppService implements OnModuleInit {
         'Não consegui identificar seu número WhatsApp. Tente enviar o código novamente em alguns segundos.',
         'whatsapp-service',
         info,
+        text,
       );
       return;
     }
@@ -372,6 +383,7 @@ export class WhatsAppService implements OnModuleInit {
             `✅ Vinculação realizada com sucesso${nome ? ', ' + nome : ''}! Agora você pode criar suas metas.`,
             'whatsapp-service',
             info,
+            text,
           );
         } catch (e) {
           this.logger.log(
@@ -382,6 +394,7 @@ export class WhatsAppService implements OnModuleInit {
             '❌ Código de vinculação inválido. Gere um novo código no app/web e envie aqui.',
             'whatsapp-service',
             info,
+            text,
           );
         }
       } else {
@@ -390,6 +403,7 @@ export class WhatsAppService implements OnModuleInit {
           '👋 Olá! Para começar, envie aqui o código de acesso gerado no app/web para vincular sua conta.',
           'whatsapp-service',
           info,
+          text,
         );
       }
       return;
@@ -406,6 +420,7 @@ export class WhatsAppService implements OnModuleInit {
             'Não foi possível enviar o resumo. Verifique se você tem metas com lembretes.',
             'whatsapp-service',
             info,
+            text,
           );
         }
       } catch (e) {
@@ -415,6 +430,7 @@ export class WhatsAppService implements OnModuleInit {
           'Erro ao gerar o resumo diário.',
           'whatsapp-service',
           info,
+          text,
         );
       }
       return;
@@ -437,7 +453,7 @@ export class WhatsAppService implements OnModuleInit {
 
       const onAck = async (msg: string) => {
         clearInterval(typingInterval);
-        await this.sendReply(replyTarget, msg, undefined, info);
+        await this.sendReply(replyTarget, msg, undefined, info, text);
         this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
         typingInterval = setInterval(() => {
           this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
@@ -467,6 +483,7 @@ export class WhatsAppService implements OnModuleInit {
           'Não consegui processar sua mensagem agora. Tente novamente em instantes.',
           'whatsapp-service',
           info,
+          text,
         );
         return;
       }
@@ -477,6 +494,7 @@ export class WhatsAppService implements OnModuleInit {
           outcome.reply,
           outcome.origin || 'orchestrator',
           info,
+          text,
         );
       }
 
@@ -490,6 +508,7 @@ export class WhatsAppService implements OnModuleInit {
           outcome.result.suggestedReply,
           outcome.result.origin || 'orchestrator',
           info,
+          text,
         );
       }
     } catch (e) {
@@ -499,6 +518,7 @@ export class WhatsAppService implements OnModuleInit {
           'Erro ao processar sua mensagem.',
           'whatsapp-service',
           info,
+          text,
         );
       } catch (_) {}
     }
