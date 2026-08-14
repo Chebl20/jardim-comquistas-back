@@ -132,4 +132,23 @@ describe('isWebhookAuthorized', () => {
     });
     expect(result).toEqual({ ok: true });
   });
+
+  it('accepts non-Message events without token when HMAC is not configured', () => {
+    const result = isWebhookAuthorized({
+      payload: { type: 'ChatPresence', event: {} },
+      expectedToken: 'secret-token',
+      hmacKey: '',
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('accepts webhooks with valid Token header when HMAC is configured but signature is missing', () => {
+    const result = isWebhookAuthorized({
+      payload: messagePayload,
+      expectedToken: 'secret-token',
+      hmacKey: 'a'.repeat(32),
+      headerToken: 'secret-token',
+    });
+    expect(result).toEqual({ ok: true });
+  });
 });

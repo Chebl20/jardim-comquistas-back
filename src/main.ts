@@ -16,7 +16,8 @@ async function bootstrap() {
     rawBody: true,
     logger: new AppLogger(),
   });
-  app.useBodyParser('urlencoded', { extended: true, limit: '2mb' });
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
   // Habilita CORS em desenvolvimento para o frontend consumir o SVG
   app.enableCors();
 

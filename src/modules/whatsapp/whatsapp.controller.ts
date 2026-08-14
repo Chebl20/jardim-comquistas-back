@@ -9,6 +9,7 @@ import {
 import { ApiExcludeController } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { WhatsAppService } from './whatsapp.service';
+import { extractWebhookHeaderToken } from './whatsapp-webhook.util';
 
 /** Alias legado — preferir POST /api/wuzapi/webhook */
 @ApiExcludeController()
@@ -29,6 +30,7 @@ export class WhatsAppController {
       body: req.body,
       rawBody,
       signatureHeader: signature,
+      headerToken: extractWebhookHeaderToken(req.headers),
     });
 
     if (outcome.status === 401) {

@@ -9,6 +9,7 @@ import {
   buildReplyContextFromEventInfo,
   buildSendTextTargets,
   extractTextFromMessage,
+  extractWebhookHeaderToken,
   isMessageEvent,
   isWebhookAuthorized,
   parseWebhookBody,
@@ -206,6 +207,7 @@ export class WhatsAppService implements OnModuleInit {
     body: any;
     rawBody?: Buffer;
     signatureHeader?: string | string[];
+    headerToken?: string;
   }):
     | { status: 200; payload: WuzapiWebhookPayload }
     | { status: 401; error: string } {
@@ -281,6 +283,7 @@ export class WhatsAppService implements OnModuleInit {
     body: any;
     rawBody?: Buffer;
     signatureHeader?: string | string[];
+    headerToken?: string;
   }): { ok: true; payload: WuzapiWebhookPayload } | { ok: false; reason: string } {
     const expectedToken = process.env.WUZAPI_TOKEN || '';
     const hmacKey = process.env.WUZAPI_HMAC_KEY || '';
@@ -296,6 +299,7 @@ export class WhatsAppService implements OnModuleInit {
       hmacKey,
       rawBody: params.rawBody,
       signatureHeader: params.signatureHeader,
+      headerToken: params.headerToken,
     });
     if (!auth.ok) {
       return auth;

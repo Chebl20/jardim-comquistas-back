@@ -12,6 +12,7 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import type { Request, Response } from 'express';
 import { AuthGuard } from '../../auth/auth.guard';
 import { WhatsAppService } from './whatsapp.service';
+import { extractWebhookHeaderToken } from './whatsapp-webhook.util';
 import { WuzapiClient } from './wuzapi.client';
 
 @ApiTags('WUZAPI')
@@ -66,6 +67,7 @@ export class WuzapiController {
       body: req.body,
       rawBody,
       signatureHeader: signature,
+      headerToken: extractWebhookHeaderToken(req.headers),
     });
 
     if (outcome.status === 401) {

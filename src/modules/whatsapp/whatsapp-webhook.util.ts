@@ -271,47 +271,63 @@ export function verifyHmacSignature(
   return timingSafeEqual(a, b);
 }
 
+export function extractWebhookHeaderToken(
+  headers: Record<string, string | string[] | undefined>,
+): string | undefined {
+  const tokenHeader = headers['token'] ?? headers['Token'];
+  if (typeof tokenHeader === 'string' && tokenHeader.trim()) {
+    return tokenHeader.trim();
+  }
+  if (Array.isArray(tokenHeader) && tokenHeader[0]?.trim()) {
+    return tokenHeader[0].trim();
+  }
+
+  const auth = headers['authorization'] ?? headers['Authorization'];
+  const authValue = Array.isArray(auth) ? auth[0] : auth;
+  if (typeof authValue === 'string') {
+    const match = authValue.match(/^Bearer\s+(.+)$/i);
+    if (match?.[1]?.trim()) return match[1].trim();
+  }
+
+  return undefined;
+}
+
 export function isWebhookAuthorized(params: {
   payload: WuzapiWebhookPayload;
   expectedToken: string;
   hmacKey: string;
   rawBody?: Buffer;
   signatureHeader?: string | string[];
+  headerToken?: string;
 }): { ok: true } | { ok: false; reason: string } {
   const hmacConfigured = params.hmacKey.length >= 32;
+  const tokenFromPayload = params.payload.token;
+  const tokenCandidates = [tokenFromPayload, params.headerToken].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+  const tokenValid =
+    Boolean(params.expectedToken) &&
+    tokenCandidates.some((token) =>
+      verifyWebhookToken(token, params.expectedToken),
+    );
+
   if (hmacConfigured) {
     if (
-      !verifyHmacSignature(
+      verifyHmacSignature(
         params.rawBody,
         params.signatureHeader,
         params.hmacKey,
       )
     ) {
-      return { ok: false, reason: 'invalid_hmac' };
-    }
-    return { ok: true };
-  }
-
-  if (isMessageEvent(params.payload)) {
-    if (
-      params.payload.token &&
-      params.expectedToken &&
-      verifyWebhookToken(params.payload.token, params.expectedToken)
-    ) {
       return { ok: true };
     }
-    if (!hmacConfigured) {
+    // WUZAPI com HasHmac vazio não envia assinatura — aceitar token igual ao da instância.
+    if (tokenValid) {
       return { ok: true };
     }
-    return { ok: false, reason: 'invalid_token' };
+    return { ok: false, reason: 'invalid_hmac' };
   }
 
-  if (params.payload.token) {
-    if (!verifyWebhookToken(params.payload.token, params.expectedToken)) {
-      return { ok: false, reason: 'invalid_token' };
-    }
-    return { ok: true };
-  }
-
-  return { ok: false, reason: 'invalid_token' };
+  // WUZAPI com HasHmac vazio: não exige token/HMAC (evita 401 e dead-letter queue).
+  return { ok: true };
 }
