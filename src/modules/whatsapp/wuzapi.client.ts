@@ -51,23 +51,29 @@ export class WuzapiClient {
     const uniqueTargets = targets.filter(
       (target, index, list) => target && list.indexOf(target) === index,
     );
-    let lastError: Error | null = null;
-
+    const failures: string[] = [];
     for (const target of uniqueTargets) {
       try {
-        return await this.request('POST', '/chat/send/text', {
+        const result = await this.request('POST', '/chat/send/text', {
           Phone: target,
           Body: body,
         });
+        this.logger.log(
+          `[WUZAPI] sendText ok Phone=${target}`,
+        );
+        return result;
       } catch (e) {
-        lastError = e instanceof Error ? e : new Error(String(e));
-        this.logger.debug(
-          `[WUZAPI] sendText falhou para Phone=${target}: ${lastError.message}`,
+        const err = e instanceof Error ? e : new Error(String(e));
+        failures.push(`${target}: ${err.message}`);
+        this.logger.warn(
+          `[WUZAPI] sendText falhou Phone=${target}: ${err.message}`,
         );
       }
     }
 
-    throw lastError ?? new Error('WUZAPI sendText failed');
+    throw new Error(
+      `WUZAPI sendText failed for all targets (${uniqueTargets.join(', ')}): ${failures.join(' | ')}`,
+    );
   }
 
   async setPresence(phone: string, state: ChatPresenceState): Promise<unknown> {

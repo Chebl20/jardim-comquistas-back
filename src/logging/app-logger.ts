@@ -1,6 +1,10 @@
 import { LoggerService } from '@nestjs/common';
 
-const LOG_CONTEXTS = new Set(['WhatsAppService', 'NestApplication']);
+const LOG_CONTEXTS = new Set([
+  'WhatsAppService',
+  'WuzapiClient',
+  'NestApplication',
+]);
 
 function isAllowed(context?: string): boolean {
   return Boolean(context && LOG_CONTEXTS.has(context));

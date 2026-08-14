@@ -37,7 +37,7 @@ describe('replyTargetFromEventInfo', () => {
 });
 
 describe('buildSendTextTargets', () => {
-  it('includes BR 9-digit variant and @lid JID for SenderAlt payloads', () => {
+  it('prioritizes @lid JID before phone digits when Chat uses LID', () => {
     const info = {
       Chat: '28089136451755@lid',
       Sender: '28089136451755:89@lid',
@@ -45,10 +45,10 @@ describe('buildSendTextTargets', () => {
     };
     const targets = buildSendTextTargets('559882066740', info);
 
+    expect(targets[0]).toBe('28089136451755@lid');
     expect(targets).toContain('559882066740');
     expect(targets).toContain('5598982066740');
     expect(targets).toContain('559882066740@s.whatsapp.net');
-    expect(targets).toContain('28089136451755@lid');
   });
 });
 

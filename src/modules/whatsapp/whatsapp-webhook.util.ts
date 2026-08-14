@@ -90,6 +90,15 @@ export function buildSendTextTargets(
     if (v && !targets.includes(v)) targets.push(v);
   };
 
+  // Chats com @lid exigem o JID LID na entrega; tentar primeiro evita 500 no send/text.
+  if (info && typeof info === 'object') {
+    for (const field of [info.Chat, info.Sender]) {
+      if (typeof field === 'string' && field.includes('@lid')) {
+        add(normalizeJid(field));
+      }
+    }
+  }
+
   add(replyTarget);
 
   if (replyTarget.includes('@')) {

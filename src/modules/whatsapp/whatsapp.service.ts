@@ -242,7 +242,7 @@ export class WhatsAppService implements OnModuleInit {
       const targets = buildSendTextTargets(normalizedTarget, eventInfo);
       const res = await this.wuzapi.sendTextWithTargets(targets, message);
       this.logger.log(
-        `[WHATSAPP] Resposta enviada para ${normalizedTarget} (tentativas: ${targets.join(' -> ')})`,
+        `[WHATSAPP] Resposta enviada para ${normalizedTarget} (targets: ${targets.join(' -> ')})`,
       );
       try {
         this.lastSentByPhone.set(cacheKey, String(text).trim());
@@ -421,9 +421,11 @@ export class WhatsAppService implements OnModuleInit {
     }
 
     try {
-      this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
+      const presenceTarget =
+        buildSendTextTargets(replyTarget, info)[0] || replyTarget;
+      this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
       let typingInterval: ReturnType<typeof setInterval> = setInterval(() => {
-        this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
+        this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
       }, 4000);
 
       try {
@@ -436,9 +438,9 @@ export class WhatsAppService implements OnModuleInit {
       const onAck = async (msg: string) => {
         clearInterval(typingInterval);
         await this.sendReply(replyTarget, msg, undefined, info);
-        this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
+        this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
         typingInterval = setInterval(() => {
-          this.wuzapi.setPresence(replyTarget, 'composing').catch(() => {});
+          this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
         }, 4000);
       };
 
@@ -453,10 +455,21 @@ export class WhatsAppService implements OnModuleInit {
         this.logger.warn('InterpreterManager failed', e);
       } finally {
         clearInterval(typingInterval);
-        this.wuzapi.setPresence(replyTarget, 'paused').catch(() => {});
+        this.wuzapi.setPresence(presenceTarget, 'paused').catch(() => {});
       }
 
-      if (!outcome) return;
+      if (!outcome) {
+        this.logger.warn(
+          '[WHATSAPP] Orchestrator não retornou resposta; enviando fallback',
+        );
+        await this.sendReply(
+          replyTarget,
+          'Não consegui processar sua mensagem agora. Tente novamente em instantes.',
+          'whatsapp-service',
+          info,
+        );
+        return;
+      }
 
       if (outcome.reply) {
         await this.sendReply(
