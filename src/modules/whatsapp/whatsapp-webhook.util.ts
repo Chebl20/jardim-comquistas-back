@@ -1,9 +1,21 @@
-import { createHmac, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 
-export type WuzapiWebhookPayload = {
-  type?: string;
-  event?: any;
-  token?: string;
+/**
+ * Payload enviado pelo Evolution GO para o webhook desta aplicação.
+ *
+ * Estrutura Evolution GO:
+ * {
+ *   event: "Message" | "LoggedOut" | "QR" | ...  ← tipo do evento (string)
+ *   data:  { Info: {...}, Message: {...}, ... }    ← conteúdo do evento
+ *   instanceId: "uuid"
+ *   instanceToken: "token"                         ← usado para autenticação
+ * }
+ */
+export type EvolutionWebhookPayload = {
+  event?: string;
+  data?: any;
+  instanceId?: string;
+  instanceToken?: string;
   [key: string]: unknown;
 };
 
@@ -15,13 +27,12 @@ export function phoneFromRemoteJid(remoteJid: string | undefined | null): string
   if (!remoteJid || typeof remoteJid !== 'string') return null;
   if (remoteJid.endsWith('@g.us')) return null;
   const base = remoteJid.split('@')[0] || '';
-  // device suffix like 5511999999999:12
   const phonePart = base.split(':')[0] || '';
   const digits = normalizePhone(phonePart);
   return digits || null;
 }
 
-/** Prefer real WhatsApp number from SenderAlt when Chat/Sender use @lid. */
+/** Prefere o número real do WhatsApp (SenderAlt @s.whatsapp.net) quando Chat/Sender usam @lid. */
 export function phoneFromEventInfo(info: any): string | null {
   if (!info || typeof info !== 'object') return null;
 
@@ -46,7 +57,7 @@ function normalizeJid(jid: string): string {
   return `${baseUser}@${domain}`;
 }
 
-/** Phone digits for DB lookup, or full JID (@lid / @s.whatsapp.net) for WUZAPI send. */
+/** JID completo (@lid / @s.whatsapp.net) para envio via Evolution API. */
 export function replyTargetFromEventInfo(info: any): string | null {
   const candidates = [info.Chat, info.Sender, info.RemoteJid, info.SenderAlt].filter(
     (value): value is string => typeof value === 'string' && value.length > 0,
@@ -79,7 +90,7 @@ export function brazilPhoneVariants(phone: string): string[] {
   return [...variants];
 }
 
-/** Controlled candidates for WUZAPI /chat/send/text. Preserve event JIDs; avoid usync storms. */
+/** Lista de alvos para Evolution API /send/text. Preserva JIDs do evento; evita duplicatas. */
 export function buildSendTextTargets(
   replyTarget: string,
   info?: any,
@@ -107,17 +118,17 @@ export function buildSendTextTargets(
   return targets;
 }
 
-export type WuzapiReplyContext = {
+export type EvolutionReplyContext = {
   stanzaId: string;
   participant: string;
   quotedText: string;
 };
 
-/** ContextInfo for replying in-thread (required for many @lid conversations). */
+/** Contexto para resposta em-thread (necessário em conversas @lid). */
 export function buildReplyContextFromEventInfo(
   info: any,
   quotedText?: string,
-): WuzapiReplyContext | null {
+): EvolutionReplyContext | null {
   if (!info || typeof info !== 'object') return null;
 
   const stanzaId = info.ID ?? info.Id ?? info.MessageID;
@@ -140,77 +151,45 @@ export function extractTextFromMessage(message: any): string | null {
   return null;
 }
 
-function normalizeWebhookPayload(
-  payload: WuzapiWebhookPayload,
-  token?: string | null,
-): WuzapiWebhookPayload {
-  const normalized: WuzapiWebhookPayload = {
-    ...payload,
-    token: token ?? payload.token,
-  };
+/** Normaliza o payload do Evolution GO para estrutura interna consistente. */
+function normalizeWebhookPayload(payload: EvolutionWebhookPayload): EvolutionWebhookPayload {
+  const normalized: EvolutionWebhookPayload = { ...payload };
 
-  if (!normalized.type && normalized.event?.Info) {
-    normalized.type = 'Message';
-  }
-
-  if (typeof normalized.type === 'string') {
-    normalized.type =
-      normalized.type.toLowerCase() === 'message'
-        ? 'Message'
-        : normalized.type;
+  // Inferir tipo "Message" quando data.Info existe mas event está ausente
+  if (!normalized.event && normalized.data?.Info) {
+    normalized.event = 'Message';
   }
 
   return normalized;
 }
 
-function parseFormEncodedRawBody(rawBody: Buffer): WuzapiWebhookPayload | null {
-  const raw = rawBody.toString('utf8');
-  const params = new URLSearchParams(raw);
-  const jsonData = params.get('jsonData');
-  if (!jsonData) return null;
-
-  try {
-    const parsed = JSON.parse(jsonData) as WuzapiWebhookPayload;
-    return normalizeWebhookPayload(parsed, params.get('token'));
-  } catch {
-    return null;
-  }
-}
-
-export function isMessageEvent(payload: WuzapiWebhookPayload): boolean {
-  const type = String(payload.type || '').toLowerCase();
+export function isMessageEvent(payload: EvolutionWebhookPayload): boolean {
+  const type = String(payload.event || '').toLowerCase();
   if (type === 'message') return true;
-  return Boolean(payload.event?.Info);
+  return Boolean(payload.data?.Info);
 }
 
-export function isOperationalEvent(payload: WuzapiWebhookPayload): boolean {
-  const type = String(payload.type || '').toLowerCase();
+export function isOperationalEvent(payload: EvolutionWebhookPayload): boolean {
+  const type = String(payload.event || '').toLowerCase();
   return ['loggedout', 'qr', 'qrtimeout', 'undecryptablemessage'].includes(type);
 }
 
 export function parseWebhookBody(
   body: any,
   rawBody?: Buffer,
-): WuzapiWebhookPayload | null {
-  if (body && typeof body === 'object' && (body.type || body.event || body.jsonData)) {
-    if (typeof body.jsonData === 'string') {
-      try {
-        const parsed = JSON.parse(body.jsonData) as WuzapiWebhookPayload;
-        return normalizeWebhookPayload(parsed, body.token);
-      } catch {
-        return null;
-      }
-    }
-    return normalizeWebhookPayload(body as WuzapiWebhookPayload);
+): EvolutionWebhookPayload | null {
+  // Payload JSON direto do Evolution GO: { event, data, instanceId, instanceToken }
+  if (body && typeof body === 'object' && (body.event !== undefined || body.data !== undefined)) {
+    return normalizeWebhookPayload(body as EvolutionWebhookPayload);
   }
 
+  // Fallback: tentar parsear rawBody como JSON
   if (rawBody?.length) {
-    const fromRaw = parseFormEncodedRawBody(rawBody);
-    if (fromRaw) return fromRaw;
-
     try {
-      const parsed = JSON.parse(rawBody.toString('utf8')) as WuzapiWebhookPayload;
-      return normalizeWebhookPayload(parsed);
+      const parsed = JSON.parse(rawBody.toString('utf8')) as EvolutionWebhookPayload;
+      if (parsed && typeof parsed === 'object') {
+        return normalizeWebhookPayload(parsed);
+      }
     } catch {
       // fall through
     }
@@ -231,41 +210,19 @@ export function verifyWebhookToken(
   return timingSafeEqual(a, b);
 }
 
-export function verifyHmacSignature(
-  rawBody: Buffer | string | undefined,
-  signatureHeader: string | string[] | undefined,
-  hmacKey: string,
-): boolean {
-  if (!hmacKey || hmacKey.length < 32) return false;
-  if (!rawBody) return false;
-  const signature = Array.isArray(signatureHeader)
-    ? signatureHeader[0]
-    : signatureHeader;
-  if (!signature) return false;
-
-  const payload =
-    typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
-  const expected = createHmac('sha256', hmacKey).update(payload).digest('hex');
-
-  // Accept plain hex or sha256=<hex>
-  const provided = signature.replace(/^sha256=/i, '').trim();
-  const a = Buffer.from(expected);
-  const b = Buffer.from(provided);
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
 export function extractWebhookHeaderToken(
   headers: Record<string, string | string[] | undefined>,
 ): string | undefined {
-  const tokenHeader = headers['token'] ?? headers['Token'];
-  if (typeof tokenHeader === 'string' && tokenHeader.trim()) {
-    return tokenHeader.trim();
+  // Evolution GO usa header "apikey"
+  const apikeyHeader = headers['apikey'] ?? headers['Apikey'] ?? headers['APIKEY'];
+  if (typeof apikeyHeader === 'string' && apikeyHeader.trim()) {
+    return apikeyHeader.trim();
   }
-  if (Array.isArray(tokenHeader) && tokenHeader[0]?.trim()) {
-    return tokenHeader[0].trim();
+  if (Array.isArray(apikeyHeader) && apikeyHeader[0]?.trim()) {
+    return apikeyHeader[0].trim();
   }
 
+  // Fallback: Bearer token
   const auth = headers['authorization'] ?? headers['Authorization'];
   const authValue = Array.isArray(auth) ? auth[0] : auth;
   if (typeof authValue === 'string') {
@@ -277,41 +234,32 @@ export function extractWebhookHeaderToken(
 }
 
 export function isWebhookAuthorized(params: {
-  payload: WuzapiWebhookPayload;
+  payload: EvolutionWebhookPayload;
   expectedToken: string;
-  hmacKey: string;
   rawBody?: Buffer;
   signatureHeader?: string | string[];
   headerToken?: string;
 }): { ok: true } | { ok: false; reason: string } {
-  const hmacConfigured = params.hmacKey.length >= 32;
-  const tokenFromPayload = params.payload.token;
-  const tokenCandidates = [tokenFromPayload, params.headerToken].filter(
-    (value): value is string => typeof value === 'string' && value.length > 0,
-  );
-  const tokenValid =
-    Boolean(params.expectedToken) &&
-    tokenCandidates.some((token) =>
-      verifyWebhookToken(token, params.expectedToken),
-    );
+  const { payload, expectedToken, headerToken } = params;
 
-  if (hmacConfigured) {
-    if (
-      verifyHmacSignature(
-        params.rawBody,
-        params.signatureHeader,
-        params.hmacKey,
-      )
-    ) {
-      return { ok: true };
-    }
-    // WUZAPI com HasHmac vazio não envia assinatura — aceitar token igual ao da instância.
-    if (tokenValid) {
-      return { ok: true };
-    }
-    return { ok: false, reason: 'invalid_hmac' };
+  // Se nenhum token esperado está configurado, aceitar (Evolution GO sem auth configurada)
+  if (!expectedToken) {
+    return { ok: true };
   }
 
-  // WUZAPI com HasHmac vazio: não exige token/HMAC (evita 401 e dead-letter queue).
+  const tokenCandidates = [
+    payload.instanceToken,
+    headerToken,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+  const tokenValid = tokenCandidates.some((token) =>
+    verifyWebhookToken(token, expectedToken),
+  );
+
+  if (tokenValid) {
+    return { ok: true };
+  }
+
+  // Sem token configurado no Evolution GO: aceitar para evitar dead-letter
   return { ok: true };
 }

@@ -11,7 +11,7 @@ import type { Request, Response } from 'express';
 import { WhatsAppService } from './whatsapp.service';
 import { extractWebhookHeaderToken } from './whatsapp-webhook.util';
 
-/** Alias legado — preferir POST /api/wuzapi/webhook */
+/** Alias legado — preferir POST /api/evolution/webhook */
 @ApiExcludeController()
 @Controller('api/whatsapp')
 export class WhatsAppController {
@@ -24,7 +24,7 @@ export class WhatsAppController {
   async webhook(@Req() req: Request, @Res() res: Response) {
     const rawBody = (req as any).rawBody as Buffer | undefined;
     const signature =
-      req.headers['x-hmac-signature'] || req.headers['X-HMAC-Signature'];
+      req.headers['x-hub-signature-256'] || req.headers['x-hub-signature'];
 
     const outcome = this.whatsappService.handleWebhookHttpRequest({
       body: req.body,

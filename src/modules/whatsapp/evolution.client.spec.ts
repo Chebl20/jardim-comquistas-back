@@ -1,88 +1,73 @@
-import { WuzapiClient, WuzapiSendTextError } from './wuzapi.client';
+import { EvolutionClient, EvolutionSendTextError } from './evolution.client';
 
-describe('WuzapiClient', () => {
-  let client: WuzapiClient;
+describe('EvolutionClient', () => {
+  let client: EvolutionClient;
   const fetchMock = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.WUZAPI_BASE_URL = 'https://wuzapi.example.com';
-    process.env.WUZAPI_TOKEN = 'test-token';
+    process.env.EVOLUTION_BASE_URL = 'https://evolution.example.com';
+    process.env.EVOLUTION_API_KEY = 'test-api-key';
     global.fetch = fetchMock as any;
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({ success: true }),
     });
-    client = new WuzapiClient();
+    client = new EvolutionClient();
   });
 
-  it('setWebhook sends webhookurl and events with Token header', async () => {
-    await client.setWebhook('https://api.example.com/api/wuzapi/webhook', [
-      'Message',
-    ]);
+  it('connectInstance sends webhookUrl, subscribe and apikey header', async () => {
+    await client.connectInstance({
+      webhookUrl: 'https://api.example.com/api/evolution/webhook',
+      subscribe: ['Message'],
+      immediate: false,
+    });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://wuzapi.example.com/webhook',
+      'https://evolution.example.com/instance/connect',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          Token: 'test-token',
+          apikey: 'test-api-key',
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({
-          webhookurl: 'https://api.example.com/api/wuzapi/webhook',
-          webhookURL: 'https://api.example.com/api/wuzapi/webhook',
-          events: ['Message'],
+          webhookUrl: 'https://api.example.com/api/evolution/webhook',
+          subscribe: ['Message'],
+          immediate: false,
         }),
       }),
     );
   });
 
-  it('getWebhook uses GET with Token header', async () => {
-    await client.getWebhook();
+  it('getStatus uses GET with apikey header', async () => {
+    await client.getStatus();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://wuzapi.example.com/webhook',
+      'https://evolution.example.com/instance/status',
       expect.objectContaining({
         method: 'GET',
-        headers: expect.objectContaining({ Token: 'test-token' }),
+        headers: expect.objectContaining({ apikey: 'test-api-key' }),
       }),
     );
   });
 
-  it('setHmacKey sends hmac_key with Authorization header', async () => {
-    const key = 'uma-chave-secreta-muito-segura-com-32-chars';
-    await client.setHmacKey(key);
+  it('sends text to /send/text with number and text fields', async () => {
+    await client.sendText('559882066740', 'Olá!');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://wuzapi.example.com/session/hmac/config',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'test-token',
-          'Content-Type': 'application/json',
-        }),
-        body: JSON.stringify({ hmac_key: key }),
-      }),
-    );
-  });
-
-  it('connectSession sends Subscribe and Immediate', async () => {
-    await client.connectSession(['Message', 'ReadReceipt'], false);
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://wuzapi.example.com/session/connect',
+      'https://evolution.example.com/send/text',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          Subscribe: ['Message', 'ReadReceipt'],
-          Immediate: false,
+          number: '559882066740',
+          text: 'Olá!',
         }),
       }),
     );
   });
 
-  it('sends quoted reply once and does not call /user/lid', async () => {
+  it('sends quoted reply using messageId and participant', async () => {
     await client.sendTextWithTargets(
       ['28089136451755@lid', '559882066740'],
       'resposta',
@@ -97,23 +82,18 @@ describe('WuzapiClient', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://wuzapi.example.com/chat/send/text',
+      'https://evolution.example.com/send/text',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          Phone: '28089136451755@lid',
-          Body: 'resposta',
-          ContextInfo: {
-            StanzaID: '3EB0FB259FC408FC71E7AE',
-            Participant: '28089136451755:89@lid',
+          number: '28089136451755@lid',
+          text: 'resposta',
+          quoted: {
+            messageId: '3EB0FB259FC408FC71E7AE',
+            participant: '28089136451755:89@lid',
           },
-          QuotedText: 'Quais sao as minhas metas?',
         }),
       }),
-    );
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('/user/lid/'),
-      expect.anything(),
     );
   });
 
@@ -136,12 +116,12 @@ describe('WuzapiClient', () => {
     ).rejects.toMatchObject({
       target: '28089136451755@lid',
       terminal: true,
-    } satisfies Partial<WuzapiSendTextError>);
+    } satisfies Partial<EvolutionSendTextError>);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('uses one same-target fallback for non-terminal failures', async () => {
+  it('retries plain send after quoted reply fails (non-terminal)', async () => {
     fetchMock
       .mockResolvedValueOnce({
         ok: false,
@@ -162,11 +142,26 @@ describe('WuzapiClient', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body));
-    expect(bodies.map((body) => body.Phone)).toEqual([
+    expect(bodies.map((body) => body.number)).toEqual([
       '28089136451755@lid',
       '28089136451755@lid',
     ]);
-    expect(bodies[0].ContextInfo).toBeDefined();
-    expect(bodies[1].ContextInfo).toBeUndefined();
+    expect(bodies[0].quoted).toBeDefined();
+    expect(bodies[1].quoted).toBeUndefined();
+  });
+
+  it('sets presence using /message/presence', async () => {
+    await client.setPresence('559882066740@s.whatsapp.net', 'composing');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://evolution.example.com/message/presence',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          number: '559882066740@s.whatsapp.net',
+          state: 'composing',
+        }),
+      }),
+    );
   });
 });

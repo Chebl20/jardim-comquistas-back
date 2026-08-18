@@ -3,8 +3,8 @@ import { UserLinkService } from '../users/user-link.service';
 import { RateLimiterService } from '../shared/rate-limiter.service';
 import { ConversationOrchestratorService } from '../ia/conversation/conversation-orchestrator.service';
 import { DailyDigestService } from '../daily-digest/daily-digest.service';
-import { WuzapiClient, WuzapiSendTextError } from './wuzapi.client';
-import type { ConfigureWuzApiResult, ConfigureWuzApiStepResult } from './wuzapi.types';
+import { EvolutionClient, EvolutionSendTextError } from './evolution.client';
+import type { ConfigureEvolutionResult, ConfigureEvolutionStepResult } from './evolution.types';
 import {
   buildReplyContextFromEventInfo,
   buildSendTextTargets,
@@ -16,7 +16,7 @@ import {
   parseWebhookBody,
   phoneFromEventInfo,
   replyTargetFromEventInfo,
-  WuzapiWebhookPayload,
+  EvolutionWebhookPayload,
 } from './whatsapp-webhook.util';
 
 const MANUAL_DIGEST_TRIGGER = 'DISPARO DE MSG DIARIA';
@@ -27,7 +27,7 @@ export class WhatsAppService implements OnModuleInit {
   private lastSentByPhone = new Map<string, string>();
 
   constructor(
-    private readonly wuzapi: WuzapiClient,
+    private readonly evolution: EvolutionClient,
     private readonly userLinkService: UserLinkService,
     private readonly rateLimiter: RateLimiterService,
     private readonly interpreterManager: ConversationOrchestratorService,
@@ -36,7 +36,7 @@ export class WhatsAppService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const result = await this.configureWuzApi();
+    const result = await this.configureEvolution();
     this.logConfigureResult(result);
   }
 
@@ -45,12 +45,12 @@ export class WhatsAppService implements OnModuleInit {
     if (!publicBase) return null;
 
     const path =
-      process.env.WUZAPI_WEBHOOK_PATH || '/api/wuzapi/webhook';
+      process.env.EVOLUTION_WEBHOOK_PATH || '/api/evolution/webhook';
     return `${publicBase}${path.startsWith('/') ? path : `/${path}`}`;
   }
 
   getSubscribeEvents(): string[] {
-    const raw = process.env.WUZAPI_SUBSCRIBE_EVENTS || 'Message';
+    const raw = process.env.EVOLUTION_SUBSCRIBE_EVENTS || 'Message';
     return raw
       .split(',')
       .map((event) => event.trim())
@@ -58,52 +58,57 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   shouldAutoConnect(): boolean {
-    return String(process.env.WUZAPI_AUTO_CONNECT ?? 'true').toLowerCase() !== 'false';
+    return (
+      String(process.env.EVOLUTION_AUTO_CONNECT ?? 'true').toLowerCase() !== 'false'
+    );
   }
 
-  async configureWuzApi(): Promise<ConfigureWuzApiResult> {
-    const emptyStep = (): ConfigureWuzApiStepResult => ({
+  async configureEvolution(): Promise<ConfigureEvolutionResult> {
+    const emptyStep = (): ConfigureEvolutionStepResult => ({
       ok: false,
       error: 'skipped',
     });
 
-    const result: ConfigureWuzApiResult = {
+    const result: ConfigureEvolutionResult = {
       webhookUrl: this.getWebhookUrl(),
-      webhook: emptyStep(),
-      verify: emptyStep(),
-      hmac: emptyStep(),
       connect: emptyStep(),
+      verify: emptyStep(),
     };
 
-    if (!this.wuzapi.isConfigured()) {
-      const error = 'WUZAPI não configurado (WUZAPI_BASE_URL/WUZAPI_TOKEN)';
-      result.webhook.error = error;
+    if (!this.evolution.isConfigured()) {
+      const error = 'Evolution API não configurada (EVOLUTION_BASE_URL/EVOLUTION_API_KEY)';
+      result.connect.error = error;
       return result;
     }
 
     if (!result.webhookUrl) {
       const error = 'PUBLIC_BASE_URL não definido';
-      result.webhook.error = error;
+      result.connect.error = error;
       return result;
     }
 
-    try {
-      result.webhook = {
-        ok: true,
-        data: await this.wuzapi.setWebhook(
-          result.webhookUrl,
-          this.getSubscribeEvents(),
-        ),
-      };
-    } catch (e) {
-      result.webhook = {
-        ok: false,
-        error: e instanceof Error ? e.message : String(e),
-      };
+    if (this.shouldAutoConnect()) {
+      try {
+        result.connect = {
+          ok: true,
+          data: await this.evolution.connectInstance({
+            webhookUrl: result.webhookUrl,
+            subscribe: this.getSubscribeEvents(),
+            immediate: false,
+          }),
+        };
+      } catch (e) {
+        result.connect = {
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    } else {
+      result.connect = { ok: true, error: 'skipped (EVOLUTION_AUTO_CONNECT=false)' };
     }
 
     try {
-      const data = await this.wuzapi.getWebhook();
+      const data = await this.evolution.getStatus();
       result.verify = { ok: true, data };
     } catch (e) {
       result.verify = {
@@ -112,95 +117,39 @@ export class WhatsAppService implements OnModuleInit {
       };
     }
 
-    const hmacKey = process.env.WUZAPI_HMAC_KEY || '';
-    if (hmacKey.length >= 32) {
-      try {
-        result.hmac = {
-          ok: true,
-          data: await this.wuzapi.setHmacKey(hmacKey),
-        };
-      } catch (e) {
-        result.hmac = {
-          ok: false,
-          error: e instanceof Error ? e.message : String(e),
-        };
-      }
-    } else {
-      result.hmac = { ok: true, error: 'skipped (WUZAPI_HMAC_KEY vazio ou curto)' };
-    }
-
-    if (this.shouldAutoConnect()) {
-      try {
-        result.connect = {
-          ok: true,
-          data: await this.wuzapi.connectSession(this.getSubscribeEvents(), false),
-        };
-      } catch (e) {
-        result.connect = {
-          ok: false,
-          error: e instanceof Error ? e.message : String(e),
-        };
-      }
-    } else {
-      result.connect = { ok: true, error: 'skipped (WUZAPI_AUTO_CONNECT=false)' };
-    }
-
     return result;
   }
 
-  private logConfigureResult(result: ConfigureWuzApiResult) {
-    if (!this.wuzapi.isConfigured()) {
+  private logConfigureResult(result: ConfigureEvolutionResult) {
+    if (!this.evolution.isConfigured()) {
       this.logger.warn(
-        'WUZAPI não configurado (WUZAPI_BASE_URL/WUZAPI_TOKEN); WhatsApp desabilitado',
+        'Evolution API não configurada (EVOLUTION_BASE_URL/EVOLUTION_API_KEY); WhatsApp desabilitado',
       );
       return;
     }
 
     if (!result.webhookUrl) {
       this.logger.warn(
-        'PUBLIC_BASE_URL não definido; webhook WUZAPI não registrado automaticamente',
+        'PUBLIC_BASE_URL não definido; webhook Evolution não registrado automaticamente',
       );
       return;
     }
 
-    if (result.webhook.ok) {
-      this.logger.log(`Webhook WUZAPI registrado: ${result.webhookUrl}`);
-    } else {
-      this.logger.warn(`Falha ao registrar webhook WUZAPI: ${result.webhook.error}`);
+    const connectData = result.connect.data as { error?: string } | undefined;
+    if (connectData?.error?.toLowerCase().includes('already connected')) {
+      this.logger.log('Instância Evolution já estava conectada');
+    } else if (result.connect.ok && !result.connect.error?.startsWith('skipped')) {
+      this.logger.log(
+        `Instância Evolution conectada: webhookUrl=${result.webhookUrl}, eventos=${this.getSubscribeEvents().join(',')}`,
+      );
+    } else if (!result.connect.ok) {
+      this.logger.warn(`Falha ao conectar instância Evolution: ${result.connect.error}`);
     }
 
     if (result.verify.ok) {
-      const verifyData = result.verify.data as {
-        data?: { subscribe?: string[] };
-      };
-      const subscribed = verifyData?.data?.subscribe ?? [];
-      this.logger.log(
-        `Webhook WUZAPI verificado: ${JSON.stringify(result.verify.data)}`,
-      );
-      if (!subscribed.length) {
-        this.logger.warn(
-          'WUZAPI sem eventos inscritos após registrar webhook; mensagens não serão encaminhadas',
-        );
-      }
+      this.logger.log(`Status Evolution verificado: ${JSON.stringify(result.verify.data)}`);
     } else {
-      this.logger.warn(`Falha ao verificar webhook WUZAPI: ${result.verify.error}`);
-    }
-
-    if (result.hmac.ok && !result.hmac.error?.startsWith('skipped')) {
-      this.logger.log('HMAC WUZAPI configurado');
-    } else if (!result.hmac.ok) {
-      this.logger.warn(`Falha ao configurar HMAC WUZAPI: ${result.hmac.error}`);
-    }
-
-    const connectData = result.connect.data as { error?: string } | undefined;
-    if (connectData?.error?.toLowerCase() === 'already connected') {
-      this.logger.log('Sessão WUZAPI já estava conectada');
-    } else if (result.connect.ok && !result.connect.error?.startsWith('skipped')) {
-      this.logger.log(
-        `Sessão WUZAPI conectada/inscrita: ${JSON.stringify(result.connect.data)}`,
-      );
-    } else if (!result.connect.ok) {
-      this.logger.warn(`Falha ao conectar sessão WUZAPI: ${result.connect.error}`);
+      this.logger.warn(`Falha ao verificar status Evolution: ${result.verify.error}`);
     }
   }
 
@@ -210,7 +159,7 @@ export class WhatsAppService implements OnModuleInit {
     signatureHeader?: string | string[];
     headerToken?: string;
   }):
-    | { status: 200; payload: WuzapiWebhookPayload }
+    | { status: 200; payload: EvolutionWebhookPayload }
     | { status: 401; error: string } {
     const validation = this.validateWebhookRequest(params);
     if (!validation.ok) {
@@ -220,7 +169,7 @@ export class WhatsAppService implements OnModuleInit {
 
     const payload = validation.payload;
     this.logger.log(
-      `[WHATSAPP] Webhook recebido: type=${payload.type ?? 'unknown'}, chat=${payload.event?.Info?.Chat ?? 'n/a'}`,
+      `[WHATSAPP] Webhook recebido: event=${payload.event ?? 'unknown'}, chat=${payload.data?.Info?.Chat ?? 'n/a'}`,
     );
     return { status: 200, payload };
   }
@@ -249,7 +198,7 @@ export class WhatsAppService implements OnModuleInit {
         eventInfo,
         quotedIncomingText,
       );
-      const res = await this.wuzapi.sendTextWithTargets(targets, message, {
+      const res = await this.evolution.sendTextWithTargets(targets, message, {
         replyContext,
       });
       this.logger.log(
@@ -265,9 +214,9 @@ export class WhatsAppService implements OnModuleInit {
       } catch (_) {}
       return res;
     } catch (e) {
-      if (e instanceof WuzapiSendTextError && e.terminal) {
+      if (e instanceof EvolutionSendTextError && e.terminal) {
         this.logger.warn(
-          `[WHATSAPP] Envio abortado para ${target}: erro terminal da WUZAPI (${e.message})`,
+          `[WHATSAPP] Envio abortado para ${target}: erro terminal da Evolution API (${e.message})`,
         );
         return null;
       }
@@ -290,9 +239,8 @@ export class WhatsAppService implements OnModuleInit {
     rawBody?: Buffer;
     signatureHeader?: string | string[];
     headerToken?: string;
-  }): { ok: true; payload: WuzapiWebhookPayload } | { ok: false; reason: string } {
-    const expectedToken = process.env.WUZAPI_TOKEN || '';
-    const hmacKey = process.env.WUZAPI_HMAC_KEY || '';
+  }): { ok: true; payload: EvolutionWebhookPayload } | { ok: false; reason: string } {
+    const expectedToken = process.env.EVOLUTION_API_KEY || '';
 
     const payload = parseWebhookBody(params.body, params.rawBody);
     if (!payload) {
@@ -302,7 +250,6 @@ export class WhatsAppService implements OnModuleInit {
     const auth = isWebhookAuthorized({
       payload,
       expectedToken,
-      hmacKey,
       rawBody: params.rawBody,
       signatureHeader: params.signatureHeader,
       headerToken: params.headerToken,
@@ -315,31 +262,32 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   /** Fire-and-forget entry used by the controller after 200 ack. */
-  processWebhookAsync(payload: WuzapiWebhookPayload) {
+  processWebhookAsync(payload: EvolutionWebhookPayload) {
     this.handleIncoming(payload).catch((e) => {
       this.logger.warn('handleIncoming failed', e);
     });
   }
 
-  async handleIncoming(payload: WuzapiWebhookPayload) {
+  async handleIncoming(payload: EvolutionWebhookPayload) {
     if (isOperationalEvent(payload)) {
       this.logger.warn(
-        `[WHATSAPP] Evento operacional recebido: type=${payload.type ?? 'unknown'}, chat=${payload.event?.Info?.Chat ?? 'n/a'}`,
+        `[WHATSAPP] Evento operacional recebido: event=${payload.event ?? 'unknown'}`,
       );
       return;
     }
 
     if (!isMessageEvent(payload)) {
       this.logger.log(
-        `[WHATSAPP] Webhook ignorado: type=${payload.type ?? 'unknown'}`,
+        `[WHATSAPP] Webhook ignorado: event=${payload.event ?? 'unknown'}`,
       );
       return;
     }
 
-    const event = payload.event;
-    const info = event?.Info;
+    // Evolution GO: conteúdo da mensagem em payload.data
+    const data = payload.data;
+    const info = data?.Info;
     if (!info) {
-      this.logger.warn('[WHATSAPP] Webhook Message sem event.Info');
+      this.logger.warn('[WHATSAPP] Webhook Message sem data.Info');
       return;
     }
     if (info.IsFromMe === true) {
@@ -356,7 +304,7 @@ export class WhatsAppService implements OnModuleInit {
       return;
     }
 
-    const text = extractTextFromMessage(event?.Message);
+    const text = extractTextFromMessage(data?.Message);
     this.logger.log(
       `[WHATSAPP] target=${replyTarget}, phone=${phone ?? 'n/a'}, text=${text}`,
     );
@@ -456,9 +404,9 @@ export class WhatsAppService implements OnModuleInit {
     try {
       const presenceTarget =
         buildSendTextTargets(replyTarget, info)[0] || replyTarget;
-      this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
+      this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
       let typingInterval: ReturnType<typeof setInterval> = setInterval(() => {
-        this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
+        this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
       }, 4000);
 
       try {
@@ -471,9 +419,9 @@ export class WhatsAppService implements OnModuleInit {
       const onAck = async (msg: string) => {
         clearInterval(typingInterval);
         await this.sendReply(replyTarget, msg, undefined, info, text);
-        this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
+        this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
         typingInterval = setInterval(() => {
-          this.wuzapi.setPresence(presenceTarget, 'composing').catch(() => {});
+          this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
         }, 4000);
       };
 
@@ -488,7 +436,7 @@ export class WhatsAppService implements OnModuleInit {
         this.logger.warn('InterpreterManager failed', e);
       } finally {
         clearInterval(typingInterval);
-        this.wuzapi.setPresence(presenceTarget, 'paused').catch(() => {});
+        this.evolution.setPresence(presenceTarget, 'paused').catch(() => {});
       }
 
       if (!outcome) {

@@ -7,6 +7,7 @@ import {
   buildSendTextTargets,
   buildReplyContextFromEventInfo,
   isOperationalEvent,
+  extractWebhookHeaderToken,
 } from './whatsapp-webhook.util';
 
 describe('phoneFromEventInfo', () => {
@@ -53,17 +54,19 @@ describe('buildSendTextTargets', () => {
 });
 
 describe('isOperationalEvent', () => {
-  it('identifies WUZAPI session events that should not trigger replies', () => {
-    expect(isOperationalEvent({ type: 'LoggedOut' })).toBe(true);
-    expect(isOperationalEvent({ type: 'QR' })).toBe(true);
-    expect(isOperationalEvent({ type: 'QRTimeout' })).toBe(true);
-    expect(isOperationalEvent({ type: 'UndecryptableMessage' })).toBe(true);
-    expect(isOperationalEvent({ type: 'Message', event: { Info: {} } })).toBe(false);
+  it('identifies Evolution GO session events that should not trigger replies', () => {
+    expect(isOperationalEvent({ event: 'LoggedOut' })).toBe(true);
+    expect(isOperationalEvent({ event: 'QR' })).toBe(true);
+    expect(isOperationalEvent({ event: 'QRTimeout' })).toBe(true);
+    expect(isOperationalEvent({ event: 'UndecryptableMessage' })).toBe(true);
+    expect(
+      isOperationalEvent({ event: 'Message', data: { Info: {} } }),
+    ).toBe(false);
   });
 });
 
 describe('buildReplyContextFromEventInfo', () => {
-  it('builds quoted reply context from WUZAPI Message Info', () => {
+  it('builds quoted reply context from Evolution GO Message Info', () => {
     const ctx = buildReplyContextFromEventInfo(
       {
         ID: '3EB0FB259FC408FC71E7AE',
@@ -83,81 +86,87 @@ describe('buildReplyContextFromEventInfo', () => {
 });
 
 describe('parseWebhookBody', () => {
-  const messageJson = {
-    type: 'Message',
-    event: { Info: { Chat: '559882066740@s.whatsapp.net' } },
-  };
-
-  it('parses WUZAPI form-urlencoded jsonData from raw body', () => {
-    const raw = Buffer.from(
-      `jsonData=${encodeURIComponent(JSON.stringify(messageJson))}&token=secret-token`,
-    );
-    const payload = parseWebhookBody({}, raw);
-    expect(payload?.type).toBe('Message');
-    expect(payload?.token).toBe('secret-token');
-    expect(payload?.event?.Info?.Chat).toBe('559882066740@s.whatsapp.net');
+  it('parses Evolution GO JSON payload with event string and data object', () => {
+    const body = {
+      event: 'Message',
+      instanceId: 'uuid-123',
+      instanceToken: 'my-token',
+      data: {
+        Info: { Chat: '559882066740@s.whatsapp.net', IsFromMe: false },
+        Message: { conversation: 'oi' },
+      },
+    };
+    const payload = parseWebhookBody(body);
+    expect(payload?.event).toBe('Message');
+    expect(payload?.instanceToken).toBe('my-token');
+    expect(payload?.data?.Info?.Chat).toBe('559882066740@s.whatsapp.net');
   });
 
-  it('infers Message type when event.Info exists without type', () => {
-    const payload = parseWebhookBody({
-      jsonData: JSON.stringify({
-        event: { Info: { Chat: '559882066740@s.whatsapp.net' } },
-      }),
-    });
-    expect(payload?.type).toBe('Message');
+  it('infers Message event when data.Info exists but event is missing', () => {
+    const body = {
+      data: { Info: { Chat: '559882066740@s.whatsapp.net' } },
+    };
+    const payload = parseWebhookBody(body);
+    expect(payload?.event).toBe('Message');
     expect(isMessageEvent(payload!)).toBe(true);
+  });
+
+  it('parses Evolution GO payload from rawBody JSON', () => {
+    const body = {
+      event: 'Message',
+      data: { Info: { Chat: '559882066740@s.whatsapp.net' } },
+      instanceToken: 'raw-token',
+    };
+    const raw = Buffer.from(JSON.stringify(body));
+    const payload = parseWebhookBody({}, raw);
+    expect(payload?.event).toBe('Message');
+    expect(payload?.instanceToken).toBe('raw-token');
   });
 });
 
 describe('isWebhookAuthorized', () => {
   const messagePayload = {
-    type: 'Message',
-    event: { Info: { Chat: '559882066740@s.whatsapp.net' } },
+    event: 'Message',
+    instanceToken: 'secret-token',
+    data: { Info: { Chat: '559882066740@s.whatsapp.net' } },
   };
 
-  it('accepts Message events without token when HMAC is not configured', () => {
+  it('accepts payload when instanceToken matches expectedToken', () => {
     const result = isWebhookAuthorized({
       payload: messagePayload,
       expectedToken: 'secret-token',
-      hmacKey: '',
     });
     expect(result).toEqual({ ok: true });
   });
 
-  it('accepts Message events even when form token is invalid and HMAC is off', () => {
+  it('accepts payload via headerToken (apikey header)', () => {
     const result = isWebhookAuthorized({
-      payload: { ...messagePayload, token: 'wrong' },
+      payload: { event: 'Message', data: {} },
       expectedToken: 'secret-token',
-      hmacKey: '',
-    });
-    expect(result).toEqual({ ok: true });
-  });
-
-  it('accepts Message events with valid token in form field', () => {
-    const result = isWebhookAuthorized({
-      payload: { ...messagePayload, token: 'secret-token' },
-      expectedToken: 'secret-token',
-      hmacKey: '',
-    });
-    expect(result).toEqual({ ok: true });
-  });
-
-  it('accepts non-Message events without token when HMAC is not configured', () => {
-    const result = isWebhookAuthorized({
-      payload: { type: 'ChatPresence', event: {} },
-      expectedToken: 'secret-token',
-      hmacKey: '',
-    });
-    expect(result).toEqual({ ok: true });
-  });
-
-  it('accepts webhooks with valid Token header when HMAC is configured but signature is missing', () => {
-    const result = isWebhookAuthorized({
-      payload: messagePayload,
-      expectedToken: 'secret-token',
-      hmacKey: 'a'.repeat(32),
       headerToken: 'secret-token',
     });
     expect(result).toEqual({ ok: true });
+  });
+
+  it('accepts all events when expectedToken is not configured', () => {
+    const result = isWebhookAuthorized({
+      payload: { event: 'Message', data: {} },
+      expectedToken: '',
+    });
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+describe('extractWebhookHeaderToken', () => {
+  it('extracts apikey from request headers', () => {
+    const token = extractWebhookHeaderToken({ apikey: 'my-api-key' });
+    expect(token).toBe('my-api-key');
+  });
+
+  it('falls back to Bearer authorization header', () => {
+    const token = extractWebhookHeaderToken({
+      authorization: 'Bearer my-bearer-token',
+    });
+    expect(token).toBe('my-bearer-token');
   });
 });

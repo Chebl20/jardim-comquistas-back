@@ -13,16 +13,16 @@ import type { Request, Response } from 'express';
 import { AuthGuard } from '../../auth/auth.guard';
 import { WhatsAppService } from './whatsapp.service';
 import { extractWebhookHeaderToken } from './whatsapp-webhook.util';
-import { WuzapiClient } from './wuzapi.client';
+import { EvolutionClient } from './evolution.client';
 
-@ApiTags('WUZAPI')
-@Controller('api/wuzapi')
-export class WuzapiController {
-  private readonly logger = new Logger(WuzapiController.name);
+@ApiTags('Evolution API')
+@Controller('api/evolution')
+export class EvolutionController {
+  private readonly logger = new Logger(EvolutionController.name);
 
   constructor(
     private readonly whatsappService: WhatsAppService,
-    private readonly wuzapi: WuzapiClient,
+    private readonly evolution: EvolutionClient,
   ) {}
 
   @Post('webhook')
@@ -34,20 +34,24 @@ export class WuzapiController {
   @Get('status')
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Status do webhook WUZAPI na instância' })
-  @ApiResponse({ status: 200, description: 'Configuração atual do webhook na WUZAPI.' })
+  @ApiOperation({ summary: 'Status da instância Evolution API' })
+  @ApiResponse({ status: 200, description: 'Status atual da instância Evolution API.' })
   async status() {
-    if (!this.wuzapi.isConfigured()) {
-      return { configured: false, webhook: null, localWebhookUrl: this.whatsappService.getWebhookUrl() };
+    if (!this.evolution.isConfigured()) {
+      return {
+        configured: false,
+        status: null,
+        localWebhookUrl: this.whatsappService.getWebhookUrl(),
+      };
     }
 
     try {
-      const webhook = await this.wuzapi.getWebhook();
+      const instanceStatus = await this.evolution.getStatus();
       return {
         configured: true,
         localWebhookUrl: this.whatsappService.getWebhookUrl(),
         subscribeEvents: this.whatsappService.getSubscribeEvents(),
-        webhook,
+        status: instanceStatus,
       };
     } catch (e) {
       return {
@@ -61,7 +65,7 @@ export class WuzapiController {
   private handleWebhook(req: Request, res: Response) {
     const rawBody = (req as any).rawBody as Buffer | undefined;
     const signature =
-      req.headers['x-hmac-signature'] || req.headers['X-HMAC-Signature'];
+      req.headers['x-hub-signature-256'] || req.headers['x-hub-signature'];
 
     const outcome = this.whatsappService.handleWebhookHttpRequest({
       body: req.body,
