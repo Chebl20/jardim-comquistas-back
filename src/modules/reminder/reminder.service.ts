@@ -45,7 +45,10 @@ export class ReminderService {
     }
 
     for (const [userId, userGoals] of byUser) {
-      const timezone = userGoals[0]?.user?.timezone || 'America/Sao_Paulo';
+      const timezone =
+        (userGoals[0] as any)?.schedule?.timeZone ||
+        userGoals[0]?.user?.timezone ||
+        'America/Sao_Paulo';
       const todayGoals = await filterGoalsForToday(userGoals, timezone);
       const groups = clusterGoalsIntoGroups(
         todayGoals,

@@ -8,6 +8,11 @@ import {
 } from '../reminder.types';
 import type { ReminderGroup } from '../grouping/reminder-group.util';
 
+jest.mock('../../shared/schedule-occurrence.util', () => ({
+  ...jest.requireActual('../../shared/schedule-occurrence.util'),
+  hasCancelledExceptionForDate: jest.fn().mockResolvedValue(false),
+}));
+
 function makeGoal(overrides: Partial<ReminderGoalRecord> = {}): ReminderGoalRecord {
   return {
     id: 'goal-1',
@@ -44,11 +49,11 @@ function makeGoal(overrides: Partial<ReminderGoalRecord> = {}): ReminderGoalReco
 describe('ReminderPolicyEngine', () => {
   const engine = new ReminderPolicyEngine();
 
-  it('envia reminder operacional para meta pontual vencendo agora', () => {
+  it('envia reminder operacional para meta pontual vencendo agora', async () => {
     const goal = makeGoal();
     const now = DateTime.fromISO('2026-03-05T13:01:00.000Z');
 
-    const decision = engine.evaluate({
+    const decision = await engine.evaluate({
       goal,
       now,
       timezone: 'America/Sao_Paulo',
@@ -61,7 +66,7 @@ describe('ReminderPolicyEngine', () => {
     );
   });
 
-  it('envia reminder operacional para meta once com horário passado há 30 min', () => {
+  it('envia reminder operacional para meta once com horário passado há 30 min', async () => {
     const goal = makeGoal({
       scheduleConfig: { type: 'once', at: '2026-03-05T16:00:00.000-03:00' },
       reminderTime: null,
@@ -69,7 +74,7 @@ describe('ReminderPolicyEngine', () => {
     });
     const now = DateTime.fromISO('2026-03-05T16:31:00.000-03:00');
 
-    const decision = engine.evaluate({
+    const decision = await engine.evaluate({
       goal,
       now,
       timezone: 'America/Sao_Paulo',
@@ -79,7 +84,7 @@ describe('ReminderPolicyEngine', () => {
     expect(decision.kind).toBe(REMINDER_KINDS.OPERATIONAL);
   });
 
-  it('envia um único follow-up após janela de espera expirar', () => {
+  it('envia um único follow-up após janela de espera expirar', async () => {
     const goal = makeGoal({
       dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
       lastReminderSentAt: '2026-03-05T13:00:00.000Z',
@@ -87,7 +92,7 @@ describe('ReminderPolicyEngine', () => {
     });
     const now = DateTime.fromISO('2026-03-05T14:05:00.000Z');
 
-    const decision = engine.evaluate({
+    const decision = await engine.evaluate({
       goal,
       now,
       timezone: 'America/Sao_Paulo',
@@ -100,14 +105,14 @@ describe('ReminderPolicyEngine', () => {
     );
   });
 
-  it('não manda novo reminder durante cooldown ativo', () => {
+  it('não manda novo reminder durante cooldown ativo', async () => {
     const goal = makeGoal({
       dailyStatus: REMINDER_STATUSES.SNOOZED,
       silenceUntil: '2026-03-05T16:00:00.000Z',
     });
     const now = DateTime.fromISO('2026-03-05T15:00:00.000Z');
 
-    const decision = engine.evaluate({
+    const decision = await engine.evaluate({
       goal,
       now,
       timezone: 'America/Sao_Paulo',
@@ -116,7 +121,7 @@ describe('ReminderPolicyEngine', () => {
     expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.WAIT);
   });
 
-  it('retorna WAIT para follow-up de grupo quando ainda não passou 5 min do último operacional', () => {
+  it('retorna WAIT para follow-up de grupo quando ainda não passou 5 min do último operacional', async () => {
     const goalA = makeGoal({
       id: 'goal-a',
       dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
@@ -142,7 +147,7 @@ describe('ReminderPolicyEngine', () => {
 
     const now = DateTime.fromISO('2026-03-05T13:19:00.000Z');
 
-    const decision = engine.evaluate({
+    const decision = await engine.evaluate({
       goal: goalA,
       now,
       timezone: 'America/Sao_Paulo',
@@ -153,7 +158,7 @@ describe('ReminderPolicyEngine', () => {
     expect(decision.reason).toBe('group_follow_up_not_due');
   });
 
-  it('envia follow-up de grupo quando passou 5 min do último operacional', () => {
+  it('envia follow-up de grupo quando passou 5 min do último operacional', async () => {
     const goalA = makeGoal({
       id: 'goal-a',
       dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
@@ -179,7 +184,7 @@ describe('ReminderPolicyEngine', () => {
 
     const now = DateTime.fromISO('2026-03-05T13:21:00.000Z');
 
-    const decision = engine.evaluate({
+    const decision = await engine.evaluate({
       goal: goalA,
       now,
       timezone: 'America/Sao_Paulo',
@@ -190,7 +195,7 @@ describe('ReminderPolicyEngine', () => {
     expect(decision.kind).toBe(REMINDER_KINDS.FOLLOW_UP);
   });
 
-  it('troca operacional por reativação em meta contínua antiga e sem progresso', () => {
+  it('troca operacional por reativação em meta contínua antiga e sem progresso', async () => {
     const goal = makeGoal({
     goalKind: 'Continua',
       reminderTime: '2026-03-05T13:00:00.000Z',
@@ -207,7 +212,7 @@ describe('ReminderPolicyEngine', () => {
     });
     const now = DateTime.fromISO('2026-03-05T13:01:00.000Z');
 
-    const decision = engine.evaluate({
+    const decision = await engine.evaluate({
       goal,
       now,
       timezone: 'UTC',

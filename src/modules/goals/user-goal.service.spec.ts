@@ -1,4 +1,4 @@
-import { UserGoalService } from './user-goal.service';
+import { UserGoalService, resolveScheduleFields } from './user-goal.service';
 import { prisma } from '../../prisma/client';
 import { DateTime } from 'luxon';
 
@@ -11,8 +11,48 @@ jest.mock('../../prisma/client', () => ({
     goalReminder: {
       findMany: jest.fn(),
     },
+    goalOccurrenceException: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   },
 }));
+
+describe('resolveScheduleFields', () => {
+  it('agenda lembrete pontual HH:MM no futuro para hoje', () => {
+    const now = DateTime.fromISO('2026-03-05T17:37:00', { zone: 'America/Sao_Paulo' });
+    jest.spyOn(DateTime, 'now').mockReturnValue(now as DateTime<true>);
+
+    const fields = resolveScheduleFields({
+      scheduleConfig: { type: 'once', at: '17:40' },
+      goalType: 'Pontual',
+      userTimezone: 'America/Sao_Paulo',
+    });
+
+    expect(fields.scheduleFrequency).toBe('ONCE');
+    const atLocal = DateTime.fromJSDate(fields.scheduleAt!).setZone('America/Sao_Paulo');
+    expect(atLocal.toFormat('HH:mm')).toBe('17:40');
+    expect(atLocal.day).toBe(5);
+
+    jest.restoreAllMocks();
+  });
+
+  it('empurra lembrete pontual HH:MM no passado para o dia seguinte', () => {
+    const now = DateTime.fromISO('2026-03-05T17:45:00', { zone: 'America/Sao_Paulo' });
+    jest.spyOn(DateTime, 'now').mockReturnValue(now as DateTime<true>);
+
+    const fields = resolveScheduleFields({
+      scheduleConfig: { type: 'once', at: '17:40' },
+      goalType: 'Pontual',
+      userTimezone: 'America/Sao_Paulo',
+    });
+
+    const atLocal = DateTime.fromJSDate(fields.scheduleAt!).setZone('America/Sao_Paulo');
+    expect(atLocal.toFormat('HH:mm')).toBe('17:40');
+    expect(atLocal.day).toBe(6);
+
+    jest.restoreAllMocks();
+  });
+});
 
 describe('UserGoalService', () => {
   let service: UserGoalService;

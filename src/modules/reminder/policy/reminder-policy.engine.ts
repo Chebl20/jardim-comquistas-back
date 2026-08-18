@@ -17,7 +17,7 @@ import type { ReminderGroup } from '../grouping/reminder-group.util';
 @Injectable()
 export class ReminderPolicyEngine {
   private readonly maxDelaySec = Number(
-    process.env.REMINDER_MAX_DELAY_SEC || 120,
+    process.env.REMINDER_MAX_DELAY_SEC || 300,
   );
   private readonly followUp1Minutes = Number(
     process.env.REMINDER_FOLLOW_UP_1_MINUTES || 5,

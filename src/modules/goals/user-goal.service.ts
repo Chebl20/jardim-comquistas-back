@@ -12,6 +12,145 @@ import type { CreateUserGoalInput, ScheduleConfig } from '../ia/conversation/flo
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../shared/weekday.util';
 import { isOnOrAfterGoalCreationDay, getCancelledExceptionsForDate } from '../shared/schedule-occurrence.util';
 
+const DEFAULT_USER_TIMEZONE = 'America/Sao_Paulo';
+
+export type ResolvedScheduleFields = {
+  scheduleFrequency: string | null;
+  scheduleAt: Date | null;
+  scheduleTimes: string[] | null;
+  scheduleDaysOfWeek: number[] | null;
+  scheduleDurationDays: number | null;
+  scheduleExtra: Record<string, unknown> | null;
+};
+
+/** Converte scheduleConfig/reminderTime para campos persistidos em GoalSchedule. */
+export function resolveScheduleFields(params: {
+  scheduleConfig?: ScheduleConfig;
+  reminderTime?: Date | string;
+  goalType: string;
+  userTimezone: string;
+}): ResolvedScheduleFields {
+  const { scheduleConfig: sc, reminderTime, goalType, userTimezone } = params;
+  const normalizedGoalType = normalizeGoalType(goalType) ?? 'Pontual';
+  const zone = userTimezone || DEFAULT_USER_TIMEZONE;
+  const nowLocal = DateTime.now().setZone(zone);
+
+  let scheduleFrequency: string | null = null;
+  let scheduleAt: Date | null = null;
+  let scheduleTimes: string[] | null = null;
+  let scheduleDaysOfWeek: number[] | null = null;
+  let scheduleDurationDays: number | null = null;
+  let scheduleExtra: Record<string, unknown> | null = null;
+
+  const parseTimeOnlyToDate = (hh: number, mm: number, ss: number, bumpIfPast: boolean) => {
+    let dt = nowLocal.set({ hour: hh, minute: mm, second: ss, millisecond: 0 });
+    if (bumpIfPast && dt <= nowLocal) {
+      dt = dt.plus({ days: 1 });
+    }
+    return dt.toUTC().toJSDate();
+  };
+
+  if (sc && typeof sc === 'object') {
+    if (sc.type === 'once' && sc.at) {
+      scheduleFrequency = 'ONCE';
+      const atStr = String(sc.at).trim();
+      const timeOnly = atStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+      if (timeOnly) {
+        scheduleAt = parseTimeOnlyToDate(
+          parseInt(timeOnly[1], 10),
+          parseInt(timeOnly[2], 10),
+          parseInt(timeOnly[3] || '0', 10),
+          true,
+        );
+      } else {
+        let dt = DateTime.fromISO(atStr, { zone });
+        if (!dt.isValid) dt = DateTime.fromISO(atStr, { zone: 'utc' });
+        if (dt.isValid) {
+          if (dt <= nowLocal) dt = dt.plus({ days: 1 });
+          scheduleAt = dt.toUTC().toJSDate();
+        } else {
+          scheduleAt = new Date(atStr);
+        }
+      }
+    } else if (sc.type === 'daily' && Array.isArray(sc.times) && sc.times.length > 0) {
+      scheduleFrequency = 'DAILY';
+      scheduleTimes = sc.times.map((t) => String(t).trim());
+      scheduleDurationDays = sc.durationDays ?? null;
+    } else if (
+      sc.type === 'weekly' &&
+      Array.isArray(sc.daysOfWeek) &&
+      Array.isArray(sc.times) &&
+      sc.times.length > 0
+    ) {
+      scheduleFrequency = 'WEEKLY';
+      scheduleTimes = sc.times.map((t) => String(t).trim());
+      scheduleDaysOfWeek = normalizeDaysOfWeekJson(sc.daysOfWeek);
+    } else if (sc.type === 'monthly' && Array.isArray(sc.times) && sc.times.length > 0) {
+      const rawDom = sc.dayOfMonth;
+      const dom =
+        typeof rawDom === 'number' ? Math.trunc(rawDom) : parseInt(String(rawDom), 10);
+      if (Number.isFinite(dom) && dom >= 1 && dom <= 31) {
+        scheduleFrequency = 'MONTHLY';
+        scheduleTimes = sc.times.map((t) => String(t).trim());
+        scheduleExtra = { dayOfMonth: dom };
+      }
+    }
+  }
+
+  if (!scheduleFrequency && reminderTime) {
+    scheduleFrequency = normalizedGoalType === 'Pontual' ? 'ONCE' : 'DAILY';
+    try {
+      if (typeof reminderTime === 'string') {
+        const s = reminderTime.trim();
+        const timeOnly = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        if (timeOnly) {
+          const hh = parseInt(timeOnly[1], 10);
+          const mm = parseInt(timeOnly[2], 10);
+          const ss = parseInt(timeOnly[3] || '0', 10);
+          const dt = parseTimeOnlyToDate(hh, mm, ss, true);
+          if (scheduleFrequency === 'ONCE') scheduleAt = dt;
+          else scheduleTimes = [`${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`];
+        } else {
+          let dt = DateTime.fromISO(s, { zone });
+          if (!dt.isValid) dt = DateTime.fromISO(s, { zone: 'utc' });
+          if (dt.isValid) {
+            if (scheduleFrequency === 'ONCE') {
+              if (dt <= nowLocal) dt = dt.plus({ days: 1 });
+              scheduleAt = dt.toUTC().toJSDate();
+            } else {
+              scheduleTimes = [
+                `${String(dt.setZone(zone).hour).padStart(2, '0')}:${String(dt.setZone(zone).minute).padStart(2, '0')}`,
+              ];
+            }
+          }
+        }
+      } else if (reminderTime instanceof Date) {
+        const dt = DateTime.fromJSDate(reminderTime).setZone(zone);
+        if (scheduleFrequency === 'ONCE') {
+          let at = dt;
+          if (at <= nowLocal) at = at.plus({ days: 1 });
+          scheduleAt = at.toUTC().toJSDate();
+        } else {
+          scheduleTimes = [
+            `${String(dt.hour).padStart(2, '0')}:${String(dt.minute).padStart(2, '0')}`,
+          ];
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    scheduleFrequency,
+    scheduleAt,
+    scheduleTimes,
+    scheduleDaysOfWeek,
+    scheduleDurationDays,
+    scheduleExtra,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tipos auxiliares
 // ---------------------------------------------------------------------------
@@ -142,8 +281,29 @@ export class UserGoalService {
     });
 
     if (existingGoal) {
-      this.logger.warn(`Meta duplicada detectada: "${data.title}" já existe para o usuário. Retornando meta existente.`);
-      return existingGoal;
+      const userTimezone = await this.getUserTimezone(data.userId);
+      const scheduleFields = resolveScheduleFields({
+        scheduleConfig: data.scheduleConfig,
+        reminderTime: data.reminderTime,
+        goalType: data.goalType || 'Pontual',
+        userTimezone,
+      });
+
+      if (scheduleFields.scheduleFrequency) {
+        this.logger.warn(
+          `Meta duplicada "${data.title}": atualizando schedule existente (goalId=${existingGoal.id})`,
+        );
+        await this.applyScheduleFieldsToGoal(existingGoal.id, scheduleFields, userTimezone);
+      } else {
+        this.logger.warn(
+          `Meta duplicada detectada: "${data.title}" já existe para o usuário. Retornando meta existente.`,
+        );
+      }
+
+      return prisma.goal.findUniqueOrThrow({
+        where: { id: existingGoal.id },
+        include: { schedule: true, reminder: true, plantedTree: true },
+      });
     }
 
     // 1. Normalizar e validar conquestType
@@ -223,84 +383,22 @@ export class UserGoalService {
     }
 
     // 3a. Determinar timezone do usuário
-    let userTimezone = 'America/Sao_Paulo';
-    try {
-      const u = await prisma.user.findUnique({ where: { id: data.userId }, select: { timezone: true } });
-      if (u && (u as any).timezone) userTimezone = (u as any).timezone;
-    } catch { /* ignore */ }
+    const userTimezone = await this.getUserTimezone(data.userId);
 
     // 3b. Interpreter scheduleConfig → dados do GoalSchedule
-    const sc = data.scheduleConfig;
-    let scheduleFrequency: string | null = null;
-    let scheduleAt: Date | null = null;
-    let scheduleTimes: string[] | null = null;
-    let scheduleDaysOfWeek: number[] | null = null;
-    let scheduleDurationDays: number | null = null;
-    let scheduleExtra: Record<string, unknown> | null = null;
-
-    if (sc && typeof sc === 'object') {
-      if (sc.type === 'once' && sc.at) {
-        scheduleFrequency = 'ONCE';
-        const atStr = String(sc.at).trim();
-        const timeOnly = atStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-        if (timeOnly) {
-          const hh = parseInt(timeOnly[1], 10);
-          const mm = parseInt(timeOnly[2], 10);
-          const ss = parseInt(timeOnly[3] || '0', 10);
-          const dt = DateTime.now().setZone(userTimezone).set({ hour: hh, minute: mm, second: ss, millisecond: 0 });
-          scheduleAt = dt.toUTC().toJSDate();
-        } else {
-          const dt = DateTime.fromISO(atStr, { zone: userTimezone });
-          scheduleAt = dt.isValid ? dt.toUTC().toJSDate() : new Date(atStr);
-        }
-      } else if (sc.type === 'daily' && Array.isArray((sc as any).times) && (sc as any).times.length > 0) {
-        scheduleFrequency = 'DAILY';
-        scheduleTimes = (sc as any).times;
-        scheduleDurationDays = (sc as any).durationDays ?? null;
-      } else if (sc.type === 'weekly' && Array.isArray((sc as any).daysOfWeek) && Array.isArray((sc as any).times) && (sc as any).times.length > 0) {
-        scheduleFrequency = 'WEEKLY';
-        scheduleTimes = (sc as any).times;
-        scheduleDaysOfWeek = normalizeDaysOfWeekJson((sc as any).daysOfWeek);
-      } else if (sc.type === 'monthly' && Array.isArray((sc as any).times) && (sc as any).times.length > 0) {
-        const rawDom = (sc as any).dayOfMonth;
-        const dom =
-          typeof rawDom === 'number' ? Math.trunc(rawDom) : parseInt(String(rawDom), 10);
-        if (Number.isFinite(dom) && dom >= 1 && dom <= 31) {
-          scheduleFrequency = 'MONTHLY';
-          scheduleTimes = (sc as any).times;
-          scheduleExtra = { dayOfMonth: dom };
-        }
-      }
-    }
-
-    // Legado: reminderTime sem scheduleConfig
-    if (!scheduleFrequency && data.reminderTime) {
-      scheduleFrequency = normalizedGoalType === 'Pontual' ? 'ONCE' : 'DAILY';
-      try {
-        if (typeof data.reminderTime === 'string') {
-          const s = data.reminderTime.trim();
-          const timeOnly = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-          if (timeOnly) {
-            const hh = parseInt(timeOnly[1], 10);
-            const mm = parseInt(timeOnly[2], 10);
-            let dt = DateTime.now().setZone(userTimezone).set({ hour: hh, minute: mm, second: Number(timeOnly[3] || 0), millisecond: 0 });
-            if (dt <= DateTime.now().setZone(userTimezone)) dt = dt.plus({ days: 1 });
-            if (scheduleFrequency === 'ONCE') scheduleAt = dt.toUTC().toJSDate();
-            else scheduleTimes = [`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`];
-          } else {
-            const dt = DateTime.fromISO(s, { zone: userTimezone });
-            if (dt.isValid) {
-              if (scheduleFrequency === 'ONCE') scheduleAt = dt.toUTC().toJSDate();
-              else scheduleTimes = [`${String(dt.hour).padStart(2,'0')}:${String(dt.minute).padStart(2,'0')}`];
-            }
-          }
-        } else if (data.reminderTime instanceof Date) {
-          const dt = DateTime.fromJSDate(data.reminderTime).setZone(userTimezone);
-          if (scheduleFrequency === 'ONCE') scheduleAt = dt.toUTC().toJSDate();
-          else scheduleTimes = [`${String(dt.hour).padStart(2,'0')}:${String(dt.minute).padStart(2,'0')}`];
-        }
-      } catch { /* ignore */ }
-    }
+    const {
+      scheduleFrequency,
+      scheduleAt,
+      scheduleTimes,
+      scheduleDaysOfWeek,
+      scheduleDurationDays,
+      scheduleExtra,
+    } = resolveScheduleFields({
+      scheduleConfig: data.scheduleConfig,
+      reminderTime: data.reminderTime,
+      goalType: normalizedGoalType,
+      userTimezone,
+    });
 
     // 3c. Título/descrição (gera via IA se vazio)
     let title = data.title || '';
@@ -420,6 +518,57 @@ export class UserGoalService {
     return prisma.goal.update({
       where: { id: goalId },
       data: { completed: true },
+    });
+  }
+
+  private async applyScheduleFieldsToGoal(
+    goalId: string,
+    fields: ResolvedScheduleFields,
+    userTimezone: string,
+  ) {
+    if (!fields.scheduleFrequency) return;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.goalSchedule.upsert({
+        where: { goalId },
+        create: {
+          goalId,
+          frequency: fields.scheduleFrequency!,
+          at: fields.scheduleAt,
+          times: fields.scheduleTimes ?? undefined,
+          daysOfWeek: fields.scheduleDaysOfWeek ?? undefined,
+          durationDays: fields.scheduleDurationDays,
+          timeZone: userTimezone,
+          extra: fields.scheduleExtra ?? undefined,
+        },
+        update: {
+          frequency: fields.scheduleFrequency!,
+          at: fields.scheduleAt,
+          times: fields.scheduleTimes ?? undefined,
+          daysOfWeek: fields.scheduleDaysOfWeek ?? undefined,
+          durationDays: fields.scheduleDurationDays,
+          timeZone: userTimezone,
+          extra: fields.scheduleExtra ?? undefined,
+        },
+      });
+
+      await tx.goalReminder.upsert({
+        where: { goalId },
+        create: {
+          goalId,
+          dailyStatus: null,
+          slotsToday: [],
+          lastSentAt: null,
+          sentCount: 0,
+          silenceUntil: null,
+        },
+        update: {
+          dailyStatus: null,
+          slotsToday: [],
+          lastSentAt: null,
+          silenceUntil: null,
+        },
+      });
     });
   }
 

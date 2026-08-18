@@ -3,6 +3,8 @@
  * Usado pelo GoalCreation na confirmação e pelo GoalStatus ao listar metas.
  */
 
+import { DateTime } from 'luxon';
+
 export type ScheduleConfig =
   | { type: 'once'; at: string }
   | { type: 'daily'; times: string[]; durationDays?: number }
@@ -47,8 +49,28 @@ function isValidScheduleConfig(obj: unknown): obj is ScheduleConfig {
  * Formata data ISO para exibição em pt-BR (ex: "10 de março às 14:00").
  */
 function formatDateForDisplay(iso: string, timezone = 'America/Sao_Paulo'): string {
+  const timeOnly = iso.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (timeOnly) {
+    const hh = parseInt(timeOnly[1], 10);
+    const mm = parseInt(timeOnly[2], 10);
+    let dt = DateTime.now()
+      .setZone(timezone)
+      .set({ hour: hh, minute: mm, second: 0, millisecond: 0 });
+    if (dt <= DateTime.now().setZone(timezone)) {
+      dt = dt.plus({ days: 1 });
+    }
+    return new Intl.DateTimeFormat('pt-BR', {
+      timeZone: timezone,
+      day: 'numeric',
+      month: 'long',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(dt.toJSDate());
+  }
+
   try {
     const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
     const formatter = new Intl.DateTimeFormat('pt-BR', {
       timeZone: timezone,
       day: 'numeric',

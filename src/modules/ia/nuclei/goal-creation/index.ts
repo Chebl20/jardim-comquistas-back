@@ -26,33 +26,44 @@ import { normalizeGoalType } from '../../goal-type.util';
  * Formatos aceitos como passthrough: "HH:MM" e strings ISO válidas.
  * Retorna null se o valor for irreconhecível.
  */
-function resolveReminderTime(value: string | null | undefined, now: Date): string | null {
+function resolveReminderTime(
+  value: string | null | undefined,
+  now: Date,
+  timezone = 'America/Sao_Paulo',
+): string | null {
   if (!value) return null;
 
   // HH:MM — passthrough; UserGoalService converte para o dia certo
   if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(value)) return value;
 
+  const base = DateTime.fromJSDate(now).setZone(timezone);
+
   // ISO válido — passthrough
-  const iso = new Date(value);
-  if (!isNaN(iso.getTime())) return iso.toISOString();
+  const iso = DateTime.fromISO(value, { zone: timezone });
+  if (iso.isValid) return iso.toUTC().toISO()!;
 
   // +Xmin
   const minMatch = value.match(/^\+(\d+)\s*min$/i);
   if (minMatch) {
-    return new Date(now.getTime() + parseInt(minMatch[1], 10) * 60_000).toISOString();
+    return base.plus({ minutes: parseInt(minMatch[1], 10) }).toUTC().toISO()!;
   }
 
   // +Xh (sem minutos)
   const hMatch = value.match(/^\+(\d+)\s*h$/i);
   if (hMatch) {
-    return new Date(now.getTime() + parseInt(hMatch[1], 10) * 3_600_000).toISOString();
+    return base.plus({ hours: parseInt(hMatch[1], 10) }).toUTC().toISO()!;
   }
 
   // +XhYmin
   const hMinMatch = value.match(/^\+(\d+)\s*h\s*(\d+)\s*min$/i);
   if (hMinMatch) {
-    const ms = (parseInt(hMinMatch[1], 10) * 3_600 + parseInt(hMinMatch[2], 10) * 60) * 1000;
-    return new Date(now.getTime() + ms).toISOString();
+    return base
+      .plus({
+        hours: parseInt(hMinMatch[1], 10),
+        minutes: parseInt(hMinMatch[2], 10),
+      })
+      .toUTC()
+      .toISO()!;
   }
 
   return null;
@@ -84,22 +95,30 @@ type GoalPayloadGuardResult =
       continuePayload: DraftGoalPayload;
     };
 
-function parseTimeFromISO(iso: string): string {
+function parseTimeFromISO(iso: string, timezone = 'America/Sao_Paulo'): string {
+  const dt = DateTime.fromISO(iso, { zone: timezone });
+  if (dt.isValid) {
+    return dt.setZone(timezone).toFormat('HH:mm');
+  }
   const d = new Date(iso);
-  const h = d.getUTCHours().toString().padStart(2, '0');
-  const m = d.getUTCMinutes().toString().padStart(2, '0');
-  return `${h}:${m}`;
+  if (!Number.isNaN(d.getTime())) {
+    return DateTime.fromJSDate(d).setZone(timezone).toFormat('HH:mm');
+  }
+  return iso;
 }
 
 function buildScheduleFromReminderTime(
   reminderTime: string,
   goalType: string,
+  timezone = 'America/Sao_Paulo',
 ): ScheduleConfig {
   const isPontual = normalizeGoalType(goalType) === 'Pontual';
   if (isPontual) {
     return { type: 'once', at: reminderTime };
   }
-  const timeStr = reminderTime.includes('T') ? parseTimeFromISO(reminderTime) : reminderTime;
+  const timeStr = reminderTime.includes('T')
+    ? parseTimeFromISO(reminderTime, timezone)
+    : reminderTime;
   return { type: 'daily', times: [timeStr] };
 }
 
@@ -167,6 +186,10 @@ function sanitizeGoalPayload(
   const normalizedConquest =
     normalizeConquestType(typeof draft.conquestType === 'string' ? draft.conquestType : undefined) ??
     'Mente';
+  const userTimezone =
+    typeof meta?.userTimezone === 'string' && meta.userTimezone.trim()
+      ? meta.userTimezone.trim()
+      : 'America/Sao_Paulo';
 
   let scheduleConfig: ScheduleConfig | undefined;
   let reminderTime: string | undefined;
@@ -177,7 +200,7 @@ function sanitizeGoalPayload(
   } else {
     let rawReminder = cleanText(draft.reminderTime);
     if (rawReminder) {
-      const resolved = resolveReminderTime(rawReminder, now);
+      const resolved = resolveReminderTime(rawReminder, now, userTimezone);
       if (!resolved) {
         return {
           ok: false,
@@ -192,7 +215,11 @@ function sanitizeGoalPayload(
         };
       }
       reminderTime = resolved;
-      scheduleConfig = buildScheduleFromReminderTime(resolved, normalizedGoalType);
+      scheduleConfig = buildScheduleFromReminderTime(
+        resolved,
+        normalizedGoalType,
+        userTimezone,
+      );
     }
   }
 
