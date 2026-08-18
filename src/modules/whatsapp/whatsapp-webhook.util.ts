@@ -48,9 +48,6 @@ function normalizeJid(jid: string): string {
 
 /** Phone digits for DB lookup, or full JID (@lid / @s.whatsapp.net) for WUZAPI send. */
 export function replyTargetFromEventInfo(info: any): string | null {
-  const phone = phoneFromEventInfo(info);
-  if (phone) return phone;
-
   const candidates = [info.Chat, info.Sender, info.RemoteJid, info.SenderAlt].filter(
     (value): value is string => typeof value === 'string' && value.length > 0,
   );
@@ -61,6 +58,9 @@ export function replyTargetFromEventInfo(info: any): string | null {
       return normalizeJid(jid);
     }
   }
+
+  const phone = phoneFromEventInfo(info);
+  if (phone) return phone;
 
   return null;
 }
@@ -79,7 +79,7 @@ export function brazilPhoneVariants(phone: string): string[] {
   return [...variants];
 }
 
-/** Candidate Phone values for WUZAPI /chat/send/text (digits, JID, @lid, BR variants). */
+/** Controlled candidates for WUZAPI /chat/send/text. Preserve event JIDs; avoid usync storms. */
 export function buildSendTextTargets(
   replyTarget: string,
   info?: any,
@@ -90,7 +90,6 @@ export function buildSendTextTargets(
     if (v && !targets.includes(v)) targets.push(v);
   };
 
-  // Chats com @lid exigem o JID LID na entrega; tentar primeiro evita 500 no send/text.
   if (info && typeof info === 'object') {
     for (const field of [info.Chat, info.Sender]) {
       if (typeof field === 'string' && field.includes('@lid')) {
@@ -103,26 +102,6 @@ export function buildSendTextTargets(
 
   if (replyTarget.includes('@')) {
     add(normalizeJid(replyTarget));
-    const phone = phoneFromRemoteJid(replyTarget);
-    if (phone) {
-      for (const variant of brazilPhoneVariants(phone)) {
-        add(variant);
-        add(`${variant}@s.whatsapp.net`);
-      }
-    }
-  } else {
-    for (const variant of brazilPhoneVariants(replyTarget)) {
-      add(variant);
-      add(`${variant}@s.whatsapp.net`);
-    }
-  }
-
-  if (info && typeof info === 'object') {
-    for (const field of [info.Chat, info.Sender, info.SenderAlt, info.RemoteJid]) {
-      if (typeof field === 'string' && field.includes('@')) {
-        add(normalizeJid(field));
-      }
-    }
   }
 
   return targets;
@@ -202,6 +181,11 @@ export function isMessageEvent(payload: WuzapiWebhookPayload): boolean {
   const type = String(payload.type || '').toLowerCase();
   if (type === 'message') return true;
   return Boolean(payload.event?.Info);
+}
+
+export function isOperationalEvent(payload: WuzapiWebhookPayload): boolean {
+  const type = String(payload.type || '').toLowerCase();
+  return ['loggedout', 'qr', 'qrtimeout', 'undecryptablemessage'].includes(type);
 }
 
 export function parseWebhookBody(

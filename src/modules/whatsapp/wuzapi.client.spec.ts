@@ -1,4 +1,4 @@
-import { WuzapiClient } from './wuzapi.client';
+import { WuzapiClient, WuzapiSendTextError } from './wuzapi.client';
 
 describe('WuzapiClient', () => {
   let client: WuzapiClient;
@@ -80,5 +80,93 @@ describe('WuzapiClient', () => {
         }),
       }),
     );
+  });
+
+  it('sends quoted reply once and does not call /user/lid', async () => {
+    await client.sendTextWithTargets(
+      ['28089136451755@lid', '559882066740'],
+      'resposta',
+      {
+        replyContext: {
+          stanzaId: '3EB0FB259FC408FC71E7AE',
+          participant: '28089136451755:89@lid',
+          quotedText: 'Quais sao as minhas metas?',
+        },
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://wuzapi.example.com/chat/send/text',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          Phone: '28089136451755@lid',
+          Body: 'resposta',
+          ContextInfo: {
+            StanzaID: '3EB0FB259FC408FC71E7AE',
+            Participant: '28089136451755:89@lid',
+          },
+          QuotedText: 'Quais sao as minhas metas?',
+        }),
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/user/lid/'),
+      expect.anything(),
+    );
+  });
+
+  it('stops immediately on terminal 463 errors', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({
+        error: 'error sending message: server returned error 463',
+      }),
+    });
+
+    await expect(
+      client.sendTextWithTargets(['28089136451755@lid', '559882066740'], 'resposta', {
+        replyContext: {
+          stanzaId: '3EB0FB259FC408FC71E7AE',
+          participant: '28089136451755:89@lid',
+          quotedText: 'Quais sao as minhas metas?',
+        },
+      }),
+    ).rejects.toMatchObject({
+      target: '28089136451755@lid',
+      terminal: true,
+    } satisfies Partial<WuzapiSendTextError>);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses one same-target fallback for non-terminal failures', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'temporary failure' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+
+    await client.sendTextWithTargets(['28089136451755@lid', '559882066740'], 'resposta', {
+      replyContext: {
+        stanzaId: '3EB0FB259FC408FC71E7AE',
+        participant: '28089136451755:89@lid',
+        quotedText: 'Quais sao as minhas metas?',
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(bodies.map((body) => body.Phone)).toEqual([
+      '28089136451755@lid',
+      '28089136451755@lid',
+    ]);
+    expect(bodies[0].ContextInfo).toBeDefined();
+    expect(bodies[1].ContextInfo).toBeUndefined();
   });
 });

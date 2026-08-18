@@ -3,7 +3,7 @@ import { UserLinkService } from '../users/user-link.service';
 import { RateLimiterService } from '../shared/rate-limiter.service';
 import { ConversationOrchestratorService } from '../ia/conversation/conversation-orchestrator.service';
 import { DailyDigestService } from '../daily-digest/daily-digest.service';
-import { WuzapiClient } from './wuzapi.client';
+import { WuzapiClient, WuzapiSendTextError } from './wuzapi.client';
 import type { ConfigureWuzApiResult, ConfigureWuzApiStepResult } from './wuzapi.types';
 import {
   buildReplyContextFromEventInfo,
@@ -11,6 +11,7 @@ import {
   extractTextFromMessage,
   extractWebhookHeaderToken,
   isMessageEvent,
+  isOperationalEvent,
   isWebhookAuthorized,
   parseWebhookBody,
   phoneFromEventInfo,
@@ -250,10 +251,9 @@ export class WhatsAppService implements OnModuleInit {
       );
       const res = await this.wuzapi.sendTextWithTargets(targets, message, {
         replyContext,
-        eventInfo,
       });
       this.logger.log(
-        `[WHATSAPP] Resposta enviada para ${normalizedTarget} (targets: ${targets.join(' -> ')})`,
+        `[WHATSAPP] Resposta enviada para ${normalizedTarget} (send target: ${targets[0]})`,
       );
       try {
         this.lastSentByPhone.set(cacheKey, String(text).trim());
@@ -265,6 +265,12 @@ export class WhatsAppService implements OnModuleInit {
       } catch (_) {}
       return res;
     } catch (e) {
+      if (e instanceof WuzapiSendTextError && e.terminal) {
+        this.logger.warn(
+          `[WHATSAPP] Envio abortado para ${target}: erro terminal da WUZAPI (${e.message})`,
+        );
+        return null;
+      }
       this.logger.warn(
         `[WHATSAPP] Falha ao enviar resposta para ${target}: ${e instanceof Error ? e.message : String(e)}`,
       );
@@ -316,6 +322,13 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   async handleIncoming(payload: WuzapiWebhookPayload) {
+    if (isOperationalEvent(payload)) {
+      this.logger.warn(
+        `[WHATSAPP] Evento operacional recebido: type=${payload.type ?? 'unknown'}, chat=${payload.event?.Info?.Chat ?? 'n/a'}`,
+      );
+      return;
+    }
+
     if (!isMessageEvent(payload)) {
       this.logger.log(
         `[WHATSAPP] Webhook ignorado: type=${payload.type ?? 'unknown'}`,

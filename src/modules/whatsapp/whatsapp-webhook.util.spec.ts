@@ -6,6 +6,7 @@ import {
   replyTargetFromEventInfo,
   buildSendTextTargets,
   buildReplyContextFromEventInfo,
+  isOperationalEvent,
 } from './whatsapp-webhook.util';
 
 describe('phoneFromEventInfo', () => {
@@ -28,17 +29,18 @@ describe('phoneFromEventInfo', () => {
 });
 
 describe('replyTargetFromEventInfo', () => {
-  it('falls back to @lid JID when real phone is unavailable', () => {
+  it('preserves @lid JID even when SenderAlt has the real phone', () => {
     const target = replyTargetFromEventInfo({
-      Chat: '28089136451755:89@lid',
+      Chat: '28089136451755@lid',
       Sender: '28089136451755:89@lid',
+      SenderAlt: '559882066740:89@s.whatsapp.net',
     });
     expect(target).toBe('28089136451755@lid');
   });
 });
 
 describe('buildSendTextTargets', () => {
-  it('prioritizes @lid JID before phone digits when Chat uses LID', () => {
+  it('uses a short target list and does not expand to phone variants', () => {
     const info = {
       Chat: '28089136451755@lid',
       Sender: '28089136451755:89@lid',
@@ -46,10 +48,17 @@ describe('buildSendTextTargets', () => {
     };
     const targets = buildSendTextTargets('559882066740', info);
 
-    expect(targets[0]).toBe('28089136451755@lid');
-    expect(targets).toContain('559882066740');
-    expect(targets).toContain('5598982066740');
-    expect(targets).toContain('559882066740@s.whatsapp.net');
+    expect(targets).toEqual(['28089136451755@lid', '559882066740']);
+  });
+});
+
+describe('isOperationalEvent', () => {
+  it('identifies WUZAPI session events that should not trigger replies', () => {
+    expect(isOperationalEvent({ type: 'LoggedOut' })).toBe(true);
+    expect(isOperationalEvent({ type: 'QR' })).toBe(true);
+    expect(isOperationalEvent({ type: 'QRTimeout' })).toBe(true);
+    expect(isOperationalEvent({ type: 'UndecryptableMessage' })).toBe(true);
+    expect(isOperationalEvent({ type: 'Message', event: { Info: {} } })).toBe(false);
   });
 });
 

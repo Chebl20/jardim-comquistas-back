@@ -1,9 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
-  brazilPhoneVariants,
-  buildSendTextTargets,
-  normalizePhone,
-  phoneFromEventInfo,
   type WuzapiReplyContext,
 } from './whatsapp-webhook.util';
 
@@ -11,10 +7,38 @@ export type ChatPresenceState = 'composing' | 'paused';
 
 export type WuzapiSendTextOptions = {
   replyContext?: WuzapiReplyContext | null;
-  eventInfo?: any;
 };
 
 type HeaderMode = 'token' | 'authorization';
+
+export class WuzapiSendTextError extends Error {
+  constructor(
+    readonly target: string,
+    readonly failures: string[],
+  ) {
+    super(
+      `WUZAPI sendText failed for target ${target}: ${failures.join(' | ')}`,
+    );
+  }
+
+  get terminal(): boolean {
+    return this.failures.some(isTerminalSendErrorMessage);
+  }
+}
+
+function isTerminalSendError(error: Error): boolean {
+  return isTerminalSendErrorMessage(error.message);
+}
+
+function isTerminalSendErrorMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('server returned error 463') ||
+    normalized.includes('rate-overlimit') ||
+    normalized.includes('429') ||
+    normalized.includes('no lid found')
+  );
+}
 
 @Injectable()
 export class WuzapiClient {
@@ -57,7 +81,7 @@ export class WuzapiClient {
     return this.sendTextWithTargets([phone], body);
   }
 
-  /** Resolve LID via WUZAPI store (fixes "no LID found" for BR numbers). */
+  /** Resolve LID via WUZAPI store. Do not call this from webhook replies. */
   async getUserLid(phoneOrJid: string): Promise<string | null> {
     const trimmed = String(phoneOrJid || '').trim();
     if (!trimmed) return null;
@@ -73,32 +97,6 @@ export class WuzapiClient {
     } catch {
       return null;
     }
-  }
-
-  async resolveSendTextTargets(
-    replyTarget: string,
-    eventInfo?: any,
-  ): Promise<string[]> {
-    const targets = buildSendTextTargets(replyTarget, eventInfo);
-    const resolved: string[] = [];
-    const add = (value: string | null | undefined) => {
-      const v = String(value || '').trim();
-      if (v && !resolved.includes(v)) resolved.push(v);
-    };
-
-    for (const target of targets) add(target);
-
-    const phone = phoneFromEventInfo(eventInfo) || normalizePhone(replyTarget);
-    if (phone) {
-      for (const variant of brazilPhoneVariants(phone)) {
-        for (const candidate of [variant, `${variant}@s.whatsapp.net`]) {
-          const lid = await this.getUserLid(candidate);
-          if (lid) add(lid);
-        }
-      }
-    }
-
-    return resolved;
   }
 
   private buildSendTextPayload(
@@ -129,28 +127,20 @@ export class WuzapiClient {
     body: string,
     options: WuzapiSendTextOptions = {},
   ): Promise<unknown> {
-    let uniqueTargets = targets.filter(
+    const uniqueTargets = targets.filter(
       (target, index, list) => target && list.indexOf(target) === index,
     );
 
-    if (options.eventInfo) {
-      uniqueTargets = await this.resolveSendTextTargets(
-        uniqueTargets[0] || '',
-        options.eventInfo,
-      );
-      for (const target of targets) {
-        if (target && !uniqueTargets.includes(target)) {
-          uniqueTargets.push(target);
-        }
-      }
-    }
-
     const replyContext = options.replyContext;
     const failures: string[] = [];
+    const primary = uniqueTargets[0];
 
-    // Reply in-thread first — most reliable for @lid chats.
-    if (replyContext?.stanzaId && uniqueTargets.length > 0) {
-      const primary = uniqueTargets[0];
+    if (!primary) {
+      throw new Error('WUZAPI sendText failed: no target');
+    }
+
+    // Reply in-thread first. For webhook replies, only retry the same JID once.
+    if (replyContext?.stanzaId) {
       try {
         const result = await this.request(
           'POST',
@@ -167,30 +157,29 @@ export class WuzapiClient {
         this.logger.warn(
           `[WUZAPI] sendText quoted falhou Phone=${primary}: ${err.message}`,
         );
+        if (isTerminalSendError(err)) {
+          throw new WuzapiSendTextError(primary, failures);
+        }
       }
     }
 
-    for (const target of uniqueTargets) {
-      try {
-        const result = await this.request(
-          'POST',
-          '/chat/send/text',
-          this.buildSendTextPayload(target, body, null),
-        );
-        this.logger.log(`[WUZAPI] sendText ok Phone=${target}`);
-        return result;
-      } catch (e) {
-        const err = e instanceof Error ? e : new Error(String(e));
-        failures.push(`${target}: ${err.message}`);
-        this.logger.warn(
-          `[WUZAPI] sendText falhou Phone=${target}: ${err.message}`,
-        );
-      }
+    try {
+      const result = await this.request(
+        'POST',
+        '/chat/send/text',
+        this.buildSendTextPayload(primary, body, null),
+      );
+      this.logger.log(`[WUZAPI] sendText ok Phone=${primary}`);
+      return result;
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      failures.push(`${primary}: ${err.message}`);
+      this.logger.warn(
+        `[WUZAPI] sendText falhou Phone=${primary}: ${err.message}`,
+      );
     }
 
-    throw new Error(
-      `WUZAPI sendText failed for all targets (${uniqueTargets.join(', ')}): ${failures.join(' | ')}`,
-    );
+    throw new WuzapiSendTextError(primary, failures);
   }
 
   async setPresence(phone: string, state: ChatPresenceState): Promise<unknown> {
