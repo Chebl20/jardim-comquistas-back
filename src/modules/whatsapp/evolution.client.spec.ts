@@ -1,4 +1,10 @@
-import { EvolutionClient, EvolutionSendTextError } from './evolution.client';
+import { EvolutionClient, EvolutionSendTextError, normalizeSubscribeEvents } from './evolution.client';
+
+describe('normalizeSubscribeEvents', () => {
+  it('converts events to uppercase', () => {
+    expect(normalizeSubscribeEvents(['Message', 'ALL'])).toEqual(['MESSAGE', 'ALL']);
+  });
+});
 
 describe('EvolutionClient', () => {
   let client: EvolutionClient;
@@ -7,7 +13,7 @@ describe('EvolutionClient', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.EVOLUTION_BASE_URL = 'https://evolution.example.com';
-    process.env.EVOLUTION_API_KEY = 'test-api-key';
+    process.env.EVOLUTION_API_KEY = '960c26f0-607b-495e-aa64-a90f75e751fa';
     global.fetch = fetchMock as any;
     fetchMock.mockResolvedValue({
       ok: true,
@@ -16,11 +22,10 @@ describe('EvolutionClient', () => {
     client = new EvolutionClient();
   });
 
-  it('connectInstance sends webhookUrl, subscribe and apikey header', async () => {
+  it('connectInstance sends webhookUrl and subscribe ALL without immediate', async () => {
     await client.connectInstance({
       webhookUrl: 'https://api.example.com/api/evolution/webhook',
-      subscribe: ['Message'],
-      immediate: false,
+      subscribe: ['ALL'],
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -28,26 +33,48 @@ describe('EvolutionClient', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          apikey: 'test-api-key',
+          apikey: '960c26f0-607b-495e-aa64-a90f75e751fa',
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({
           webhookUrl: 'https://api.example.com/api/evolution/webhook',
-          subscribe: ['Message'],
-          immediate: false,
+          subscribe: ['ALL'],
         }),
       }),
     );
   });
 
-  it('getStatus uses GET with apikey header', async () => {
+  it('connectInstance normalizes subscribe events to uppercase', async () => {
+    await client.connectInstance({
+      webhookUrl: 'https://api.example.com/api/evolution/webhook',
+      subscribe: ['Message', 'Read_Receipt'],
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.subscribe).toEqual(['MESSAGE', 'READ_RECEIPT']);
+  });
+
+  it('connectInstance includes immediate only when true', async () => {
+    await client.connectInstance({
+      webhookUrl: 'https://api.example.com/api/evolution/webhook',
+      subscribe: ['ALL'],
+      immediate: true,
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.immediate).toBe(true);
+  });
+
+  it('getStatus uses GET with instance token in apikey header', async () => {
     await client.getStatus();
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://evolution.example.com/instance/status',
       expect.objectContaining({
         method: 'GET',
-        headers: expect.objectContaining({ apikey: 'test-api-key' }),
+        headers: expect.objectContaining({
+          apikey: '960c26f0-607b-495e-aa64-a90f75e751fa',
+        }),
       }),
     );
   });
@@ -150,7 +177,7 @@ describe('EvolutionClient', () => {
     expect(bodies[1].quoted).toBeUndefined();
   });
 
-  it('sets presence using /message/presence', async () => {
+  it('sets presence using /message/presence with isAudio false', async () => {
     await client.setPresence('559882066740@s.whatsapp.net', 'composing');
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -160,8 +187,21 @@ describe('EvolutionClient', () => {
         body: JSON.stringify({
           number: '559882066740@s.whatsapp.net',
           state: 'composing',
+          isAudio: false,
         }),
       }),
+    );
+  });
+
+  it('includes helpful hint on 401 errors', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'not authorized' }),
+    });
+
+    await expect(client.getStatus()).rejects.toThrow(
+      /EVOLUTION_API_KEY é o token da instância \(UUID\)/,
     );
   });
 });

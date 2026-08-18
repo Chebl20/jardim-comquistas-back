@@ -50,7 +50,7 @@ export class WhatsAppService implements OnModuleInit {
   }
 
   getSubscribeEvents(): string[] {
-    const raw = process.env.EVOLUTION_SUBSCRIBE_EVENTS || 'Message';
+    const raw = process.env.EVOLUTION_SUBSCRIBE_EVENTS || 'ALL';
     return raw
       .split(',')
       .map((event) => event.trim())
@@ -76,7 +76,8 @@ export class WhatsAppService implements OnModuleInit {
     };
 
     if (!this.evolution.isConfigured()) {
-      const error = 'Evolution API não configurada (EVOLUTION_BASE_URL/EVOLUTION_API_KEY)';
+      const error =
+        'Evolution API não configurada (EVOLUTION_BASE_URL/EVOLUTION_API_KEY — token da instância UUID)';
       result.connect.error = error;
       return result;
     }
@@ -123,7 +124,7 @@ export class WhatsAppService implements OnModuleInit {
   private logConfigureResult(result: ConfigureEvolutionResult) {
     if (!this.evolution.isConfigured()) {
       this.logger.warn(
-        'Evolution API não configurada (EVOLUTION_BASE_URL/EVOLUTION_API_KEY); WhatsApp desabilitado',
+        'Evolution API não configurada (EVOLUTION_API_KEY deve ser o token da instância UUID); WhatsApp desabilitado',
       );
       return;
     }

@@ -58,6 +58,10 @@ describe('isOperationalEvent', () => {
     expect(isOperationalEvent({ event: 'LoggedOut' })).toBe(true);
     expect(isOperationalEvent({ event: 'QR' })).toBe(true);
     expect(isOperationalEvent({ event: 'QRTimeout' })).toBe(true);
+    expect(isOperationalEvent({ event: 'QRCode' })).toBe(true);
+    expect(isOperationalEvent({ event: 'PairSuccess' })).toBe(true);
+    expect(isOperationalEvent({ event: 'Connected' })).toBe(true);
+    expect(isOperationalEvent({ event: 'Connection' })).toBe(true);
     expect(isOperationalEvent({ event: 'UndecryptableMessage' })).toBe(true);
     expect(
       isOperationalEvent({ event: 'Message', data: { Info: {} } }),
@@ -154,6 +158,22 @@ describe('isWebhookAuthorized', () => {
       expectedToken: '',
     });
     expect(result).toEqual({ ok: true });
+  });
+
+  it('rejects payload when instanceToken does not match expectedToken', () => {
+    const result = isWebhookAuthorized({
+      payload: { ...messagePayload, instanceToken: 'wrong-token' },
+      expectedToken: 'secret-token',
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_instance_token' });
+  });
+
+  it('rejects payload without token when expectedToken is configured', () => {
+    const result = isWebhookAuthorized({
+      payload: { event: 'Message', data: {} },
+      expectedToken: 'secret-token',
+    });
+    expect(result).toEqual({ ok: false, reason: 'invalid_instance_token' });
   });
 });
 

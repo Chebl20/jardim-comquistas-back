@@ -169,9 +169,22 @@ export function isMessageEvent(payload: EvolutionWebhookPayload): boolean {
   return Boolean(payload.data?.Info);
 }
 
+const OPERATIONAL_EVENTS = [
+  'loggedout',
+  'qr',
+  'qrtimeout',
+  'qrcode',
+  'qrsuccess',
+  'undecryptablemessage',
+  'pairsuccess',
+  'connected',
+  'connection',
+  'offline',
+];
+
 export function isOperationalEvent(payload: EvolutionWebhookPayload): boolean {
   const type = String(payload.event || '').toLowerCase();
-  return ['loggedout', 'qr', 'qrtimeout', 'undecryptablemessage'].includes(type);
+  return OPERATIONAL_EVENTS.includes(type);
 }
 
 export function parseWebhookBody(
@@ -260,6 +273,5 @@ export function isWebhookAuthorized(params: {
     return { ok: true };
   }
 
-  // Sem token configurado no Evolution GO: aceitar para evitar dead-letter
-  return { ok: true };
+  return { ok: false, reason: 'invalid_instance_token' };
 }

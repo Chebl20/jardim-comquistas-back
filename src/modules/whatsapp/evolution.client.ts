@@ -38,6 +38,14 @@ function isTerminalSendErrorMessage(message: string): boolean {
   );
 }
 
+/** Normaliza eventos de subscribe para o formato Evolution GO (uppercase). */
+export function normalizeSubscribeEvents(events: string[]): string[] {
+  return events
+    .map((event) => event.trim())
+    .filter(Boolean)
+    .map((event) => event.toUpperCase());
+}
+
 @Injectable()
 export class EvolutionClient {
   private readonly logger = new Logger(EvolutionClient.name);
@@ -49,18 +57,19 @@ export class EvolutionClient {
     );
   }
 
-  private get apiKey(): string {
+  /** Token da instância (UUID) — header apikey nas requisições Evolution GO. */
+  private get instanceToken(): string {
     return process.env.EVOLUTION_API_KEY || '';
   }
 
   isConfigured(): boolean {
-    return Boolean(this.apiKey);
+    return Boolean(this.instanceToken);
   }
 
   private headers(): Record<string, string> {
     return {
       'Content-Type': 'application/json',
-      apikey: this.apiKey,
+      apikey: this.instanceToken,
     };
   }
 
@@ -151,6 +160,7 @@ export class EvolutionClient {
     return this.request('POST', '/message/presence', {
       number: phone,
       state,
+      isAudio: false,
     });
   }
 
@@ -159,15 +169,33 @@ export class EvolutionClient {
     subscribe: string[];
     immediate?: boolean;
   }): Promise<unknown> {
-    return this.request('POST', '/instance/connect', {
+    const body: Record<string, unknown> = {
       webhookUrl: params.webhookUrl,
-      subscribe: params.subscribe,
-      immediate: params.immediate ?? false,
-    });
+      subscribe: normalizeSubscribeEvents(params.subscribe),
+    };
+
+    if (params.immediate === true) {
+      body.immediate = true;
+    }
+
+    return this.request('POST', '/instance/connect', body);
   }
 
   async getStatus(): Promise<unknown> {
     return this.request('GET', '/instance/status');
+  }
+
+  private formatRequestError(
+    method: string,
+    path: string,
+    status: number,
+    detail: string,
+  ): string {
+    const base = `Evolution API ${method} ${path} failed with status ${status}: ${detail}`;
+    if (status === 401) {
+      return `${base}. Verifique se EVOLUTION_API_KEY é o token da instância (UUID), não o GLOBAL_API_KEY do servidor Evolution.`;
+    }
+    return base;
   }
 
   private async request(
@@ -175,7 +203,7 @@ export class EvolutionClient {
     path: string,
     body?: Record<string, unknown>,
   ): Promise<unknown> {
-    if (!this.apiKey) {
+    if (!this.instanceToken) {
       throw new Error('EVOLUTION_API_KEY não definido');
     }
 
@@ -201,7 +229,7 @@ export class EvolutionClient {
           payload?.message ||
           (typeof data === 'string' ? data : JSON.stringify(data));
         throw new Error(
-          `Evolution API ${method} ${path} failed with status ${res.status}: ${detail}`,
+          this.formatRequestError(method, path, res.status, detail),
         );
       }
       return data;
