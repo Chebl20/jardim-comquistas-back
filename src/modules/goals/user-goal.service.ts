@@ -539,7 +539,9 @@ export class UserGoalService {
           daysOfWeek: fields.scheduleDaysOfWeek ?? undefined,
           durationDays: fields.scheduleDurationDays,
           timeZone: userTimezone,
-          extra: fields.scheduleExtra ?? undefined,
+          extra: fields.scheduleExtra
+            ? (fields.scheduleExtra as Prisma.InputJsonValue)
+            : undefined,
         },
         update: {
           frequency: fields.scheduleFrequency!,
@@ -548,7 +550,9 @@ export class UserGoalService {
           daysOfWeek: fields.scheduleDaysOfWeek ?? undefined,
           durationDays: fields.scheduleDurationDays,
           timeZone: userTimezone,
-          extra: fields.scheduleExtra ?? undefined,
+          extra: fields.scheduleExtra
+            ? (fields.scheduleExtra as Prisma.InputJsonValue)
+            : undefined,
         },
       });
 
