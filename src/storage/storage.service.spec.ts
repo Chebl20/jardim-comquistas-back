@@ -3,7 +3,9 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
 }));
 
 jest.mock('@aws-sdk/client-s3', () => ({
-  S3Client: jest.fn().mockImplementation(() => ({})),
+  S3Client: jest.fn().mockImplementation(() => ({
+    send: jest.fn(),
+  })),
   GetObjectCommand: jest.fn().mockImplementation((input: { Key: string; Bucket: string }) => ({ input })),
 }));
 
@@ -67,5 +69,24 @@ describe('StorageService.resolveAsset', () => {
     const result = await service.resolveAsset(url);
     expect(result).toBe(url);
     expect(mockGetSignedUrl).not.toHaveBeenCalled();
+  });
+
+  describe('modo proxy (S3_ASSET_PROXY)', () => {
+    beforeEach(() => {
+      process.env.S3_ASSET_PROXY = 'true';
+      process.env.PUBLIC_BASE_URL = 'https://api.example.com';
+      service = new StorageService();
+    });
+
+    afterEach(() => {
+      delete process.env.S3_ASSET_PROXY;
+      delete process.env.PUBLIC_BASE_URL;
+    });
+
+    it('retorna URL same-origin em vez de pré-assinada', async () => {
+      const result = await service.resolveAsset('assets/pontual/stars/a/1.png');
+      expect(result).toBe('https://api.example.com/api/assets/assets/pontual/stars/a/1.png');
+      expect(mockGetSignedUrl).not.toHaveBeenCalled();
+    });
   });
 });
