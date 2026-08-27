@@ -5,6 +5,7 @@ import { UserGoalService } from '../goals/user-goal.service';
 import {
   expectedSlotCountForGoalOnDate,
   monthRangeFromInput,
+  scheduledTimesForGoalOnDate,
   weekRangeContainingDate,
 } from '../shared/schedule-occurrence.util';
 
@@ -84,12 +85,12 @@ export class DashboardService {
       date: string | null;
       expectedSlots: number;
       harvestCount: number;
-      goals: { id: string; title: string; conquestType: string; slots: number }[];
+      goals: { id: string; title: string; conquestType: string; slots: number; times: string[] }[];
     }> = [];
 
     for (let i = 0; i < 7; i++) {
       const d = monday.plus({ days: i });
-      const dayGoals: { id: string; title: string; conquestType: string; slots: number }[] = [];
+      const dayGoals: { id: string; title: string; conquestType: string; slots: number; times: string[] }[] = [];
       let expectedSlots = 0;
       for (const g of inScope) {
         const n = expectedSlotCountForGoalOnDate(g, d, tz);
@@ -100,6 +101,7 @@ export class DashboardService {
             title: g.title,
             conquestType: g.conquestType,
             slots: n,
+            times: scheduledTimesForGoalOnDate(g, d, tz),
           });
         }
       }

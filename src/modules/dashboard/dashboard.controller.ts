@@ -2,6 +2,7 @@ import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { AuthGuard } from '../../auth/auth.guard';
+import { DashboardWeekResponseDto } from './dto/dashboard-week.response';
 
 @ApiTags('Dashboard')
 @Controller('api/dashboard')
@@ -11,11 +12,27 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Dashboard principal', description: 'Retorna informações agregadas para a visão diária, semanal ou mensal.' })
-  @ApiQuery({ name: 'period', required: true, description: 'day, week, ou month', example: 'day' })
-  @ApiQuery({ name: 'date', required: true, description: 'Data base (ex: 2024-10-15 ou 2024-10)' })
-  @ApiQuery({ name: 'areaId', required: false, description: 'ID da área de foco (ex: Corpo, Mente)' })
-  @ApiResponse({ status: 200, description: 'Dados do dashboard.' })
+  @ApiOperation({
+    summary: 'Dashboard principal',
+    description:
+      'Retorna informações agregadas para a visão diária, semanal ou mensal. ' +
+      'Na visão semanal (`period=week`), cada meta em `weekGrid[].goals` inclui `times` (HH:mm) ' +
+      'para posicionamento na grade horária.',
+  })
+  @ApiQuery({ name: 'period', required: true, description: 'day, week, ou month', example: 'week' })
+  @ApiQuery({
+    name: 'date',
+    required: true,
+    description:
+      'Data base. day/week: YYYY-MM-DD (qualquer dia da semana; week calcula seg–dom). month: YYYY-MM ou YYYY-MM-DD',
+    example: '2026-08-26',
+  })
+  @ApiQuery({ name: 'areaId', required: false, description: 'Filtro por área de conquista (ex: Corpo, Mente)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Visão semanal: weekGrid com metas e horários (times) por dia.',
+    type: DashboardWeekResponseDto,
+  })
   async getDashboard(
     @Query('period') period: 'day' | 'week' | 'month',
     @Query('date') date: string,

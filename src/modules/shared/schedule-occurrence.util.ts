@@ -97,6 +97,41 @@ export function expectedSlotCountForGoalOnDate(goal: GoalLike, day: DateTime, tz
   return 0;
 }
 
+/** Normaliza "8:00" / "08:00:00" para "HH:mm". */
+export function normalizeTimeToHHmm(value: string): string | null {
+  const trimmed = String(value || '').trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+  const hh = parseInt(match[1], 10);
+  const mm = parseInt(match[2], 10);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+/**
+ * Horários agendados (HH:mm) para a meta em um dia civil no fuso `tz`.
+ * Retorna [] quando a meta não tem ocorrência naquele dia.
+ */
+export function scheduledTimesForGoalOnDate(goal: GoalLike, day: DateTime, tz: string): string[] {
+  if (expectedSlotCountForGoalOnDate(goal, day, tz) === 0) return [];
+
+  const sc = goal.scheduleConfig;
+  if (!sc || typeof sc !== 'object') return [];
+
+  if (sc.type === 'once') {
+    const userAt = DateTime.fromJSDate(new Date(sc.at)).setZone(tz);
+    return [userAt.toFormat('HH:mm')];
+  }
+
+  if (Array.isArray(sc.times) && sc.times.length > 0) {
+    return sc.times
+      .map((t) => normalizeTimeToHHmm(String(t)))
+      .filter((t): t is string => t != null);
+  }
+
+  return [];
+}
+
 /**
  * Semana que contém `anchor`: segunda 00:00 até domingo 23:59:59 no fuso `tz`.
  * `nextMonday` (exclusivo) facilita queries `createdAt < nextMonday`.
