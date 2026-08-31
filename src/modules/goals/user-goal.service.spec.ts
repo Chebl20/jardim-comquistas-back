@@ -52,6 +52,16 @@ describe('resolveScheduleFields', () => {
 
     jest.restoreAllMocks();
   });
+
+  it('persiste DAILY + times para meta continua mesmo com type DAILY do LLM', () => {
+    const fields = resolveScheduleFields({
+      scheduleConfig: { type: 'DAILY', times: '10:00' } as any,
+      goalType: 'Continua',
+      userTimezone: 'America/Sao_Paulo',
+    });
+    expect(fields.scheduleFrequency).toBe('DAILY');
+    expect(fields.scheduleTimes).toEqual(['10:00']);
+  });
 });
 
 describe('UserGoalService', () => {

@@ -15,6 +15,7 @@ import {
   FLOW_STATES,
 } from '../../conversation/flow.types';
 import { formatScheduleForUser } from '../../../shared/schedule-formatter.util';
+import { coerceScheduleConfig } from '../../../shared/schedule-occurrence.util';
 import { PROMPT as GOAL_PROMPT } from './prompt';
 import { ConversationAIService } from '../../conversation-ai.service';
 import { CommunicationService } from '../../../shared/communication.service';
@@ -180,9 +181,16 @@ function sanitizeGoalPayload(
   const title = cleanText(draft.title);
   const description = cleanText(draft.description);
   const timeToken = cleanText(draft.timeToken);
+  const rawType =
+    draft.scheduleConfig && typeof draft.scheduleConfig === 'object'
+      ? String((draft.scheduleConfig as { type?: string }).type || '').toLowerCase()
+      : '';
+  const looksRecurring =
+    ['daily', 'weekly', 'monthly', 'day'].includes(rawType) ||
+    !!normalizeFrequency(draft.frequency);
   const normalizedGoalType =
     normalizeGoalType(typeof draft.goalType === 'string' ? draft.goalType : undefined) ??
-    (draft.reminderTime || draft.scheduleConfig || timeToken ? 'Pontual' : 'Continua');
+    (looksRecurring ? 'Continua' : draft.reminderTime || draft.scheduleConfig || timeToken ? 'Pontual' : 'Continua');
   const normalizedConquest =
     normalizeConquestType(typeof draft.conquestType === 'string' ? draft.conquestType : undefined) ??
     'Mente';
@@ -194,11 +202,17 @@ function sanitizeGoalPayload(
   let scheduleConfig: ScheduleConfig | undefined;
   let reminderTime: string | undefined;
 
-  if (isValidScheduleConfig(draft.scheduleConfig)) {
-    scheduleConfig = draft.scheduleConfig;
+  const coercedFromDraft = coerceScheduleConfig(draft.scheduleConfig, {
+    reminderTime: cleanText(draft.reminderTime),
+    timeToken,
+    goalType: normalizedGoalType,
+  });
+
+  if (coercedFromDraft && isValidScheduleConfig(coercedFromDraft)) {
+    scheduleConfig = coercedFromDraft;
     if (scheduleConfig.type === 'once') reminderTime = scheduleConfig.at;
   } else {
-    let rawReminder = cleanText(draft.reminderTime);
+    let rawReminder = cleanText(draft.reminderTime) || timeToken;
     if (rawReminder) {
       const resolved = resolveReminderTime(rawReminder, now, userTimezone);
       if (!resolved) {

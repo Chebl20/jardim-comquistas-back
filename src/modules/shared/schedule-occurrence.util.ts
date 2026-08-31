@@ -97,15 +97,127 @@ export function expectedSlotCountForGoalOnDate(goal: GoalLike, day: DateTime, tz
   return 0;
 }
 
-/** Normaliza "8:00" / "08:00:00" para "HH:mm". */
-export function normalizeTimeToHHmm(value: string): string | null {
-  const trimmed = String(value || '').trim();
-  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  if (!match) return null;
-  const hh = parseInt(match[1], 10);
-  const mm = parseInt(match[2], 10);
+function padHHmm(hh: number, mm: number): string | null {
   if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+/** Normaliza "8:00" / "08:00:00" / "10h" / "10h00" / ISO para "HH:mm". */
+export function normalizeTimeToHHmm(value: string): string | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+
+  const colon = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (colon) return padHHmm(parseInt(colon[1], 10), parseInt(colon[2], 10));
+
+  const dotted = trimmed.match(/^(\d{1,2})\.(\d{2})$/);
+  if (dotted) return padHHmm(parseInt(dotted[1], 10), parseInt(dotted[2], 10));
+
+  const h = trimmed.match(/^(\d{1,2})\s*h(?:\s*(\d{2}))?$/i);
+  if (h) return padHHmm(parseInt(h[1], 10), parseInt(h[2] || '0', 10));
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed) || trimmed.includes('T')) {
+    const iso = DateTime.fromISO(trimmed);
+    if (iso.isValid) return iso.toFormat('HH:mm');
+  }
+
+  return null;
+}
+
+export function coerceTimesList(raw: unknown): string[] {
+  const items = Array.isArray(raw) ? raw : raw == null || raw === '' ? [] : [raw];
+  const out: string[] = [];
+  for (const item of items) {
+    const t = normalizeTimeToHHmm(String(item));
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Aceita o JSON frouxo do LLM/front (type DAILY, times string, horário em `at`)
+ * e devolve ScheduleConfig canônico — ou undefined se não der para gravar.
+ */
+export function coerceScheduleConfig(
+  raw: unknown,
+  opts?: { reminderTime?: Date | string | null; timeToken?: string | null; goalType?: string | null },
+): ScheduleConfig | undefined {
+  const reminderRaw =
+    opts?.reminderTime instanceof Date
+      ? DateTime.fromJSDate(opts.reminderTime).toISO()
+      : opts?.reminderTime != null
+        ? String(opts.reminderTime).trim()
+        : '';
+  const tokenRaw = opts?.timeToken != null ? String(opts.timeToken).trim() : '';
+  const fallbackTimes = coerceTimesList([reminderRaw, tokenRaw].filter(Boolean));
+
+  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  const type = (
+    (o && typeof o.type === 'string' && o.type) ||
+    (o && typeof o.frequency === 'string' && o.frequency) ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+  const durationDays =
+    o && typeof o.durationDays === 'number' && Number.isInteger(o.durationDays) && o.durationDays >= 1
+      ? o.durationDays
+      : undefined;
+
+  const timesFromAt = (): string[] => {
+    if (!o?.at) return [];
+    const at = String(o.at).trim();
+    const asTime = normalizeTimeToHHmm(at);
+    if (asTime) return [asTime];
+    const iso = DateTime.fromISO(at);
+    return iso.isValid ? [iso.toFormat('HH:mm')] : [];
+  };
+
+  if (type === 'once') {
+    const at = (typeof o?.at === 'string' && o.at.trim()) || reminderRaw;
+    if (at) return { type: 'once', at };
+    return undefined;
+  }
+
+  if (type === 'daily' || type === 'day') {
+    let times = coerceTimesList(o?.times);
+    if (times.length === 0) times = timesFromAt();
+    if (times.length === 0) times = fallbackTimes;
+    if (times.length === 0) return undefined;
+    return durationDays ? { type: 'daily', times, durationDays } : { type: 'daily', times };
+  }
+
+  if (type === 'weekly') {
+    const days = Array.isArray(o?.daysOfWeek)
+      ? o!.daysOfWeek.map((d) => (typeof d === 'number' ? d : parseInt(String(d), 10))).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+      : [];
+    let times = coerceTimesList(o?.times);
+    if (times.length === 0) times = timesFromAt();
+    if (times.length === 0) times = fallbackTimes;
+    if (days.length === 0 || times.length === 0) return undefined;
+    return { type: 'weekly', daysOfWeek: days, times };
+  }
+
+  if (type === 'monthly') {
+    const rawDom = o?.dayOfMonth;
+    const dom = typeof rawDom === 'number' ? Math.trunc(rawDom) : parseInt(String(rawDom ?? ''), 10);
+    let times = coerceTimesList(o?.times);
+    if (times.length === 0) times = timesFromAt();
+    if (times.length === 0) times = fallbackTimes;
+    if (!Number.isFinite(dom) || dom < 1 || dom > 31 || times.length === 0) return undefined;
+    return { type: 'monthly', dayOfMonth: dom, times };
+  }
+
+  const inferredTimes = coerceTimesList(o?.times);
+  const times = inferredTimes.length > 0 ? inferredTimes : timesFromAt().length > 0 ? timesFromAt() : fallbackTimes;
+  if (times.length === 0) return undefined;
+
+  const goalKind = String(opts?.goalType || '').toLowerCase();
+  const isPontual = goalKind === 'pontual';
+  if (isPontual) {
+    return { type: 'once', at: reminderRaw || `${times[0]}` };
+  }
+  return durationDays ? { type: 'daily', times, durationDays } : { type: 'daily', times };
 }
 
 /**

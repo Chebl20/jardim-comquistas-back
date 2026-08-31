@@ -128,6 +128,44 @@ describe('Goal creation hardening', () => {
     expect(result.actions.some((a) => a.type === 'create_goal')).toBe(false);
   });
 
+  it('cria CONTINUA diária com horário mesmo se o LLM mandar type DAILY e times string', async () => {
+    const llm = {
+      analyze: jest.fn().mockResolvedValue({
+        classification: CLASSIFICATIONS.CONTINUE,
+        confidence: 0.99,
+        extracted: {
+          payload: {
+            title: 'Fazer meu segundo TCC',
+            goalType: 'Continua',
+            conquestType: 'Mente',
+            scheduleConfig: { type: 'DAILY', times: '10:00' },
+          },
+        },
+        suggestedReply: 'Meta criada!',
+        finished: true,
+      }),
+    };
+    const comm = {
+      generateProgressMetadata: jest.fn().mockResolvedValue({
+        title: 'Fazer meu segundo TCC',
+        description: 'Progresso',
+      }),
+    };
+
+    const nucleus = new GoalCreationNucleus(llm as any, comm as any);
+    const result = await nucleus.analyze({
+      userId: 'user-1234567890',
+      currentSession: FLOW_STATES.GOAL_CREATION,
+      text: 'Fazer meu segundo TCC todo dia às 10:00',
+      meta: {},
+    });
+
+    const action = result.actions.find((a) => a.type === 'create_goal') as CreateGoalAction;
+    expect(action).toBeDefined();
+    expect(action.payload.goalType).toBe('Continua');
+    expect(action.payload.scheduleConfig).toEqual({ type: 'daily', times: ['10:00'] });
+  });
+
   it('envia reply de falha e nunca reply de sucesso quando a persistência quebra', async () => {
     const stateService = {
       appendAssistantMessage: jest.fn(),

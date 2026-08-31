@@ -10,7 +10,11 @@ import { CommunicationService } from '../shared/communication.service';
 import { StorageService } from '../../storage/storage.service';
 import type { CreateUserGoalInput, ScheduleConfig } from '../ia/conversation/flow.types';
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../shared/weekday.util';
-import { isOnOrAfterGoalCreationDay, getCancelledExceptionsForDate } from '../shared/schedule-occurrence.util';
+import {
+  isOnOrAfterGoalCreationDay,
+  getCancelledExceptionsForDate,
+  coerceScheduleConfig,
+} from '../shared/schedule-occurrence.util';
 
 const DEFAULT_USER_TIMEZONE = 'America/Sao_Paulo';
 
@@ -25,15 +29,19 @@ export type ResolvedScheduleFields = {
 
 /** Converte scheduleConfig/reminderTime para campos persistidos em GoalSchedule. */
 export function resolveScheduleFields(params: {
-  scheduleConfig?: ScheduleConfig;
+  scheduleConfig?: ScheduleConfig | unknown;
   reminderTime?: Date | string;
   goalType: string;
   userTimezone: string;
 }): ResolvedScheduleFields {
-  const { scheduleConfig: sc, reminderTime, goalType, userTimezone } = params;
+  const { reminderTime, goalType, userTimezone } = params;
   const normalizedGoalType = normalizeGoalType(goalType) ?? 'Pontual';
   const zone = userTimezone || DEFAULT_USER_TIMEZONE;
   const nowLocal = DateTime.now().setZone(zone);
+  const sc = coerceScheduleConfig(params.scheduleConfig, {
+    reminderTime,
+    goalType: normalizedGoalType,
+  });
 
   let scheduleFrequency: string | null = null;
   let scheduleAt: Date | null = null;
@@ -205,18 +213,32 @@ export function goalToLegacyRecord(goal: any) {
   // Reconstituir scheduleConfig no formato antigo
   let scheduleConfig: ScheduleConfig | null = null;
   if (sc) {
+    const timesJson = (() => {
+      if (Array.isArray(sc.times)) return sc.times.map((t: unknown) => String(t));
+      if (typeof sc.times === 'string' && sc.times.trim()) {
+        try {
+          const parsed = JSON.parse(sc.times);
+          if (Array.isArray(parsed)) return parsed.map((t: unknown) => String(t));
+        } catch {
+          return [sc.times];
+        }
+        return [sc.times];
+      }
+      return [];
+    })();
+
     if (sc.frequency === 'ONCE' && sc.at) {
       scheduleConfig = { type: 'once', at: sc.at.toISOString() };
     } else if (sc.frequency === 'DAILY') {
       scheduleConfig = {
         type: 'daily',
-        times: Array.isArray(sc.times) ? sc.times : [],
+        times: timesJson,
         ...(sc.durationDays != null ? { durationDays: sc.durationDays } : {}),
       } as any;
     } else if (sc.frequency === 'WEEKLY') {
       scheduleConfig = {
         type: 'weekly',
-        times: Array.isArray(sc.times) ? sc.times : [],
+        times: timesJson,
         daysOfWeek: normalizeDaysOfWeekJson(sc.daysOfWeek),
       } as any;
     } else if (sc.frequency === 'MONTHLY') {
@@ -232,7 +254,7 @@ export function goalToLegacyRecord(goal: any) {
         scheduleConfig = {
           type: 'monthly',
           dayOfMonth: dom,
-          times: Array.isArray(sc.times) ? sc.times : [],
+          times: timesJson,
         } as any;
       }
     }
@@ -284,7 +306,7 @@ export class UserGoalService {
     if (existingGoal) {
       const userTimezone = await this.getUserTimezone(data.userId);
       const scheduleFields = resolveScheduleFields({
-        scheduleConfig: data.scheduleConfig,
+        scheduleConfig: data.scheduleConfig ?? (data as { schedule?: unknown }).schedule,
         reminderTime: data.reminderTime,
         goalType: data.goalType || 'Pontual',
         userTimezone,
@@ -395,7 +417,7 @@ export class UserGoalService {
       scheduleDurationDays,
       scheduleExtra,
     } = resolveScheduleFields({
-      scheduleConfig: data.scheduleConfig,
+      scheduleConfig: data.scheduleConfig ?? (data as { schedule?: unknown }).schedule,
       reminderTime: data.reminderTime,
       goalType: normalizedGoalType,
       userTimezone,
@@ -452,8 +474,14 @@ export class UserGoalService {
             frequency: scheduleFrequency,
             timeZone: userTimezone,
             at: scheduleAt ?? undefined,
-            times: scheduleTimes ?? undefined,
-            daysOfWeek: scheduleDaysOfWeek ?? undefined,
+            times:
+              scheduleTimes != null
+                ? (scheduleTimes as Prisma.InputJsonValue)
+                : undefined,
+            daysOfWeek:
+              scheduleDaysOfWeek != null
+                ? (scheduleDaysOfWeek as Prisma.InputJsonValue)
+                : undefined,
             durationDays: scheduleDurationDays ?? undefined,
             extra: scheduleExtra ? (scheduleExtra as Prisma.InputJsonValue) : undefined,
             dtStart: scheduleAt ?? (scheduleTimes ? DateTime.now().setZone(userTimezone).toJSDate() : undefined),
@@ -536,8 +564,14 @@ export class UserGoalService {
           goalId,
           frequency: fields.scheduleFrequency!,
           at: fields.scheduleAt,
-          times: fields.scheduleTimes ?? undefined,
-          daysOfWeek: fields.scheduleDaysOfWeek ?? undefined,
+          times:
+            fields.scheduleTimes != null
+              ? (fields.scheduleTimes as Prisma.InputJsonValue)
+              : undefined,
+          daysOfWeek:
+            fields.scheduleDaysOfWeek != null
+              ? (fields.scheduleDaysOfWeek as Prisma.InputJsonValue)
+              : undefined,
           durationDays: fields.scheduleDurationDays,
           timeZone: userTimezone,
           extra: fields.scheduleExtra
@@ -547,8 +581,14 @@ export class UserGoalService {
         update: {
           frequency: fields.scheduleFrequency!,
           at: fields.scheduleAt,
-          times: fields.scheduleTimes ?? undefined,
-          daysOfWeek: fields.scheduleDaysOfWeek ?? undefined,
+          times:
+            fields.scheduleTimes != null
+              ? (fields.scheduleTimes as Prisma.InputJsonValue)
+              : undefined,
+          daysOfWeek:
+            fields.scheduleDaysOfWeek != null
+              ? (fields.scheduleDaysOfWeek as Prisma.InputJsonValue)
+              : undefined,
           durationDays: fields.scheduleDurationDays,
           timeZone: userTimezone,
           extra: fields.scheduleExtra

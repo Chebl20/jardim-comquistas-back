@@ -4,6 +4,7 @@ import {
   normalizeTimeToHHmm,
   resolveDailyStatusForDate,
   scheduledTimesForGoalOnDate,
+  coerceScheduleConfig,
 } from './schedule-occurrence.util';
 
 describe('scheduledTimesForGoalOnDate', () => {
@@ -71,8 +72,42 @@ describe('normalizeTimeToHHmm', () => {
     expect(normalizeTimeToHHmm('08:00:00')).toBe('08:00');
   });
 
+  it('normaliza 10h e 10h00', () => {
+    expect(normalizeTimeToHHmm('10h')).toBe('10:00');
+    expect(normalizeTimeToHHmm('10h00')).toBe('10:00');
+  });
+
   it('retorna null para valor inválido', () => {
     expect(normalizeTimeToHHmm('invalid')).toBeNull();
+  });
+});
+
+describe('coerceScheduleConfig', () => {
+  it('converte type DAILY e times string em daily canônico', () => {
+    expect(coerceScheduleConfig({ type: 'DAILY', times: '10:00' })).toEqual({
+      type: 'daily',
+      times: ['10:00'],
+    });
+  });
+
+  it('extrai horário de at quando times falta em daily', () => {
+    expect(coerceScheduleConfig({ type: 'daily', at: '10:00' })).toEqual({
+      type: 'daily',
+      times: ['10:00'],
+    });
+  });
+
+  it('usa reminderTime para Continua sem scheduleConfig', () => {
+    expect(
+      coerceScheduleConfig(null, { reminderTime: '10:00', goalType: 'Continua' }),
+    ).toEqual({ type: 'daily', times: ['10:00'] });
+  });
+
+  it('aceita frequency DAILY no objeto de schedule do REST', () => {
+    expect(coerceScheduleConfig({ frequency: 'DAILY', times: ['10:00'] })).toEqual({
+      type: 'daily',
+      times: ['10:00'],
+    });
   });
 });
 
