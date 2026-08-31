@@ -56,6 +56,7 @@ export interface ReminderGoalRecord {
   reminderSlotsToday?: unknown;
   lastReminderSentAt: Date | string | null;
   dailyStatus: string | null;
+  reminderUpdatedAt?: Date | string | null;
   silenceUntil: Date | string | null;
   completed: boolean;
   reminderCount: number;

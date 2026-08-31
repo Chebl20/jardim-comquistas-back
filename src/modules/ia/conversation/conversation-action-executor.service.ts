@@ -56,6 +56,13 @@ function isValidatedGoalPayload(payload: ValidatedGoalPayload | null | undefined
         return false;
     }
   }
+  const hasSchedule =
+    payload.scheduleConfig != null &&
+    typeof payload.scheduleConfig === 'object' &&
+    typeof (payload.scheduleConfig as { type?: string }).type === 'string';
+  const hasReminderTime =
+    typeof payload.reminderTime === 'string' && payload.reminderTime.trim().length > 0;
+  if (!hasSchedule && !hasReminderTime) return false;
   return true;
 }
 

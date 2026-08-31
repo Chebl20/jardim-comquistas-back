@@ -248,6 +248,7 @@ export function goalToLegacyRecord(goal: any) {
     reminderCount: rem?.sentCount ?? 0,
     dailyStatus: rem?.dailyStatus ?? null,
     silenceUntil: rem?.silenceUntil ?? null,
+    reminderUpdatedAt: rem?.updatedAt ?? null,
   };
 }
 
@@ -646,6 +647,7 @@ export class UserGoalService {
             sentCount: true,
             silenceUntil: true,
             minutesBefore: true,
+            updatedAt: true,
           },
         },
         user: {
@@ -873,6 +875,7 @@ export class UserGoalService {
             lastSentAt: true,
             sentCount: true,
             silenceUntil: true,
+            updatedAt: true,
           },
         },
         plantedTree: {

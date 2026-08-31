@@ -84,6 +84,31 @@ describe('ReminderPolicyEngine', () => {
     expect(decision.kind).toBe(REMINDER_KINDS.OPERATIONAL);
   });
 
+  it('DONE de ontem não bloqueia lembrete no dia seguinte', async () => {
+    const goal = makeGoal({
+      goalKind: 'Continua',
+      dailyStatus: REMINDER_STATUSES.DONE,
+      reminderUpdatedAt: '2026-08-26T18:00:00.000-03:00',
+      scheduleConfig: { type: 'daily', times: ['07:00'] },
+      reminderTime: null,
+      plantedTree: {
+        growthEvents: [
+          { createdAt: '2026-02-01T13:00:00.000Z', progressIndex: 1 },
+          { createdAt: '2026-08-26T18:00:00.000-03:00', progressIndex: 2 },
+        ],
+      },
+    });
+    const now = DateTime.fromISO('2026-08-27T07:01:00.000-03:00');
+
+    const decision = await engine.evaluate({
+      goal,
+      now,
+      timezone: 'America/Sao_Paulo',
+    });
+
+    expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.SEND_OPERATIONAL);
+  });
+
   it('envia um único follow-up após janela de espera expirar', async () => {
     const goal = makeGoal({
       dailyStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,

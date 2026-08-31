@@ -88,6 +88,46 @@ describe('Goal creation hardening', () => {
     });
   });
 
+  it('pede horário quando meta tem título mas sem schedule', async () => {
+    const llm = {
+      analyze: jest.fn().mockResolvedValue({
+        classification: CLASSIFICATIONS.CONTINUE,
+        confidence: 0.95,
+        extracted: {
+          payload: {
+            title: 'Beber água',
+            goalType: 'Continua',
+            conquestType: 'Corpo',
+          },
+        },
+        suggestedReply: 'Anotado!',
+        finished: true,
+      }),
+    };
+    const comm = {
+      generateProgressMetadata: jest.fn().mockResolvedValue({
+        title: 'Beber água',
+        description: 'Progresso em Beber água',
+      }),
+    };
+
+    const nucleus = new GoalCreationNucleus(llm as any, comm as any);
+    const result = await nucleus.analyze({
+      userId: 'user-1234567890',
+      currentSession: FLOW_STATES.GOAL_CREATION,
+      text: 'me lembra de beber agua',
+      meta: {},
+    });
+
+    expect(result.actions).toHaveLength(2);
+    expect(result.actions[0]).toMatchObject({ type: 'continue', to: FLOW_STATES.GOAL_CREATION });
+    expect(result.actions[1]).toMatchObject({
+      type: 'reply',
+      text: expect.stringContaining('A que horas'),
+    });
+    expect(result.actions.some((a) => a.type === 'create_goal')).toBe(false);
+  });
+
   it('envia reply de falha e nunca reply de sucesso quando a persistência quebra', async () => {
     const stateService = {
       appendAssistantMessage: jest.fn(),

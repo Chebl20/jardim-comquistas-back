@@ -4,7 +4,9 @@ import { prisma } from '../../prisma/client';
 import { UserGoalService } from '../goals/user-goal.service';
 import {
   expectedSlotCountForGoalOnDate,
+  isSameCalendarDay,
   monthRangeFromInput,
+  resolveDailyStatusForDate,
   scheduledTimesForGoalOnDate,
   weekRangeContainingDate,
 } from '../shared/schedule-occurrence.util';
@@ -23,6 +25,7 @@ export class DashboardService {
     const datePart = String(date || '').slice(0, 10);
     const day = DateTime.fromISO(datePart, { zone: tz });
     const targetDate = day.isValid ? day : DateTime.now().setZone(tz);
+    const now = DateTime.now().setZone(tz);
 
     let goals = await this.userGoalService.getGoalsForDateForUser(userId, targetDate, tz, {
       includeCompleted: true,
@@ -31,6 +34,17 @@ export class DashboardService {
       const a = String(areaId).trim();
       goals = goals.filter((g: any) => String(g.conquestType) === a);
     }
+
+    const isToday = isSameCalendarDay(targetDate, now, tz);
+    goals = goals.map((g: any) => {
+      const dailyStatus = resolveDailyStatusForDate(g, targetDate, tz, now);
+      return {
+        ...g,
+        dailyStatus,
+        reminder: g.reminder ? { ...g.reminder, dailyStatus } : g.reminder,
+        silenceUntil: isToday ? g.silenceUntil : null,
+      };
+    });
 
     return {
       date: datePart,

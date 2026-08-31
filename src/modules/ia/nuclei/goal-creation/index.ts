@@ -237,6 +237,20 @@ function sanitizeGoalPayload(
     };
   }
 
+  if (!scheduleConfig && !reminderTime) {
+    return {
+      ok: false,
+      reply:
+        'A que horas você quer que eu te lembre? Pode dizer um horário (ex: 08:00) ou em quanto tempo (ex: daqui 15 min).',
+      continuePayload: {
+        ...draft,
+        title,
+        goalType: normalizedGoalType,
+        conquestType: normalizedConquest,
+      },
+    };
+  }
+
   const payload: ValidatedGoalPayload = {
     title,
     description: description ?? 'Primeiro gesto que deu vida ao crescimento',

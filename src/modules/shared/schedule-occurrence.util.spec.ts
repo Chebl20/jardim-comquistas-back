@@ -2,6 +2,7 @@ import { DateTime } from 'luxon';
 import {
   expectedSlotCountForGoalOnDate,
   normalizeTimeToHHmm,
+  resolveDailyStatusForDate,
   scheduledTimesForGoalOnDate,
 } from './schedule-occurrence.util';
 
@@ -72,5 +73,65 @@ describe('normalizeTimeToHHmm', () => {
 
   it('retorna null para valor inválido', () => {
     expect(normalizeTimeToHHmm('invalid')).toBeNull();
+  });
+});
+
+describe('resolveDailyStatusForDate', () => {
+  const tz = 'America/Sao_Paulo';
+  const now = DateTime.fromISO('2026-08-26T15:00:00', { zone: tz });
+
+  const goalWithEvents = {
+    dailyStatus: 'DONE',
+    plantedTree: {
+      growthEvents: [
+        { createdAt: '2026-01-01T12:00:00.000Z', progressIndex: 1 },
+        { createdAt: '2026-08-25T14:00:00.000-03:00', progressIndex: 2 },
+      ],
+    },
+  };
+
+  it('não propaga DONE do banco para o dia seguinte sem colheita', () => {
+    const tomorrow = DateTime.fromISO('2026-08-27', { zone: tz });
+    expect(resolveDailyStatusForDate(goalWithEvents, tomorrow, tz, now)).toBe('PENDING');
+  });
+
+  it('retorna DONE hoje quando há colheita no dia', () => {
+    const today = DateTime.fromISO('2026-08-26', { zone: tz });
+    const goal = {
+      dailyStatus: 'DONE',
+      plantedTree: {
+        growthEvents: [
+          { createdAt: '2026-01-01T12:00:00.000Z', progressIndex: 1 },
+          { createdAt: '2026-08-26T14:00:00.000-03:00', progressIndex: 2 },
+        ],
+      },
+    };
+    expect(resolveDailyStatusForDate(goal, today, tz, now)).toBe('DONE');
+  });
+
+  it('retorna PENDING hoje se DONE no banco for de ontem', () => {
+    const today = DateTime.fromISO('2026-08-26', { zone: tz });
+    expect(
+      resolveDailyStatusForDate(
+        {
+          dailyStatus: 'DONE',
+          reminderUpdatedAt: '2026-08-25T20:00:00.000-03:00',
+          plantedTree: { growthEvents: [{ createdAt: '2026-01-01T12:00:00.000Z', progressIndex: 1 }] },
+        },
+        today,
+        tz,
+        now,
+      ),
+    ).toBe('PENDING');
+  });
+
+  it('retorna DONE no passado quando há growthEvent de conclusão no dia', () => {
+    const past = DateTime.fromISO('2026-08-25', { zone: tz });
+    expect(resolveDailyStatusForDate(goalWithEvents, past, tz, now)).toBe('DONE');
+  });
+
+  it('retorna PENDING no passado sem progresso no dia', () => {
+    const past = DateTime.fromISO('2026-08-24', { zone: tz });
+    expect(resolveDailyStatusForDate(goalWithEvents, past, tz, now)).toBe('PENDING');
   });
 });

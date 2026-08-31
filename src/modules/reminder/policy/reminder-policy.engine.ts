@@ -10,7 +10,11 @@ import {
 } from '../reminder.types';
 import type { ScheduleConfig } from '../../ia/conversation/flow.types';
 import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../../shared/weekday.util';
-import { isOnOrAfterGoalCreationDay, hasCancelledExceptionForDate } from '../../shared/schedule-occurrence.util';
+import {
+  isOnOrAfterGoalCreationDay,
+  hasCancelledExceptionForDate,
+  hasCompletionOnCalendarDay,
+} from '../../shared/schedule-occurrence.util';
 import { getGroupLastOperationalAt } from '../grouping/reminder-group.util';
 import type { ReminderGroup } from '../grouping/reminder-group.util';
 
@@ -65,7 +69,12 @@ export class ReminderPolicyEngine {
     }
 
     if (status === REMINDER_STATUSES.DONE) {
-      return this.wait('already_done_today');
+      const doneToday =
+        hasCompletionOnCalendarDay(goal, now, timezone) ||
+        this.reminderUpdatedToday(goal, now, timezone);
+      if (doneToday) {
+        return this.wait('already_done_today');
+      }
     }
 
     if (silenceUntil && silenceUntil > now) {
@@ -386,6 +395,17 @@ export class ReminderPolicyEngine {
 
   private wait(reason: string): ReminderPolicyDecision {
     return { action: REMINDER_POLICY_ACTIONS.WAIT, reason };
+  }
+
+  private reminderUpdatedToday(
+    goal: ReminderGoalRecord,
+    now: DateTime,
+    timezone: string,
+  ): boolean {
+    const raw = goal.reminderUpdatedAt;
+    if (!raw) return false;
+    const at = this.toDateTime(raw, timezone);
+    return !!at && at.startOf('day').hasSame(now.setZone(timezone).startOf('day'), 'day');
   }
 
   private isPontual(goal: ReminderGoalRecord) {

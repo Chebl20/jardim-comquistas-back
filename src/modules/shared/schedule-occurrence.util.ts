@@ -132,6 +132,82 @@ export function scheduledTimesForGoalOnDate(goal: GoalLike, day: DateTime, tz: s
   return [];
 }
 
+type GrowthEventLike = {
+  id?: string;
+  createdAt: Date | string;
+  progressIndex?: number;
+};
+
+type GoalDailyStatusLike = {
+  dailyStatus?: string | null;
+  reminderUpdatedAt?: Date | string | null;
+  reminder?: { updatedAt?: Date | string | null; dailyStatus?: string | null } | null;
+  plantedTree?: {
+    growthEvents?: GrowthEventLike[];
+  } | null;
+};
+
+/** Mesmo dia civil no fuso `tz`. */
+export function isSameCalendarDay(a: DateTime, b: DateTime, tz: string): boolean {
+  return a.setZone(tz).startOf('day').hasSame(b.setZone(tz).startOf('day'), 'day');
+}
+
+/** Há colheita/conclusão no dia civil (ignora o plantio inicial progressIndex=1). */
+export function hasCompletionOnCalendarDay(
+  goal: GoalDailyStatusLike,
+  targetDate: DateTime,
+  tz: string,
+): boolean {
+  const events = goal.plantedTree?.growthEvents ?? [];
+  if (events.length === 0) return false;
+
+  const sorted = [...events].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+  const initialEvent = sorted[0]?.progressIndex === 1 ? sorted[0] : null;
+  const dayStart = targetDate.setZone(tz).startOf('day');
+  const dayEnd = targetDate.setZone(tz).endOf('day');
+
+  return sorted.some((ev) => {
+    if (initialEvent && ev === initialEvent) return false;
+    const at = DateTime.fromJSDate(new Date(ev.createdAt)).setZone(tz);
+    return at >= dayStart && at <= dayEnd;
+  });
+}
+
+function reminderTouchedOnDay(goal: GoalDailyStatusLike, day: DateTime, tz: string): boolean {
+  const raw = goal.reminderUpdatedAt ?? goal.reminder?.updatedAt ?? null;
+  if (!raw) return false;
+  const at = DateTime.fromJSDate(new Date(raw)).setZone(tz);
+  return at.isValid && isSameCalendarDay(at, day, tz);
+}
+
+/**
+ * dailyStatus contextual à data consultada (não é o valor bruto do GoalReminder).
+ * CONTINUA + DAILY: conclusão é por dia civil. DONE de ontem não pinta amanhã.
+ */
+export function resolveDailyStatusForDate(
+  goal: GoalDailyStatusLike,
+  targetDate: DateTime,
+  tz: string,
+  now: DateTime = DateTime.now(),
+): string | null {
+  if (hasCompletionOnCalendarDay(goal, targetDate, tz)) return 'DONE';
+
+  const targetDay = targetDate.setZone(tz).startOf('day');
+  const today = now.setZone(tz).startOf('day');
+
+  if (targetDay.hasSame(today, 'day')) {
+    const live = goal.dailyStatus ?? goal.reminder?.dailyStatus ?? null;
+    if (live === 'DONE') {
+      return reminderTouchedOnDay(goal, today, tz) ? 'DONE' : 'PENDING';
+    }
+    return live ?? 'PENDING';
+  }
+
+  return 'PENDING';
+}
+
 /**
  * Semana que contém `anchor`: segunda 00:00 até domingo 23:59:59 no fuso `tz`.
  * `nextMonday` (exclusivo) facilita queries `createdAt < nextMonday`.

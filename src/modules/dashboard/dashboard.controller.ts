@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@ne
 import { DashboardService } from './dashboard.service';
 import { AuthGuard } from '../../auth/auth.guard';
 import { DashboardWeekResponseDto } from './dto/dashboard-week.response';
+import { DashboardDayResponseDto } from './dto/dashboard-day.response';
 
 @ApiTags('Dashboard')
 @Controller('api/dashboard')
@@ -16,8 +17,9 @@ export class DashboardController {
     summary: 'Dashboard principal',
     description:
       'Retorna informações agregadas para a visão diária, semanal ou mensal. ' +
-      'Na visão semanal (`period=week`), cada meta em `weekGrid[].goals` inclui `times` (HH:mm) ' +
-      'para posicionamento na grade horária.',
+      'Na visão day (`period=day`), `goals[].dailyStatus` e `goals[].reminder.dailyStatus` ' +
+      'refletem a `date` consultada (DONE só no dia da conclusão; senão PENDING). ' +
+      'Na visão week (`period=week`), cada meta em `weekGrid[].goals` inclui `times` (HH:mm).',
   })
   @ApiQuery({ name: 'period', required: true, description: 'day, week, ou month', example: 'week' })
   @ApiQuery({
@@ -30,7 +32,12 @@ export class DashboardController {
   @ApiQuery({ name: 'areaId', required: false, description: 'Filtro por área de conquista (ex: Corpo, Mente)' })
   @ApiResponse({
     status: 200,
-    description: 'Visão semanal: weekGrid com metas e horários (times) por dia.',
+    description: 'Visão day: metas do dia com dailyStatus contextual à date.',
+    type: DashboardDayResponseDto,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Visão week: weekGrid com metas e horários (times) por dia.',
     type: DashboardWeekResponseDto,
   })
   async getDashboard(
