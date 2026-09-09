@@ -45,11 +45,15 @@ export function extractAssetKey(
     return null;
   }
 
-  if (url.hostname.includes('supabase.co') && url.pathname.includes('/storage/v1/object/public/')) {
+  if (
+    url.hostname.includes('supabase.co') &&
+    url.pathname.includes('/storage/v1/object/public/')
+  ) {
     return null;
   }
 
-  const bucket = options.bucket || process.env.S3_BUCKET || 'jardim-das-conquistas';
+  const bucket =
+    options.bucket || process.env.S3_BUCKET || 'jardim-das-conquistas';
   const endpoint = options.endpoint || process.env.S3_ENDPOINT;
   const pathname = url.pathname;
   const marker = `/${bucket}/`;
@@ -67,5 +71,8 @@ export function extractAssetKey(
 }
 
 export function isSupabasePublicUrl(value: string): boolean {
-  return typeof value === 'string' && value.includes('supabase.co/storage/v1/object/public/');
+  return (
+    typeof value === 'string' &&
+    value.includes('supabase.co/storage/v1/object/public/')
+  );
 }

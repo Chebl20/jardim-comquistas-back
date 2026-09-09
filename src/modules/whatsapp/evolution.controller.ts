@@ -8,7 +8,12 @@ import {
   Logger,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthGuard } from '../../auth/auth.guard';
 import { WhatsAppService } from './whatsapp.service';
@@ -35,7 +40,10 @@ export class EvolutionController {
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Status da instância Evolution API' })
-  @ApiResponse({ status: 200, description: 'Status atual da instância Evolution API.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Status atual da instância Evolution API.',
+  })
   async status() {
     if (!this.evolution.isConfigured()) {
       return {

@@ -1,9 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, forwardRef } from '@nestjs/common';
 import { UserGoalService } from '../../goals/user-goal.service';
 import { WorldsEventsService } from '../../worlds/worlds.events.service';
 import { normalizeConquestType } from '../conquest-type.enum';
 import { normalizeGoalType } from '../goal-type.util';
-import { Action, CreateGoalAction, FlowState, ValidatedGoalPayload } from './flow.types';
+import {
+  Action,
+  CreateGoalAction,
+  FlowState,
+  ValidatedGoalPayload,
+} from './flow.types';
 import { ConversationStateService } from './conversation-state.service';
 
 export interface ActionExecutionResult {
@@ -11,13 +16,24 @@ export interface ActionExecutionResult {
   redirectedTo?: FlowState;
 }
 
-function isValidatedGoalPayload(payload: ValidatedGoalPayload | null | undefined): payload is ValidatedGoalPayload {
+function isValidatedGoalPayload(
+  payload: ValidatedGoalPayload | null | undefined,
+): payload is ValidatedGoalPayload {
   if (!payload) return false;
   if (typeof payload.title !== 'string' || !payload.title.trim()) return false;
   if (normalizeGoalType(payload.goalType) !== payload.goalType) return false;
-  if (normalizeConquestType(payload.conquestType) !== payload.conquestType) return false;
-  if (payload.frequency !== undefined && (!Number.isInteger(payload.frequency) || payload.frequency <= 0)) return false;
-  if (payload.reminderTime !== undefined && typeof payload.reminderTime !== 'string') return false;
+  if (normalizeConquestType(payload.conquestType) !== payload.conquestType)
+    return false;
+  if (
+    payload.frequency !== undefined &&
+    (!Number.isInteger(payload.frequency) || payload.frequency <= 0)
+  )
+    return false;
+  if (
+    payload.reminderTime !== undefined &&
+    typeof payload.reminderTime !== 'string'
+  )
+    return false;
   if (payload.scheduleConfig !== undefined && payload.scheduleConfig !== null) {
     const sc = payload.scheduleConfig as {
       type?: string;
@@ -27,14 +43,22 @@ function isValidatedGoalPayload(payload: ValidatedGoalPayload | null | undefined
       dayOfMonth?: unknown;
       durationDays?: unknown;
     };
-    if (!sc.type || !['once', 'daily', 'weekly', 'monthly'].includes(sc.type)) return false;
-    if (sc.type === 'once' && (typeof sc.at !== 'string' || !sc.at.trim())) return false;
+    if (!sc.type || !['once', 'daily', 'weekly', 'monthly'].includes(sc.type))
+      return false;
+    if (sc.type === 'once' && (typeof sc.at !== 'string' || !sc.at.trim()))
+      return false;
     if (sc.type === 'daily') {
-      if (!Array.isArray(sc.times) || sc.times.length === 0 || !sc.times.every((t) => typeof t === 'string'))
+      if (
+        !Array.isArray(sc.times) ||
+        sc.times.length === 0 ||
+        !sc.times.every((t) => typeof t === 'string')
+      )
         return false;
       if (
         sc.durationDays !== undefined &&
-        (typeof sc.durationDays !== 'number' || !Number.isInteger(sc.durationDays) || sc.durationDays < 1)
+        (typeof sc.durationDays !== 'number' ||
+          !Number.isInteger(sc.durationDays) ||
+          sc.durationDays < 1)
       )
         return false;
     }
@@ -42,17 +66,29 @@ function isValidatedGoalPayload(payload: ValidatedGoalPayload | null | undefined
       if (
         !Array.isArray(sc.daysOfWeek) ||
         sc.daysOfWeek.length === 0 ||
-        !sc.daysOfWeek.every((d) => typeof d === 'number' && Number.isInteger(d))
+        !sc.daysOfWeek.every(
+          (d) => typeof d === 'number' && Number.isInteger(d),
+        )
       )
         return false;
-      if (!Array.isArray(sc.times) || sc.times.length === 0 || !sc.times.every((t) => typeof t === 'string'))
+      if (
+        !Array.isArray(sc.times) ||
+        sc.times.length === 0 ||
+        !sc.times.every((t) => typeof t === 'string')
+      )
         return false;
     }
     if (sc.type === 'monthly') {
       const dom =
-        typeof sc.dayOfMonth === 'number' ? sc.dayOfMonth : parseInt(String(sc.dayOfMonth), 10);
+        typeof sc.dayOfMonth === 'number'
+          ? sc.dayOfMonth
+          : parseInt(String(sc.dayOfMonth), 10);
       if (!Number.isInteger(dom) || dom < 1 || dom > 31) return false;
-      if (!Array.isArray(sc.times) || sc.times.length === 0 || !sc.times.every((t) => typeof t === 'string'))
+      if (
+        !Array.isArray(sc.times) ||
+        sc.times.length === 0 ||
+        !sc.times.every((t) => typeof t === 'string')
+      )
         return false;
     }
   }
@@ -61,7 +97,8 @@ function isValidatedGoalPayload(payload: ValidatedGoalPayload | null | undefined
     typeof payload.scheduleConfig === 'object' &&
     typeof (payload.scheduleConfig as { type?: string }).type === 'string';
   const hasReminderTime =
-    typeof payload.reminderTime === 'string' && payload.reminderTime.trim().length > 0;
+    typeof payload.reminderTime === 'string' &&
+    payload.reminderTime.trim().length > 0;
   if (!hasSchedule && !hasReminderTime) return false;
   return true;
 }
@@ -72,7 +109,9 @@ export class ConversationActionExecutorService {
 
   constructor(
     private readonly stateService: ConversationStateService,
+    @Inject(forwardRef(() => UserGoalService))
     private readonly userGoalService: UserGoalService,
+    @Inject(forwardRef(() => WorldsEventsService))
     private readonly worldsEventsService: WorldsEventsService,
   ) {}
 
@@ -85,21 +124,31 @@ export class ConversationActionExecutorService {
     let redirectedTo: FlowState | undefined;
 
     try {
-      const brief = actions.map(a => ({ type: a.type, text: (a as { text?: string }).text ?? null }));
-      this.logger.log(`execute: user=${userId} actions=${JSON.stringify(brief)}`);
+      const brief = actions.map((a) => ({
+        type: a.type,
+        text: (a as { text?: string }).text ?? null,
+      }));
+      this.logger.log(
+        `execute: user=${userId} actions=${JSON.stringify(brief)}`,
+      );
     } catch (_) {}
 
     for (const action of actions) {
       const t0 = Date.now();
       if (action.type === 'reply') {
         reply = action.text ?? reply;
-        await this.stateService.appendAssistantMessage(userId, action.text ?? '');
+        await this.stateService.appendAssistantMessage(
+          userId,
+          action.text ?? '',
+        );
       } else {
         const res = await this.applyAction(userId, action, worldId);
         if (res?.redirectedTo) redirectedTo = res.redirectedTo;
         if (res?.reply) reply = res.reply;
       }
-      this.logger.debug(`processed action ${action.type} in ${Date.now() - t0}ms`);
+      this.logger.debug(
+        `processed action ${action.type} in ${Date.now() - t0}ms`,
+      );
     }
 
     return { reply, redirectedTo };
@@ -113,28 +162,37 @@ export class ConversationActionExecutorService {
     switch (action.type) {
       case 'continue': {
         const extra: Record<string, unknown> =
-          action.payload && typeof action.payload === 'object' ? (action.payload as Record<string, unknown>) : {};
+          action.payload && typeof action.payload === 'object'
+            ? (action.payload as Record<string, unknown>)
+            : {};
         await this.stateService.continueFlow(userId, extra, action.to);
         return {};
       }
 
       case 'redirect': {
         const extra: Record<string, unknown> =
-          action.payload && typeof action.payload === 'object' ? (action.payload as Record<string, unknown>) : {};
+          action.payload && typeof action.payload === 'object'
+            ? (action.payload as Record<string, unknown>)
+            : {};
         await this.stateService.redirectFlow(userId, action.to, extra);
         return { redirectedTo: action.to };
       }
 
       case 'create_goal': {
-        const createAction = action as CreateGoalAction;
+        const createAction = action;
         const goalData = createAction.payload;
-        this.logger.debug(`create_goal action received; payload=${JSON.stringify(goalData)}`);
+        this.logger.debug(
+          `create_goal action received; payload=${JSON.stringify(goalData)}`,
+        );
 
         if (!isValidatedGoalPayload(goalData)) {
           this.logger.error(
             `create_goal blocked at executor due to invalid payload=${JSON.stringify(goalData)}`,
           );
-          await this.stateService.appendAssistantMessage(userId, createAction.failureReply);
+          await this.stateService.appendAssistantMessage(
+            userId,
+            createAction.failureReply,
+          );
           await this.stateService.resetFlow(userId);
           return { reply: createAction.failureReply };
         }
@@ -146,17 +204,24 @@ export class ConversationActionExecutorService {
             worldId,
             scheduleConfig: goalData.scheduleConfig ?? undefined,
           };
-          const created = await this.userGoalService.createUserGoalWithTree(createData);
+          const created =
+            await this.userGoalService.createUserGoalWithTree(createData);
           this.logger.log(
             `create_goal: created id=${(created as { id?: string; plantedTreeId?: string })?.id} plantedTreeId=${(created as { plantedTreeId?: string })?.plantedTreeId || 'n/a'}`,
           );
 
-          await this.stateService.appendAssistantMessage(userId, createAction.successReply);
+          await this.stateService.appendAssistantMessage(
+            userId,
+            createAction.successReply,
+          );
           await this.stateService.resetFlow(userId);
           return { reply: createAction.successReply };
         } catch (error) {
           this.logger.error('create_goal action failed', error);
-          await this.stateService.appendAssistantMessage(userId, createAction.failureReply);
+          await this.stateService.appendAssistantMessage(
+            userId,
+            createAction.failureReply,
+          );
           await this.stateService.resetFlow(userId);
           return { reply: createAction.failureReply };
         }
@@ -171,7 +236,11 @@ export class ConversationActionExecutorService {
         try {
           const { goalId, goalTitle, goalType, userMessage } = action.payload;
           if (goalId) {
-            await this.userGoalService.markGoalDoneFromReminder(goalId, goalType);
+            await this.userGoalService.markGoalDoneFromReminder(
+              goalId,
+              userId,
+              goalType,
+            );
             this.logger.log(`Goal ${goalId} marked done via reminder`);
           }
           try {
@@ -181,7 +250,10 @@ export class ConversationActionExecutorService {
               userMessage,
             });
           } catch (inner) {
-            this.logger.warn('failed to record growth event after reminder', inner);
+            this.logger.warn(
+              'failed to record growth event after reminder',
+              inner,
+            );
           }
         } catch (e) {
           this.logger.error('mark_done action failed', e);
@@ -190,10 +262,11 @@ export class ConversationActionExecutorService {
       }
 
       case 'update_reminder': {
-        const { goalId, dailyStatus, silenceUntil, clearSession } = action.payload;
+        const { goalId, dailyStatus, silenceUntil, clearSession } =
+          action.payload;
         try {
           if (goalId) {
-            await this.userGoalService.updateReminderState(goalId, {
+            await this.userGoalService.updateReminderState(goalId, userId, {
               dailyStatus,
               silenceUntil:
                 typeof silenceUntil === 'string'
@@ -216,8 +289,13 @@ export class ConversationActionExecutorService {
           if (Array.isArray(goals) && goals.length > 0) {
             for (const g of goals) {
               if (g?.id) {
-                await this.userGoalService.markGoalDoneFromReminder(g.id);
-                this.logger.log(`Goal ${g.id} marked done via mark_multiple_done`);
+                await this.userGoalService.markGoalDoneFromReminder(
+                  g.id,
+                  userId,
+                );
+                this.logger.log(
+                  `Goal ${g.id} marked done via mark_multiple_done`,
+                );
                 try {
                   await this.worldsEventsService.progressPlantedTree(worldId, {
                     goalId: g.id,
@@ -225,7 +303,10 @@ export class ConversationActionExecutorService {
                     userMessage,
                   });
                 } catch (inner) {
-                  this.logger.warn('failed to record growth event after mark_multiple_done', inner);
+                  this.logger.warn(
+                    'failed to record growth event after mark_multiple_done',
+                    inner,
+                  );
                 }
               }
             }
@@ -237,7 +318,10 @@ export class ConversationActionExecutorService {
       }
 
       case 'dismiss_goal_for_today': {
-        const { goalId, silenceUntil } = (action.payload as { goalId: string; silenceUntil?: string | Date });
+        const { goalId } = action.payload as {
+          goalId: string;
+          silenceUntil?: string | Date;
+        };
         try {
           if (goalId) {
             // 🔴 Validar se goal existe antes de atualizar reminder
@@ -249,11 +333,8 @@ export class ConversationActionExecutorService {
               return {};
             }
 
-            const until = typeof silenceUntil === 'string' ? new Date(silenceUntil) : silenceUntil;
-            await this.userGoalService.updateReminderState(goalId, {
-              silenceUntil: until ?? undefined,
-            });
-            this.logger.log(`Goal ${goalId} dismissed for today until ${until}`);
+            await this.userGoalService.skipGoalForToday(goalId, userId);
+            this.logger.log(`Goal ${goalId} skipped for today (SKIPPED + EOD)`);
           }
         } catch (e) {
           this.logger.error('dismiss_goal_for_today action failed', e);

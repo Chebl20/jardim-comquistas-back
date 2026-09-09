@@ -25,7 +25,8 @@ export class StorageService {
     this.bucket = process.env.S3_BUCKET || '';
     this.expiresIn = Number(process.env.S3_PRESIGNED_EXPIRES || 3600);
     this.useAssetProxy =
-      process.env.S3_ASSET_PROXY === 'true' || process.env.S3_ASSET_PROXY === '1';
+      process.env.S3_ASSET_PROXY === 'true' ||
+      process.env.S3_ASSET_PROXY === '1';
     this.publicBaseUrl = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 
     this.client = new S3Client({
@@ -41,7 +42,9 @@ export class StorageService {
 
   buildProxyUrl(key: string): string {
     if (!this.publicBaseUrl) {
-      throw new Error('PUBLIC_BASE_URL is required when S3_ASSET_PROXY is enabled');
+      throw new Error(
+        'PUBLIC_BASE_URL is required when S3_ASSET_PROXY is enabled',
+      );
     }
     const encoded = key
       .split('/')
@@ -138,7 +141,9 @@ export class StorageService {
     return result;
   }
 
-  async signTreeCatalog<T extends { stages?: any }>(catalog: T | null | undefined): Promise<T | null | undefined> {
+  async signTreeCatalog<T extends { stages?: any }>(
+    catalog: T | null | undefined,
+  ): Promise<T | null | undefined> {
     if (!catalog) return catalog;
     return {
       ...catalog,
@@ -146,7 +151,9 @@ export class StorageService {
     };
   }
 
-  async signPlantedTree<T extends { treeCatalog?: any }>(planted: T | null | undefined): Promise<T | null | undefined> {
+  async signPlantedTree<T extends { treeCatalog?: any }>(
+    planted: T | null | undefined,
+  ): Promise<T | null | undefined> {
     if (!planted?.treeCatalog) return planted;
     return {
       ...planted,

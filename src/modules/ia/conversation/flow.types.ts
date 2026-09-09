@@ -1,5 +1,7 @@
-import type { ConquestType } from '../conquest-type.enum';
-import type { GoalType } from '../goal-type.util';
+import type { ConquestType } from '../../../domain/types/conquest-type';
+import type { GoalType } from '../../../domain/types/goal-type';
+import type { ScheduleConfig } from '../../../domain/types/schedule-config.type';
+export type { ScheduleConfig };
 
 // `FlowState` representa o estado atual/nícleo ativo do orquestrador.
 // NÃO é a mesma coisa que `Intent` — uma `Intent` é uma intenção explícita
@@ -11,8 +13,7 @@ export const FLOW_STATES = {
   GOAL_STATUS: 'GOAL_STATUS',
   GOAL_PROGRESS: 'GOAL_PROGRESS',
 } as const;
-export type FlowState = typeof FLOW_STATES[keyof typeof FLOW_STATES];
-
+export type FlowState = (typeof FLOW_STATES)[keyof typeof FLOW_STATES];
 
 // ações discriminadas usadas em todo o fluxo
 export interface ReplyAction {
@@ -30,17 +31,12 @@ export interface ContinueAction {
 export interface RedirectAction {
   type: 'redirect';
   to: FlowState;
-  payload?: Record<string, any> | { payload?: Record<string, any>; missing?: string[] };
+  payload?:
+    | Record<string, any>
+    | { payload?: Record<string, any>; missing?: string[] };
 }
 
-// scheduleConfig: estrutura de agendamento de lembretes.
-// Regra de formato: once.at = ISO completo (momento absoluto); daily/weekly.times = HH:MM (horário do dia).
-export type ScheduleConfig =
-  | { type: 'once'; at: string }
-  | { type: 'daily'; times: string[]; durationDays?: number }
-  | { type: 'weekly'; daysOfWeek: number[]; times: string[] }
-  | { type: 'monthly'; dayOfMonth: number; times: string[] };
-
+// scheduleConfig: veja src/domain/types/schedule-config.type.ts (definição canônica).
 // payload flexível produzido pelo LLM; ainda precisa de saneamento antes
 // de chegar à camada de persistência.
 export interface DraftGoalPayload {
@@ -155,7 +151,8 @@ export const CLASSIFICATIONS = {
   SNOOZE: 'snooze',
   DISMISS: 'dismiss',
 } as const;
-export type Classification = typeof CLASSIFICATIONS[keyof typeof CLASSIFICATIONS];
+export type Classification =
+  (typeof CLASSIFICATIONS)[keyof typeof CLASSIFICATIONS];
 
 // intents explícitas que podem ser sinalizadas pelos núcleos ao roteador
 export const INTENTS = {
@@ -167,7 +164,7 @@ export const INTENTS = {
   CANCEL_FLOW: 'CANCEL_FLOW',
   OPEN_CLARIFICATION: 'OPEN_CLARIFICATION',
 } as const;
-export type Intent = typeof INTENTS[keyof typeof INTENTS];
+export type Intent = (typeof INTENTS)[keyof typeof INTENTS];
 
 // lista oficial de decisões de domínio retornáveis pelos núcleos
 export const DECISIONS = {
@@ -175,7 +172,7 @@ export const DECISIONS = {
   NOT_MY_JOB: 'not_my_job',
   UNCERTAIN: 'uncertain',
 } as const;
-export type Decision = typeof DECISIONS[keyof typeof DECISIONS];
+export type Decision = (typeof DECISIONS)[keyof typeof DECISIONS];
 
 // contrato formalizado de resultado de núcleo
 export type FlowResult<A extends Action = Action> = {

@@ -1,10 +1,16 @@
-import { Inject, Injectable, Logger, OnModuleInit, forwardRef } from '@nestjs/common';
-import { UserLinkService } from '../users/user-link.service';
-import { RateLimiterService } from '../shared/rate-limiter.service';
-import { ConversationOrchestratorService } from '../ia/conversation/conversation-orchestrator.service';
-import { DailyDigestService } from '../daily-digest/daily-digest.service';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  forwardRef,
+} from '@nestjs/common';
+import { InboundMessagePipeline } from '../inbound/inbound-message-pipeline';
 import { EvolutionClient, EvolutionSendTextError } from './evolution.client';
-import type { ConfigureEvolutionResult, ConfigureEvolutionStepResult } from './evolution.types';
+import type {
+  ConfigureEvolutionResult,
+  ConfigureEvolutionStepResult,
+} from './evolution.types';
 import {
   buildReplyContextFromEventInfo,
   buildSendTextTargets,
@@ -19,8 +25,6 @@ import {
   EvolutionWebhookPayload,
 } from './whatsapp-webhook.util';
 
-const MANUAL_DIGEST_TRIGGER = 'DISPARO DE MSG DIARIA';
-
 @Injectable()
 export class WhatsAppService implements OnModuleInit {
   private readonly logger = new Logger(WhatsAppService.name);
@@ -28,11 +32,8 @@ export class WhatsAppService implements OnModuleInit {
 
   constructor(
     private readonly evolution: EvolutionClient,
-    private readonly userLinkService: UserLinkService,
-    private readonly rateLimiter: RateLimiterService,
-    private readonly interpreterManager: ConversationOrchestratorService,
-    @Inject(forwardRef(() => DailyDigestService))
-    private readonly dailyDigestService: DailyDigestService,
+    @Inject(forwardRef(() => InboundMessagePipeline))
+    private readonly inbound: InboundMessagePipeline,
   ) {}
 
   async onModuleInit() {
@@ -44,8 +45,7 @@ export class WhatsAppService implements OnModuleInit {
     const publicBase = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
     if (!publicBase) return null;
 
-    const path =
-      process.env.EVOLUTION_WEBHOOK_PATH || '/api/evolution/webhook';
+    const path = process.env.EVOLUTION_WEBHOOK_PATH || '/api/evolution/webhook';
     return `${publicBase}${path.startsWith('/') ? path : `/${path}`}`;
   }
 
@@ -59,7 +59,8 @@ export class WhatsAppService implements OnModuleInit {
 
   shouldAutoConnect(): boolean {
     return (
-      String(process.env.EVOLUTION_AUTO_CONNECT ?? 'true').toLowerCase() !== 'false'
+      String(process.env.EVOLUTION_AUTO_CONNECT ?? 'true').toLowerCase() !==
+      'false'
     );
   }
 
@@ -105,7 +106,10 @@ export class WhatsAppService implements OnModuleInit {
         };
       }
     } else {
-      result.connect = { ok: true, error: 'skipped (EVOLUTION_AUTO_CONNECT=false)' };
+      result.connect = {
+        ok: true,
+        error: 'skipped (EVOLUTION_AUTO_CONNECT=false)',
+      };
     }
 
     try {
@@ -139,18 +143,27 @@ export class WhatsAppService implements OnModuleInit {
     const connectData = result.connect.data as { error?: string } | undefined;
     if (connectData?.error?.toLowerCase().includes('already connected')) {
       this.logger.log('Instância Evolution já estava conectada');
-    } else if (result.connect.ok && !result.connect.error?.startsWith('skipped')) {
+    } else if (
+      result.connect.ok &&
+      !result.connect.error?.startsWith('skipped')
+    ) {
       this.logger.log(
         `Instância Evolution conectada: webhookUrl=${result.webhookUrl}, eventos=${this.getSubscribeEvents().join(',')}`,
       );
     } else if (!result.connect.ok) {
-      this.logger.warn(`Falha ao conectar instância Evolution: ${result.connect.error}`);
+      this.logger.warn(
+        `Falha ao conectar instância Evolution: ${result.connect.error}`,
+      );
     }
 
     if (result.verify.ok) {
-      this.logger.log(`Status Evolution verificado: ${JSON.stringify(result.verify.data)}`);
+      this.logger.log(
+        `Status Evolution verificado: ${JSON.stringify(result.verify.data)}`,
+      );
     } else {
-      this.logger.warn(`Falha ao verificar status Evolution: ${result.verify.error}`);
+      this.logger.warn(
+        `Falha ao verificar status Evolution: ${result.verify.error}`,
+      );
     }
   }
 
@@ -240,7 +253,9 @@ export class WhatsAppService implements OnModuleInit {
     rawBody?: Buffer;
     signatureHeader?: string | string[];
     headerToken?: string;
-  }): { ok: true; payload: EvolutionWebhookPayload } | { ok: false; reason: string } {
+  }):
+    | { ok: true; payload: EvolutionWebhookPayload }
+    | { ok: false; reason: string } {
     const expectedToken = process.env.EVOLUTION_API_KEY || '';
 
     const payload = parseWebhookBody(params.body, params.rawBody);
@@ -310,18 +325,7 @@ export class WhatsAppService implements OnModuleInit {
       `[WHATSAPP] target=${replyTarget}, phone=${phone ?? 'n/a'}, text=${text}`,
     );
 
-    if (typeof text !== 'string') {
-      await this.sendReply(
-        replyTarget,
-        'Envie uma mensagem de texto.',
-        'whatsapp-service',
-        info,
-        undefined,
-      );
-      return;
-    }
-
-    if (!phone) {
+    if (typeof text === 'string' && !phone) {
       await this.sendReply(
         replyTarget,
         'Não consegui identificar seu número WhatsApp. Tente enviar o código novamente em alguns segundos.',
@@ -332,161 +336,28 @@ export class WhatsAppService implements OnModuleInit {
       return;
     }
 
-    const user = await this.userLinkService.getUserByWhatsappId(phone);
-    if (!user) {
-      if (/^[a-f0-9]{8}$/i.test(text.trim())) {
-        try {
-          const linkedUser = await this.userLinkService.linkWhatsApp(
-            text.trim(),
-            phone,
-          );
-          const nome = linkedUser?.name || '';
-          this.logger.log(
-            `[WHATSAPP] Vinculação realizada: phone=${phone}, userId=${linkedUser.id}${nome ? `, name=${nome}` : ''}`,
-          );
-          await this.sendReply(
-            replyTarget,
-            `✅ Vinculação realizada com sucesso${nome ? ', ' + nome : ''}! Agora você pode criar suas metas.`,
-            'whatsapp-service',
-            info,
-            text,
-          );
-        } catch (e) {
-          this.logger.log(
-            `[WHATSAPP] Vinculação recusada: phone=${phone}, code=${text.trim()}`,
-          );
-          await this.sendReply(
-            replyTarget,
-            '❌ Código de vinculação inválido. Gere um novo código no app/web e envie aqui.',
-            'whatsapp-service',
-            info,
-            text,
-          );
-        }
-      } else {
-        await this.sendReply(
-          replyTarget,
-          '👋 Olá! Para começar, envie aqui o código de acesso gerado no app/web para vincular sua conta.',
-          'whatsapp-service',
-          info,
-          text,
-        );
-      }
-      return;
-    }
+    const quoted = typeof text === 'string' ? text : undefined;
+    const presenceTarget =
+      buildSendTextTargets(replyTarget, info)[0] || replyTarget;
 
-    await this.userLinkService.setPreferredChannel(user.id, 'WHATSAPP');
-
-    if (text.trim().toUpperCase() === MANUAL_DIGEST_TRIGGER) {
-      try {
-        const msg = await this.dailyDigestService.sendDigestForUser(user.id);
-        if (!msg) {
-          await this.sendReply(
-            replyTarget,
-            'Não foi possível enviar o resumo. Verifique se você tem metas com lembretes.',
-            'whatsapp-service',
-            info,
-            text,
-          );
-        }
-      } catch (e) {
-        this.logger.warn('Manual digest trigger failed', e);
-        await this.sendReply(
-          replyTarget,
-          'Erro ao gerar o resumo diário.',
-          'whatsapp-service',
-          info,
-          text,
-        );
-      }
-      return;
-    }
-
-    try {
-      const presenceTarget =
-        buildSendTextTargets(replyTarget, info)[0] || replyTarget;
-      this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
-      let typingInterval: ReturnType<typeof setInterval> = setInterval(() => {
-        this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
-      }, 4000);
-
-      try {
-        const limit = Number(process.env.RATE_LIMIT_MESSAGES_PER_MINUTE || 5);
-        await this.rateLimiter.isAllowed(`wa:${user.id}`, limit, 60);
-      } catch (e) {
-        this.logger.warn('Rate limiter falhou, continuando', e);
-      }
-
-      const onAck = async (msg: string) => {
-        clearInterval(typingInterval);
-        await this.sendReply(replyTarget, msg, undefined, info, text);
-        this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
-        typingInterval = setInterval(() => {
-          this.evolution.setPresence(presenceTarget, 'composing').catch(() => {});
-        }, 4000);
-      };
-
-      let outcome: any = null;
-      try {
-        outcome = await this.interpreterManager.handle({
-          userId: user.id,
-          userMessage: text,
-          onAck,
-        });
-      } catch (e) {
-        this.logger.warn('InterpreterManager failed', e);
-      } finally {
-        clearInterval(typingInterval);
-        this.evolution.setPresence(presenceTarget, 'paused').catch(() => {});
-      }
-
-      if (!outcome) {
-        this.logger.warn(
-          '[WHATSAPP] Orchestrator não retornou resposta; enviando fallback',
-        );
-        await this.sendReply(
-          replyTarget,
-          'Não consegui processar sua mensagem agora. Tente novamente em instantes.',
-          'whatsapp-service',
-          info,
-          text,
-        );
-        return;
-      }
-
-      if (outcome.reply) {
-        await this.sendReply(
-          replyTarget,
-          outcome.reply,
-          outcome.origin || 'orchestrator',
-          info,
-          text,
-        );
-      }
-
-      if (
-        outcome.kind === 'interpret' &&
-        outcome.result &&
-        outcome.result.suggestedReply
-      ) {
-        await this.sendReply(
-          replyTarget,
-          outcome.result.suggestedReply,
-          outcome.result.origin || 'orchestrator',
-          info,
-          text,
-        );
-      }
-    } catch (e) {
-      try {
-        await this.sendReply(
-          replyTarget,
-          'Erro ao processar sua mensagem.',
-          'whatsapp-service',
-          info,
-          text,
-        );
-      } catch (_) {}
-    }
+    await this.inbound.handleInbound({
+      channel: 'WHATSAPP',
+      channelUserId: phone ?? '',
+      text: typeof text === 'string' ? text : null,
+      transport: {
+        send: (body, origin) =>
+          this.sendReply(replyTarget, body, origin, info, quoted),
+        startTyping: () => {
+          this.evolution
+            .setPresence(presenceTarget, 'composing')
+            .catch(() => {});
+        },
+        stopTyping: () => {
+          this.evolution
+            .setPresence(presenceTarget, 'paused')
+            .catch(() => {});
+        },
+      },
+    });
   }
 }

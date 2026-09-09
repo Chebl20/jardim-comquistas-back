@@ -24,11 +24,27 @@ export function pickGoalEmoji(conquestType?: string, title?: string): string {
   }
   if (title) {
     const t = title.toLowerCase();
-    if (t.includes('remédio') || t.includes('remedio') || t.includes('medicamento')) return '💊';
+    if (
+      t.includes('remédio') ||
+      t.includes('remedio') ||
+      t.includes('medicamento')
+    )
+      return '💊';
     if (t.includes('ler') || t.includes('leitura')) return '📚';
-    if (t.includes('treinar') || t.includes('correr') || t.includes('exercício')) return '🏃';
+    if (
+      t.includes('treinar') ||
+      t.includes('correr') ||
+      t.includes('exercício')
+    )
+      return '🏃';
     if (t.includes('água') || t.includes('beber')) return '💧';
-    if (t.includes('estudar') || t.includes('estudo') || t.includes('história') || t.includes('historia')) return '📖';
+    if (
+      t.includes('estudar') ||
+      t.includes('estudo') ||
+      t.includes('história') ||
+      t.includes('historia')
+    )
+      return '📖';
     if (t.includes('cozinha') || t.includes('cozinhar')) return '🍳';
   }
   return '📌';

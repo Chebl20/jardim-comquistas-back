@@ -6,7 +6,9 @@ import {
 } from '../grouping/reminder-group.util';
 import type { ReminderGoalRecord } from '../reminder.types';
 
-function makeGoal(overrides: Partial<ReminderGoalRecord> = {}): ReminderGoalRecord {
+function makeGoal(
+  overrides: Partial<ReminderGoalRecord> = {},
+): ReminderGoalRecord {
   return {
     id: 'goal-1',
     userId: 'user-1',
@@ -14,15 +16,27 @@ function makeGoal(overrides: Partial<ReminderGoalRecord> = {}): ReminderGoalReco
     description: '',
     goalKind: 'Continua',
     conquestType: 'Mente',
-    reminderTime: new Date(DateTime.now().toISO()),
-    lastReminderSentAt: null,
-    dailyStatus: null,
-    silenceUntil: null,
+    timezone: 'America/Sao_Paulo',
+    schedule: { type: 'daily', times: ['08:00'] },
     completed: false,
-    reminderCount: 0,
     createdAt: new Date().toISOString(),
-    user: { id: 'u1', name: 'Test', telegramId: '1', timezone: 'America/Sao_Paulo' },
+    user: {
+      id: 'u1',
+      name: 'Test',
+      telegramId: '1',
+      timezone: 'America/Sao_Paulo',
+    },
+    plantedTree: null,
     ...overrides,
+    reminder: {
+      dailyStatus: null,
+      lastSentAt: null,
+      slotsToday: [],
+      silenceUntil: null,
+      sentCount: 0,
+      updatedAt: null,
+      ...overrides.reminder,
+    },
   };
 }
 
@@ -30,8 +44,7 @@ describe('reminder-group.util', () => {
   describe('getScheduledTimeToday', () => {
     it('retorna horário para meta com scheduleConfig daily', () => {
       const goal = makeGoal({
-        scheduleConfig: { type: 'daily', times: ['08:00', '12:00'] },
-        reminderTime: null,
+        schedule: { type: 'daily', times: ['08:00', '12:00'] },
       });
       const result = getScheduledTimeToday(goal, 'America/Sao_Paulo');
       expect(result).not.toBeNull();
@@ -40,10 +53,26 @@ describe('reminder-group.util', () => {
     });
 
     it('retorna próximo slot não enviado para meta com slots já enviados', () => {
+      const civilDate = DateTime.now()
+        .setZone('America/Sao_Paulo')
+        .toISODate()!;
       const goal = makeGoal({
-        scheduleConfig: { type: 'daily', times: ['08:00', '12:00'] },
-        reminderTime: null,
-        reminderSlotsToday: [{ time: '08:00' }],
+        schedule: { type: 'daily', times: ['08:00', '12:00'] },
+        reminder: {
+          dailyStatus: null,
+          lastSentAt: null,
+          slotsToday: [
+            {
+              occKey: `${civilDate}T08:00`,
+              time: '08:00',
+              date: civilDate,
+              status: 'SENT',
+            },
+          ],
+          silenceUntil: null,
+          sentCount: 1,
+          updatedAt: null,
+        },
       });
       const result = getScheduledTimeToday(goal, 'America/Sao_Paulo');
       expect(result).not.toBeNull();
@@ -59,18 +88,15 @@ describe('reminder-group.util', () => {
 
       const goalA = makeGoal({
         id: 'a',
-        scheduleConfig: { type: 'daily', times: ['01:14'] },
-        reminderTime: null,
+        schedule: { type: 'daily', times: ['01:14'] },
       });
       const goalB = makeGoal({
         id: 'b',
-        scheduleConfig: { type: 'daily', times: ['01:15'] },
-        reminderTime: null,
+        schedule: { type: 'daily', times: ['01:15'] },
       });
       const goalC = makeGoal({
         id: 'c',
-        scheduleConfig: { type: 'daily', times: ['01:15'] },
-        reminderTime: null,
+        schedule: { type: 'daily', times: ['01:15'] },
       });
 
       const groups = clusterGoalsIntoGroups(
@@ -83,19 +109,20 @@ describe('reminder-group.util', () => {
 
       expect(groups).toHaveLength(1);
       expect(groups[0].goals).toHaveLength(3);
-      expect(groups[0].groupFollowUpAt.diff(groups[0].lastScheduledAt, 'minutes').minutes).toBe(5);
+      expect(
+        groups[0].groupFollowUpAt.diff(groups[0].lastScheduledAt, 'minutes')
+          .minutes,
+      ).toBe(5);
     });
 
     it('separa metas em grupos diferentes quando fora da janela', () => {
       const goalA = makeGoal({
         id: 'a',
-        scheduleConfig: { type: 'daily', times: ['08:00'] },
-        reminderTime: null,
+        schedule: { type: 'daily', times: ['08:00'] },
       });
       const goalB = makeGoal({
         id: 'b',
-        scheduleConfig: { type: 'daily', times: ['09:30'] },
-        reminderTime: null,
+        schedule: { type: 'daily', times: ['09:30'] },
       });
 
       const groups = clusterGoalsIntoGroups(
@@ -114,14 +141,25 @@ describe('reminder-group.util', () => {
 
   describe('filterGoalsForToday', () => {
     it('inclui metas com scheduleConfig daily', async () => {
-      const goal = makeGoal({ scheduleConfig: { type: 'daily', times: ['08:00'] } });
+      const goal = makeGoal({
+        schedule: { type: 'daily', times: ['08:00'] },
+      });
       const result = await filterGoalsForToday([goal], 'America/Sao_Paulo');
       expect(result).toHaveLength(1);
     });
 
-    it('exclui metas completed', async () => {
-      const goal = makeGoal({ completed: true, scheduleConfig: { type: 'daily', times: ['08:00'] } });
-      const result = await filterGoalsForToday([goal], 'America/Sao_Paulo');
+    it('exclui weekly fora do dia civil', async () => {
+      const thursday = DateTime.fromISO('2026-08-27T10:00:00', {
+        zone: 'America/Sao_Paulo',
+      });
+      const goal = makeGoal({
+        schedule: { type: 'weekly', daysOfWeek: [3], times: ['09:30'] },
+      });
+      const result = await filterGoalsForToday(
+        [goal],
+        'America/Sao_Paulo',
+        thursday,
+      );
       expect(result).toHaveLength(0);
     });
   });

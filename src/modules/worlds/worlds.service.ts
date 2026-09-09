@@ -9,16 +9,27 @@ import { WorldsConfigService } from './worlds-config.service';
 export class WorldsService {
   constructor(private readonly configService: WorldsConfigService) {}
 
-  private worldsPath = path.join(process.cwd(), 'src', 'assets', 'worlds', 'ancoras');
+  private worldsPath = path.join(
+    process.cwd(),
+    'src',
+    'assets',
+    'worlds',
+    'ancoras',
+  );
 
   async scanAndPopulateWorlds() {
     const svgFiles: string[] = [];
     this.scanDirectory(this.worldsPath, svgFiles);
 
     for (const svgFile of svgFiles) {
-      const relativePath = path.relative(path.join(process.cwd(), 'src', 'assets', 'worlds'), svgFile);
+      const relativePath = path.relative(
+        path.join(process.cwd(), 'src', 'assets', 'worlds'),
+        svgFile,
+      );
       const worldId = path.parse(svgFile).name; // e.g., 'mundo2' from 'mundo2.svg'
-      const svgPath = path.join('src', 'assets', 'worlds', relativePath).replace(/\\/g, '/'); // normalize to /
+      const svgPath = path
+        .join('src', 'assets', 'worlds', relativePath)
+        .replace(/\\/g, '/'); // normalize to /
       const name = this.deriveName(worldId);
 
       await prisma.world.upsert({
@@ -53,21 +64,29 @@ export class WorldsService {
 
   private deriveName(worldId: string): string {
     // Simple derivation, can be improved
-    return worldId.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+    return worldId
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, (str) => str.toUpperCase());
   }
 
   async getAllWorlds() {
-    return prisma.world.findMany({ include: { config: true }, orderBy: { name: 'asc' } });
+    return prisma.world.findMany({
+      include: { config: true },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async getWorldById(worldId: string) {
-    return prisma.world.findUnique({ where: { worldId }, include: { config: true } });
+    return prisma.world.findUnique({
+      where: { worldId },
+      include: { config: true },
+    });
   }
 
   async getDefaultWorld() {
     // For now, return the first world or 'mundo2' if exists
     const worlds = await this.getAllWorlds();
-    return worlds.find(w => w.worldId === 'mundo2') || worlds[0];
+    return worlds.find((w) => w.worldId === 'mundo2') || worlds[0];
   }
 
   async regenerateConfig(worldId: string) {

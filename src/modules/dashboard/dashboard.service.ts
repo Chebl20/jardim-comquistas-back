@@ -20,53 +20,87 @@ export class DashboardService {
       where: { id: userId },
       select: { timezone: true },
     });
-    const tz = user?.timezone && String(user.timezone).trim() ? user.timezone : 'America/Sao_Paulo';
+    const tz =
+      user?.timezone && String(user.timezone).trim()
+        ? user.timezone
+        : 'America/Sao_Paulo';
 
     const datePart = String(date || '').slice(0, 10);
     const day = DateTime.fromISO(datePart, { zone: tz });
     const targetDate = day.isValid ? day : DateTime.now().setZone(tz);
     const now = DateTime.now().setZone(tz);
 
-    let goals = await this.userGoalService.getGoalsForDateForUser(userId, targetDate, tz, {
-      includeCompleted: true,
-    });
+    let goals = await this.userGoalService.getGoalsForDateForUser(
+      userId,
+      targetDate,
+      tz,
+      {
+        includeCompleted: true,
+      },
+    );
     if (areaId && String(areaId).trim()) {
       const a = String(areaId).trim();
       goals = goals.filter((g: any) => String(g.conquestType) === a);
     }
 
     const isToday = isSameCalendarDay(targetDate, now, tz);
-    goals = goals.map((g: any) => {
+    const dayGoals = goals.map((g) => {
       const dailyStatus = resolveDailyStatusForDate(g, targetDate, tz, now);
       return {
         ...g,
         dailyStatus,
-        reminder: g.reminder ? { ...g.reminder, dailyStatus } : g.reminder,
-        silenceUntil: isToday ? g.silenceUntil : null,
+        scheduleConfig: g.schedule,
+        reminder: { ...g.reminder, dailyStatus },
+        silenceUntil: isToday ? g.reminder.silenceUntil : null,
       };
     });
+
+    const doneCnt = dayGoals.filter((g) => g.dailyStatus === 'DONE').length;
+    const totalToday = dayGoals.length;
+
+    const nowTs = now.toMillis();
+    const careNeeded = dayGoals.filter((g) => {
+      if (g.dailyStatus === 'DONE') return false;
+      const times = scheduledTimesForGoalOnDate(g, targetDate, tz);
+      if (!times.length) return false;
+      const lastTime = times[times.length - 1];
+      const [h, m] = lastTime.split(':').map(Number);
+      const slotTs = targetDate.set({ hour: h, minute: m ?? 0 }).toMillis();
+      return slotTs <= nowTs;
+    });
+
+    const growthPct =
+      totalToday === 0
+        ? 0
+        : Math.min(100, Math.round((doneCnt / totalToday) * 100));
 
     return {
       date: datePart,
       areaId: areaId && String(areaId).trim() ? String(areaId).trim() : null,
-      goals,
+      goals: dayGoals,
       summary: 'Resumo do dia',
       bloomingToday: [],
-      growth: { percentage: 0 },
-      careNeeded: [],
-      harvestSummary: { collected: 0, total: goals.length },
+      _bloomingTodayStub: true,
+      growth: { percentage: growthPct },
+      careNeeded,
+      harvestSummary: { collected: doneCnt, total: totalToday },
       guideSuggestions: [],
+      _guideSuggestionsStub: true,
     };
   }
 
   async getDashboardWeek(userId: string, date: string, areaId?: string) {
-    const area = areaId && String(areaId).trim() ? String(areaId).trim() : undefined;
+    const area =
+      areaId && String(areaId).trim() ? String(areaId).trim() : undefined;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { timezone: true },
     });
-    const tz = user?.timezone && String(user.timezone).trim() ? user.timezone : 'America/Sao_Paulo';
+    const tz =
+      user?.timezone && String(user.timezone).trim()
+        ? user.timezone
+        : 'America/Sao_Paulo';
 
     const datePart = String(date || '').slice(0, 10);
     const anchor = DateTime.fromISO(datePart, { zone: tz });
@@ -76,14 +110,28 @@ export class DashboardService {
         areaId: area ?? null,
         weekStart: null,
         weekEnd: null,
-        weekGrid: [],
+        weekGrid: [] as Array<{
+          date: string | null;
+          expectedSlots: number;
+          harvestCount: number;
+          goals: {
+            id: string;
+            title: string;
+            conquestType: string;
+            slots: number;
+            times: string[];
+          }[];
+        }>,
         weeklyProgress: { percentage: 0, total: 0, harvested: 0 },
         harvestCount: 0,
         gardenLayers: [],
       };
     }
 
-    const { monday, sundayEnd, nextMonday } = weekRangeContainingDate(anchor, tz);
+    const { monday, sundayEnd, nextMonday } = weekRangeContainingDate(
+      anchor,
+      tz,
+    );
 
     const goals = await this.userGoalService.getGoalsForUser(userId);
     const inScope = goals.filter((g: any) => {
@@ -99,12 +147,24 @@ export class DashboardService {
       date: string | null;
       expectedSlots: number;
       harvestCount: number;
-      goals: { id: string; title: string; conquestType: string; slots: number; times: string[] }[];
+      goals: {
+        id: string;
+        title: string;
+        conquestType: string;
+        slots: number;
+        times: string[];
+      }[];
     }> = [];
 
     for (let i = 0; i < 7; i++) {
       const d = monday.plus({ days: i });
-      const dayGoals: { id: string; title: string; conquestType: string; slots: number; times: string[] }[] = [];
+      const dayGoals: {
+        id: string;
+        title: string;
+        conquestType: string;
+        slots: number;
+        times: string[];
+      }[] = [];
       let expectedSlots = 0;
       for (const g of inScope) {
         const n = expectedSlotCountForGoalOnDate(g, d, tz);
@@ -159,17 +219,24 @@ export class DashboardService {
     }
 
     const percentage =
-      totalSlots === 0 ? 0 : Math.min(100, Math.round((Math.min(harvestCount, totalSlots) / totalSlots) * 100));
+      totalSlots === 0
+        ? 0
+        : Math.min(
+            100,
+            Math.round((Math.min(harvestCount, totalSlots) / totalSlots) * 100),
+          );
 
     const layerMap = new Map<string, number>();
     for (const g of inScope) {
       const k = String(g.conquestType || 'Outros');
       layerMap.set(k, (layerMap.get(k) || 0) + 1);
     }
-    const gardenLayers = Array.from(layerMap.entries()).map(([conquestType, goalCount]) => ({
-      conquestType,
-      goalCount,
-    }));
+    const gardenLayers = Array.from(layerMap.entries()).map(
+      ([conquestType, goalCount]) => ({
+        conquestType,
+        goalCount,
+      }),
+    );
 
     return {
       date: datePart,
@@ -177,20 +244,32 @@ export class DashboardService {
       weekStart: monday.toISODate(),
       weekEnd: sundayEnd.toISODate(),
       weekGrid,
-      weeklyProgress: { percentage, total: totalSlots, harvested: harvestCount },
+      weeklyProgress: {
+        percentage,
+        total: totalSlots,
+        harvested: harvestCount,
+      },
       harvestCount,
       gardenLayers,
     };
   }
 
-  async getDashboardMonth(userId: string, dateOrMonth: string, areaId?: string) {
-    const area = areaId && String(areaId).trim() ? String(areaId).trim() : undefined;
+  async getDashboardMonth(
+    userId: string,
+    dateOrMonth: string,
+    areaId?: string,
+  ) {
+    const area =
+      areaId && String(areaId).trim() ? String(areaId).trim() : undefined;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { timezone: true },
     });
-    const tz = user?.timezone && String(user.timezone).trim() ? user.timezone : 'America/Sao_Paulo';
+    const tz =
+      user?.timezone && String(user.timezone).trim()
+        ? user.timezone
+        : 'America/Sao_Paulo';
 
     const parsed = monthRangeFromInput(dateOrMonth, tz);
     if (!parsed) {
@@ -222,7 +301,12 @@ export class DashboardService {
       date: string | null;
       expectedSlots: number;
       harvestCount: number;
-      goals: { id: string; title: string; conquestType: string; slots: number }[];
+      goals: {
+        id: string;
+        title: string;
+        conquestType: string;
+        slots: number;
+      }[];
     };
 
     const monthGrid: DayCell[] = [];
@@ -303,10 +387,19 @@ export class DashboardService {
     }
 
     const percentage =
-      totalSlots === 0 ? 0 : Math.min(100, Math.round((Math.min(harvestCount, totalSlots) / totalSlots) * 100));
+      totalSlots === 0
+        ? 0
+        : Math.min(
+            100,
+            Math.round((Math.min(harvestCount, totalSlots) / totalSlots) * 100),
+          );
 
     const monthHighlights = Array.from(harvestByGoal.entries())
-      .map(([goalId, { title, count }]) => ({ goalId, title, harvestCount: count }))
+      .map(([goalId, { title, count }]) => ({
+        goalId,
+        title,
+        harvestCount: count,
+      }))
       .sort((a, b) => b.harvestCount - a.harvestCount)
       .slice(0, 5);
 

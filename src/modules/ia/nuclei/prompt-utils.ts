@@ -1,6 +1,11 @@
 // helper utilities for building nucleus prompts consistently
 
-import { CLASSIFICATIONS, Classification, DECISIONS, Decision } from '../conversation/flow.types';
+import {
+  CLASSIFICATIONS,
+  Classification,
+  DECISIONS,
+  Decision,
+} from '../conversation/flow.types';
 
 // basic building blocks for a standardized prompt structure
 export interface PromptSection {
@@ -34,7 +39,9 @@ export function classificationLine(...values: Classification[]): string {
 // internally combine the sections into a single string with separators
 function buildPrompt(spec: PromptSpec): string {
   const formatSection = (sec: PromptSection) =>
-    [`// --- ${sec.title} ---`, ...sec.lines.map(expandTemplates), ''].join('\n');
+    [`// --- ${sec.title} ---`, ...sec.lines.map(expandTemplates), ''].join(
+      '\n',
+    );
 
   const parts: PromptSection[] = [spec.domain, spec.objective, spec.ioSchema];
   if (spec.behaviour) parts.push(spec.behaviour);
@@ -61,7 +68,8 @@ export function makePrompt(spec: PromptSpec): PromptBuilder {
 // Utilitário padrão: mapeia classification retornada pelo LLM para a Decision
 // de domínio. Garante que todos os núcleos sigam o mesmo contrato.
 export function decisionFromClassification(classification: string): Decision {
-  if (classification === CLASSIFICATIONS.NEW_INTENT) return DECISIONS.NOT_MY_JOB;
+  if (classification === CLASSIFICATIONS.NEW_INTENT)
+    return DECISIONS.NOT_MY_JOB;
   if (classification === CLASSIFICATIONS.UNCERTAIN) return DECISIONS.UNCERTAIN;
   return DECISIONS.HANDLED;
 }

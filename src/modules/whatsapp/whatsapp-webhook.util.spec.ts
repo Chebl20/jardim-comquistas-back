@@ -63,9 +63,9 @@ describe('isOperationalEvent', () => {
     expect(isOperationalEvent({ event: 'Connected' })).toBe(true);
     expect(isOperationalEvent({ event: 'Connection' })).toBe(true);
     expect(isOperationalEvent({ event: 'UndecryptableMessage' })).toBe(true);
-    expect(
-      isOperationalEvent({ event: 'Message', data: { Info: {} } }),
-    ).toBe(false);
+    expect(isOperationalEvent({ event: 'Message', data: { Info: {} } })).toBe(
+      false,
+    );
   });
 });
 

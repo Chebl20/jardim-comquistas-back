@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NucleusInput, Nucleus } from '../nucleus.interface';
-import { FlowResult, FLOW_STATES, DECISIONS, CLASSIFICATIONS } from '../../conversation/flow.types';
+import {
+  FlowResult,
+  FLOW_STATES,
+  DECISIONS,
+  CLASSIFICATIONS,
+} from '../../conversation/flow.types';
 import { ConversationAIService } from '../../conversation-ai.service';
 import { GOAL_STATUS_PROMPT } from './prompt';
 
@@ -29,7 +34,9 @@ export class GoalStatusNucleus implements Nucleus {
           reminderTime: g.reminderTime,
           frequency: g.frequency,
         }));
-        this.logger.debug(`GoalStatus userGoalsSummary data: ${JSON.stringify(summary)}`);
+        this.logger.debug(
+          `GoalStatus userGoalsSummary data: ${JSON.stringify(summary)}`,
+        );
       }
     } catch (_) {}
 
@@ -50,16 +57,16 @@ export class GoalStatusNucleus implements Nucleus {
         // Extrair metadata da meta mencionada se possível
         // Isso ajuda o Router a passar contexto para o próximo núcleo (ex: REMINDER)
         let extractedPayload: Record<string, any> = {};
-        
+
         if (input.text && input.meta?.userGoalsSummary) {
           const userGoals = (input.meta.userGoalsSummary as any[]) || [];
           const textLower = input.text.toLowerCase();
-          
+
           // Tentar encontrar a meta mencionada pelo usuário
-          const mentionedGoal = userGoals.find(g => 
-            textLower.includes((g.title || '').toLowerCase())
+          const mentionedGoal = userGoals.find((g) =>
+            textLower.includes((g.title || '').toLowerCase()),
           );
-          
+
           if (mentionedGoal) {
             // Passar informações da meta para o próximo núcleo
             extractedPayload = {
@@ -69,10 +76,12 @@ export class GoalStatusNucleus implements Nucleus {
               goalType: mentionedGoal.type,
               conquestType: mentionedGoal.conquestType,
             };
-            this.logger.debug(`GoalStatus extracted meta: ${mentionedGoal.title} (id: ${mentionedGoal.id})`);
+            this.logger.debug(
+              `GoalStatus extracted meta: ${mentionedGoal.title} (id: ${mentionedGoal.id})`,
+            );
           }
         }
-        
+
         return {
           actions: [],
           decision: DECISIONS.NOT_MY_JOB,
@@ -82,7 +91,9 @@ export class GoalStatusNucleus implements Nucleus {
       }
 
       if (classification === CLASSIFICATIONS.UNCERTAIN) {
-        const replyAction = suggestedReply ? [{ type: 'reply' as const, text: suggestedReply }] : [];
+        const replyAction = suggestedReply
+          ? [{ type: 'reply' as const, text: suggestedReply }]
+          : [];
         return {
           actions: replyAction,
           decision: DECISIONS.UNCERTAIN,
@@ -106,7 +117,12 @@ export class GoalStatusNucleus implements Nucleus {
     } catch (e) {
       this.logger.warn('GoalStatus LLM failed', e);
       return {
-        actions: [{ type: 'reply', text: 'Desculpa, não consegui verificar suas metas agora.' }],
+        actions: [
+          {
+            type: 'reply',
+            text: 'Desculpa, não consegui verificar suas metas agora.',
+          },
+        ],
         decision: DECISIONS.HANDLED,
         confidence: 0,
       };

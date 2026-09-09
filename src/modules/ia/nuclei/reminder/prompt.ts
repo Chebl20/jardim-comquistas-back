@@ -5,7 +5,7 @@ const SPEC: PromptSpec = {
   domain: {
     title: 'Núcleo',
     lines: [
-      'Núcleo: Reminder — responsável por conduzir a conversa de lembrete, follow-up curto e reativação.',
+      'Núcleo: Reminder — responsável por conduzir a conversa de lembrete, follow-up curto e last-chance.',
     ],
   },
   objective: {
@@ -45,7 +45,6 @@ const SPEC: PromptSpec = {
       'reminderKind operational: direto, prático e motivador.',
       'reminderKind follow_up: curto, leve, sem insistência excessiva.',
       'reminderKind last_chance: tom de urgência leve ("Ainda dá tempo!").',
-      'reminderKind reactivation: reflexivo e respeitoso.',
       'Com userReply: responda curto e natural. Confirme o que ele disse.',
       '"Já fiz a de ler e também orar e estudar" → DONE + goalsCompleted com Ler, Orar, Estudar (id, title, description de cada).',
       '"Não vou conseguir fazer a de ler hoje" → DISMISS + dismissGoalId = id da meta Ler em otherGoals.',

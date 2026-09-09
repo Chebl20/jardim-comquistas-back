@@ -15,13 +15,20 @@ export class RateLimiterService {
       try {
         this.redis = new Redis(url);
       } catch (e) {
-        this.logger.warn('Falha ao conectar Redis, usando fallback in-memory', e);
+        this.logger.warn(
+          'Falha ao conectar Redis, usando fallback in-memory',
+          e,
+        );
         this.redis = null;
       }
     }
   }
 
-  async isAllowed(key: string, limit = 5, windowSec = 60): Promise<CheckResult> {
+  async isAllowed(
+    key: string,
+    limit = 5,
+    windowSec = 60,
+  ): Promise<CheckResult> {
     if (this.redis) {
       try {
         const window = Math.floor(Date.now() / 1000 / windowSec);
@@ -29,10 +36,14 @@ export class RateLimiterService {
         const cnt = await this.redis.incr(redisKey);
         if (cnt === 1) await this.redis.expire(redisKey, windowSec);
         const ttl = await this.redis.ttl(redisKey);
-        if (cnt <= limit) return { allowed: true, remaining: Math.max(0, limit - cnt) };
+        if (cnt <= limit)
+          return { allowed: true, remaining: Math.max(0, limit - cnt) };
         return { allowed: false, remaining: 0, retryAfter: ttl || windowSec };
       } catch (e) {
-        this.logger.warn('Erro Redis no rate limiter, usando fallback in-memory', e);
+        this.logger.warn(
+          'Erro Redis no rate limiter, usando fallback in-memory',
+          e,
+        );
       }
     }
 
@@ -45,7 +56,8 @@ export class RateLimiterService {
     }
     entry.count += 1;
     this.inMemory.set(key, entry);
-    if (entry.count <= limit) return { allowed: true, remaining: Math.max(0, limit - entry.count) };
+    if (entry.count <= limit)
+      return { allowed: true, remaining: Math.max(0, limit - entry.count) };
     const retryAfter = Math.ceil((entry.expiresAt - now) / 1000);
     return { allowed: false, remaining: 0, retryAfter };
   }

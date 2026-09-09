@@ -6,10 +6,20 @@ import { DateTime } from 'luxon';
 export class ConversationSessionService {
   private readonly logger = new Logger(ConversationSessionService.name);
   // default TTL minutes
-  private readonly defaultTtlMin = Number(process.env.CONVERSATION_SESSION_TTL_MIN || 10);
+  private readonly defaultTtlMin = Number(
+    process.env.CONVERSATION_SESSION_TTL_MIN || 10,
+  );
 
-  async createSession(userId: string, state: string, payload: any = {}, ttlMin?: number) {
-    const expiresAt = DateTime.now().plus({ minutes: ttlMin ?? this.defaultTtlMin }).toUTC().toJSDate();
+  async createSession(
+    userId: string,
+    state: string,
+    payload: any = {},
+    ttlMin?: number,
+  ) {
+    const expiresAt = DateTime.now()
+      .plus({ minutes: ttlMin ?? this.defaultTtlMin })
+      .toUTC()
+      .toJSDate();
     try {
       // upsert single session per user
       return prisma.conversationSession.upsert({
@@ -27,12 +37,18 @@ export class ConversationSessionService {
     return prisma.conversationSession.findUnique({ where: { userId } });
   }
 
-  async updateSession(userId: string, data: { state?: string; payload?: any; expiresAt?: Date }) {
+  async updateSession(
+    userId: string,
+    data: { state?: string; payload?: any; expiresAt?: Date },
+  ) {
     const update: any = {};
     if (data.state) update.state = data.state;
     if (data.payload) update.payload = data.payload;
     if (data.expiresAt) update.expiresAt = data.expiresAt;
-    return prisma.conversationSession.update({ where: { userId }, data: update });
+    return prisma.conversationSession.update({
+      where: { userId },
+      data: update,
+    });
   }
 
   async upsertSessionState(
@@ -85,14 +101,23 @@ export class ConversationSessionService {
     if (data.payload) update.payload = data.payload;
     if (data.expiresAt) update.expiresAt = data.expiresAt;
     update.version = expectedVersion + 1;
-    return prisma.conversationSession.update({ where: { userId }, data: update });
+    return prisma.conversationSession.update({
+      where: { userId },
+      data: update,
+    });
   }
 
   async touchSession(userId: string, extraMin?: number) {
     const s = await this.getSession(userId);
     if (!s) return null;
-    const expiresAt = DateTime.fromJSDate(s.expiresAt).plus({ minutes: extraMin ?? this.defaultTtlMin }).toUTC().toJSDate();
-    return prisma.conversationSession.update({ where: { userId }, data: { expiresAt } });
+    const expiresAt = DateTime.fromJSDate(s.expiresAt)
+      .plus({ minutes: extraMin ?? this.defaultTtlMin })
+      .toUTC()
+      .toJSDate();
+    return prisma.conversationSession.update({
+      where: { userId },
+      data: { expiresAt },
+    });
   }
 
   async deleteSession(userId: string) {
@@ -106,7 +131,9 @@ export class ConversationSessionService {
   // cleanup expired sessions (can be called by a cron job)
   async cleanupExpired() {
     const now = DateTime.now().toUTC().toJSDate();
-    return prisma.conversationSession.deleteMany({ where: { expiresAt: { lt: now } } });
+    return prisma.conversationSession.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
   }
 }
 

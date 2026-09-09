@@ -16,7 +16,9 @@ export class SupabaseService {
   }
 
   async getSvgFromStorage(bucket: string, filename: string): Promise<string> {
-    const { data, error } = await this.client.storage.from(bucket).download(filename);
+    const { data, error } = await this.client.storage
+      .from(bucket)
+      .download(filename);
     if (error) throw error;
     if (!data) throw new Error('Arquivo não encontrado');
     return await data.text();

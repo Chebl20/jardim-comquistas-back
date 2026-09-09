@@ -1,4 +1,11 @@
-import { Controller, Post, Body, Get, Inject, forwardRef } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { UserLinkService } from './user-link.service';
 import { TelegramService } from '../telegram/telegram.service';
@@ -16,8 +23,18 @@ export class UserLinkController {
   ) {}
 
   @Post('generate')
-  @ApiOperation({ summary: 'Gerar código de vinculação', description: 'Gera um código único para vincular a conta ao Telegram ou WhatsApp.' })
-  @ApiBody({ schema: { type: 'object', required: ['userId'], properties: { userId: { type: 'string' } } } })
+  @ApiOperation({
+    summary: 'Gerar código de vinculação',
+    description:
+      'Gera um código único para vincular a conta ao Telegram ou WhatsApp.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['userId'],
+      properties: { userId: { type: 'string' } },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'Código gerado com informações dos canais.',
@@ -55,25 +72,74 @@ export class UserLinkController {
   }
 
   @Post('telegram')
-  @ApiOperation({ summary: 'Vincular Telegram', description: 'Vincula um telegramId ao usuário usando o código de vinculação.' })
-  @ApiBody({ schema: { type: 'object', required: ['linkCode', 'telegramId'], properties: { linkCode: { type: 'string' }, telegramId: { type: 'string' } } } })
-  @ApiResponse({ status: 201, description: 'Vinculação realizada.', schema: { type: 'object', properties: { ok: { type: 'boolean' }, userId: { type: 'string' } } } })
+  @ApiOperation({
+    summary: 'Vincular Telegram',
+    description:
+      'Vincula um telegramId ao usuário usando o código de vinculação.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['linkCode', 'telegramId'],
+      properties: {
+        linkCode: { type: 'string' },
+        telegramId: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Vinculação realizada.',
+    schema: {
+      type: 'object',
+      properties: { ok: { type: 'boolean' }, userId: { type: 'string' } },
+    },
+  })
   async linkTelegram(@Body() body: { linkCode: string; telegramId: string }) {
-    const user = await this.userLinkService.linkTelegram(body.linkCode, body.telegramId);
+    const user = await this.userLinkService.linkTelegram(
+      body.linkCode,
+      body.telegramId,
+    );
     return { ok: true, userId: user.id };
   }
 
   @Post('whatsapp')
-  @ApiOperation({ summary: 'Vincular WhatsApp', description: 'Vincula um whatsappId (telefone com DDI) ao usuário usando o código de vinculação.' })
-  @ApiBody({ schema: { type: 'object', required: ['linkCode', 'whatsappId'], properties: { linkCode: { type: 'string' }, whatsappId: { type: 'string' } } } })
-  @ApiResponse({ status: 201, description: 'Vinculação realizada.', schema: { type: 'object', properties: { ok: { type: 'boolean' }, userId: { type: 'string' } } } })
+  @ApiOperation({
+    summary: 'Vincular WhatsApp',
+    description:
+      'Vincula um whatsappId (telefone com DDI) ao usuário usando o código de vinculação.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['linkCode', 'whatsappId'],
+      properties: {
+        linkCode: { type: 'string' },
+        whatsappId: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Vinculação realizada.',
+    schema: {
+      type: 'object',
+      properties: { ok: { type: 'boolean' }, userId: { type: 'string' } },
+    },
+  })
   async linkWhatsApp(@Body() body: { linkCode: string; whatsappId: string }) {
-    const user = await this.userLinkService.linkWhatsApp(body.linkCode, body.whatsappId);
+    const user = await this.userLinkService.linkWhatsApp(
+      body.linkCode,
+      body.whatsappId,
+    );
     return { ok: true, userId: user.id };
   }
 
   @Get('bot-info')
-  @ApiOperation({ summary: 'Obter informações dos canais', description: 'Retorna informações do bot Telegram e do WhatsApp.' })
+  @ApiOperation({
+    summary: 'Obter informações dos canais',
+    description: 'Retorna informações do bot Telegram e do WhatsApp.',
+  })
   @ApiResponse({
     status: 200,
     description: 'Informações dos canais.',
