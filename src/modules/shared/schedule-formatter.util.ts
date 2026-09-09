@@ -1,54 +1,20 @@
-/**
- * Formata scheduleConfig para exibição visual ao usuário (tabelas, dias da semana, horários).
- * Usado pelo GoalCreation na confirmação e pelo GoalStatus ao listar metas.
- */
-
 import { DateTime } from 'luxon';
+import {
+  isValidScheduleConfig,
+  type ScheduleConfig,
+} from '../../domain/types/schedule-config.type';
 
-export type ScheduleConfig =
-  | { type: 'once'; at: string }
-  | { type: 'daily'; times: string[]; durationDays?: number }
-  | { type: 'weekly'; daysOfWeek: number[]; times: string[] }
-  | { type: 'monthly'; dayOfMonth: number; times: string[] };
-
-const DAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-// Ordem para tabela: Seg primeiro (padrão pt-BR)
-const TABLE_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
-
-function isValidScheduleConfig(obj: unknown): obj is ScheduleConfig {
-  if (!obj || typeof obj !== 'object') return false;
-  const o = obj as Record<string, unknown>;
-  const type = o.type;
-  if (type === 'once') return typeof o.at === 'string';
-  if (type === 'daily') {
-    if (!Array.isArray(o.times) || !o.times.every((t) => typeof t === 'string')) return false;
-    if (o.durationDays !== undefined && (typeof o.durationDays !== 'number' || o.durationDays < 1))
-      return false;
-    return true;
-  }
-  if (type === 'weekly')
-    return (
-      Array.isArray(o.daysOfWeek) &&
-      o.daysOfWeek.every((d) => typeof d === 'number') &&
-      Array.isArray(o.times) &&
-      o.times.every((t) => typeof t === 'string')
-    );
-  if (type === 'monthly')
-    return (
-      typeof o.dayOfMonth === 'number' &&
-      Number.isInteger(o.dayOfMonth) &&
-      o.dayOfMonth >= 1 &&
-      o.dayOfMonth <= 31 &&
-      Array.isArray(o.times) &&
-      o.times.every((t) => typeof t === 'string')
-    );
-  return false;
-}
+/** 0=Dom … 6=Sáb — mesma convenção de weekday.util / GoalSchedule. */
+const TABLE_DAY_ORDER = [0, 1, 2, 3, 4, 5, 6] as const;
+const DAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const;
 
 /**
  * Formata data ISO para exibição em pt-BR (ex: "10 de março às 14:00").
  */
-function formatDateForDisplay(iso: string, timezone = 'America/Sao_Paulo'): string {
+function formatDateForDisplay(
+  iso: string,
+  timezone = 'America/Sao_Paulo',
+): string {
   const timeOnly = iso.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (timeOnly) {
     const hh = parseInt(timeOnly[1], 10);
@@ -101,7 +67,9 @@ export function formatScheduleForUser(
     return '';
   }
 
-  const titleLine = goalTitle ? `📅 Quando vou te lembrar de "${goalTitle}":\n\n` : '📅 Quando vou te lembrar:\n\n';
+  const titleLine = goalTitle
+    ? `📅 Quando vou te lembrar de "${goalTitle}":\n\n`
+    : '📅 Quando vou te lembrar:\n\n';
 
   if (scheduleConfig.type === 'once') {
     const dateStr = formatDateForDisplay(scheduleConfig.at, timezone);
@@ -147,7 +115,9 @@ export function formatScheduleForUser(
     const colWidth = 5;
     const timeWidth = 10;
     const pad = (s: string, w: number) => s.padEnd(w).slice(0, w);
-    const dayHeaders = TABLE_DAY_ORDER.map((d) => pad(DAY_NAMES[d], colWidth)).join(' ');
+    const dayHeaders = TABLE_DAY_ORDER.map((d) =>
+      pad(DAY_NAMES[d], colWidth),
+    ).join(' ');
     const timeRows = times
       .map((t) => {
         const cells = TABLE_DAY_ORDER.map((d) => {
@@ -186,9 +156,10 @@ export function formatScheduleSummary(
   }
 
   if (scheduleConfig.type === 'daily') {
-    const timesStr = scheduleConfig.times.length > 1
-      ? scheduleConfig.times.join(' e ')
-      : scheduleConfig.times[0] || '—';
+    const timesStr =
+      scheduleConfig.times.length > 1
+        ? scheduleConfig.times.join(' e ')
+        : scheduleConfig.times[0] || '—';
     if (scheduleConfig.durationDays) {
       return `${scheduleConfig.durationDays} dias às ${timesStr}`;
     }
@@ -200,16 +171,18 @@ export function formatScheduleSummary(
       .sort((a, b) => a - b)
       .map((d) => DAY_NAMES[d])
       .join(', ');
-    const timesStr = scheduleConfig.times.length > 1
-      ? scheduleConfig.times.join(' e ')
-      : scheduleConfig.times[0] || '—';
+    const timesStr =
+      scheduleConfig.times.length > 1
+        ? scheduleConfig.times.join(' e ')
+        : scheduleConfig.times[0] || '—';
     return `${daysStr} às ${timesStr}`;
   }
 
   if (scheduleConfig.type === 'monthly') {
-    const timesStr = scheduleConfig.times.length > 1
-      ? scheduleConfig.times.join(' e ')
-      : scheduleConfig.times[0] || '—';
+    const timesStr =
+      scheduleConfig.times.length > 1
+        ? scheduleConfig.times.join(' e ')
+        : scheduleConfig.times[0] || '—';
     return `dia ${scheduleConfig.dayOfMonth} de cada mês às ${timesStr}`;
   }
 

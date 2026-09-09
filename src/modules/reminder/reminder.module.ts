@@ -1,20 +1,32 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ReminderService } from './reminder.service';
 import { UserGoalModule } from '../goals/user-goal.module';
 import { AiModule } from '../ia/ai.module';
 import { SharedModule } from '../shared/shared.module';
 import { MessagingModule } from '../messaging/messaging.module';
-import { ReminderPolicyEngine } from './policy/reminder-policy.engine';
+import { ReminderPolicyModule } from './reminder-policy.module';
 import { ReminderDeliveryService } from './delivery/reminder-delivery.service';
-import { ReminderObservabilityService } from './observability/reminder-observability.service';
+import { ReminderCopyBuilder } from './copy/reminder-copy.builder';
+import { PrismaClaimStore } from './claim/prisma-claim.store';
+import { REMINDER_CLAIM_STORE } from './claim/claim.store';
 
 @Module({
-  imports: [UserGoalModule, MessagingModule, AiModule, SharedModule],
+  imports: [
+    UserGoalModule,
+    MessagingModule,
+    forwardRef(() => AiModule),
+    SharedModule,
+    ReminderPolicyModule,
+  ],
   providers: [
     ReminderService,
-    ReminderPolicyEngine,
+    ReminderCopyBuilder,
     ReminderDeliveryService,
-    ReminderObservabilityService,
+    PrismaClaimStore,
+    {
+      provide: REMINDER_CLAIM_STORE,
+      useExisting: PrismaClaimStore,
+    },
   ],
   exports: [ReminderService],
 })

@@ -1,19 +1,9 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
-import { AiModule } from '../ia/ai.module';
-import { UserModule } from '../users/user.module';
-import { SharedModule } from '../shared/shared.module';
-import { UserGoalModule } from '../goals/user-goal.module';
-import { DailyDigestModule } from '../daily-digest/daily-digest.module';
+import { InboundModule } from '../inbound/inbound.module';
 
 @Module({
-  imports: [
-    AiModule,
-    forwardRef(() => UserModule),
-    SharedModule,
-    UserGoalModule,
-    forwardRef(() => DailyDigestModule),
-  ],
+  imports: [forwardRef(() => InboundModule)],
   providers: [TelegramService],
   exports: [TelegramService],
 })

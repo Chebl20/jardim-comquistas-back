@@ -4,13 +4,16 @@ export async function renderSVGLayout(svgText: string) {
   // carregamos puppeteer dinamicamente para não quebrar ambientes sem o binário
   let puppeteer: any;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     puppeteer = require('puppeteer');
   } catch (err) {
-    throw new Error('puppeteer não encontrado. Instale com `npm install puppeteer` para usar o renderer headless.');
+    throw new Error(
+      'puppeteer não encontrado. Instale com `npm install puppeteer` para usar o renderer headless.',
+    );
   }
 
-  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
   try {
     const page = await browser.newPage();
     // forçamos o conteúdo HTML com o SVG (sem scripts externos)
@@ -19,16 +22,27 @@ export async function renderSVGLayout(svgText: string) {
 
     // Ler viewBox e forçar viewport / tamanho do SVG para evitar
     // que o navegador escale o SVG para um viewport menor.
-    const svgViewBox = await page.$eval('svg', (el) => el.getAttribute('viewBox') || '');
-    const vbParts = String(svgViewBox).split(/\s+/).map((v) => parseFloat(v));
+    const svgViewBox = await page.$eval(
+      'svg',
+      (el) => el.getAttribute('viewBox') || '',
+    );
+    const vbParts = String(svgViewBox)
+      .split(/\s+/)
+      .map((v) => parseFloat(v));
     const vbWidth = Math.max(1, Math.round(vbParts[2] || 800));
     const vbHeight = Math.max(1, Math.round(vbParts[3] || 600));
     try {
-      await page.setViewport({ width: vbWidth, height: vbHeight, deviceScaleFactor: 1 });
+      await page.setViewport({
+        width: vbWidth,
+        height: vbHeight,
+        deviceScaleFactor: 1,
+      });
     } catch (e) {
       // se setViewport falhar, apenas seguimos — a medição ainda pode funcionar
     }
-    await page.addStyleTag({ content: `html,body{margin:0;padding:0} svg{width:${vbWidth}px;height:${vbHeight}px;}` });
+    await page.addStyleTag({
+      content: `html,body{margin:0;padding:0} svg{width:${vbWidth}px;height:${vbHeight}px;}`,
+    });
 
     const result = await page.evaluate(() => {
       function parseTransformOrigin(styleText: string | null) {
@@ -39,42 +53,74 @@ export async function renderSVGLayout(svgText: string) {
         const parts = raw.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
         if (parts.length < 2) return null;
         if (parts[0].endsWith('%') && parts[1].endsWith('%')) {
-          return { kind: 'pct', xPct: parseFloat(parts[0]) / 100, yPct: parseFloat(parts[1]) / 100 };
+          return {
+            kind: 'pct',
+            xPct: parseFloat(parts[0]) / 100,
+            yPct: parseFloat(parts[1]) / 100,
+          };
         }
-        return { kind: 'abs', x: parseFloat(parts[0]), y: parseFloat(parts[1]) };
+        return {
+          kind: 'abs',
+          x: parseFloat(parts[0]),
+          y: parseFloat(parts[1]),
+        };
       }
 
       const svg = document.querySelector('svg');
       if (!svg) throw new Error('SVG não encontrado no documento');
 
       const viewBoxAttr = svg.getAttribute('viewBox') || '';
-      const vbParts = String(viewBoxAttr).split(/\s+/).map((v) => parseFloat(v));
-      const viewBox = { minX: vbParts[0] || 0, minY: vbParts[1] || 0, width: vbParts[2] || 0, height: vbParts[3] || 0 };
+      const vbParts = String(viewBoxAttr)
+        .split(/\s+/)
+        .map((v) => parseFloat(v));
+      const viewBox = {
+        minX: vbParts[0] || 0,
+        minY: vbParts[1] || 0,
+        width: vbParts[2] || 0,
+        height: vbParts[3] || 0,
+      };
 
-      const nodes = Array.from(svg.querySelectorAll('[data-layer][data-slot]')) as Element[];
+      const nodes = Array.from(svg.querySelectorAll('[data-layer][data-slot]'));
 
       const anchors = nodes.map((node) => {
         const el = node as any;
         // Para evitar ambiguidades do outerHTML, serializamos manualmente tags
         // que devem ser self-closing para garantir consistência com o frontend.
         const tag = (el.tagName || el.nodeName || '').toString().toLowerCase();
-        const selfClosing = ['rect', 'circle', 'ellipse', 'path', 'line', 'polyline', 'polygon'];
+        const selfClosing = [
+          'rect',
+          'circle',
+          'ellipse',
+          'path',
+          'line',
+          'polyline',
+          'polygon',
+        ];
         let svgLine = '';
         if (selfClosing.includes(tag)) {
           try {
-            const attrs = Array.from((el.attributes || []) as any).map((a: any) => `${a.name}="${a.value}"`).join(' ');
+            const attrs = Array.from(el.attributes || [])
+              .map((a: any) => `${a.name}="${a.value}"`)
+              .join(' ');
             svgLine = `<${tag}${attrs ? ' ' + attrs : ''}/>`;
           } catch {
-            svgLine = (el.outerHTML || new XMLSerializer().serializeToString(el));
+            svgLine = el.outerHTML || new XMLSerializer().serializeToString(el);
           }
         } else {
-          svgLine = (el.outerHTML || new XMLSerializer().serializeToString(el));
-          svgLine = svgLine.replace(/\s+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g, '');
+          svgLine = el.outerHTML || new XMLSerializer().serializeToString(el);
+          svgLine = svgLine.replace(
+            /\s+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g,
+            '',
+          );
         }
 
         // bbox no espaço do usuário do elemento
         const bbox = (() => {
-          try { return el.getBBox(); } catch { return { x: 0, y: 0, width: 0, height: 0 }; }
+          try {
+            return el.getBBox();
+          } catch {
+            return { x: 0, y: 0, width: 0, height: 0 };
+          }
         })();
 
         // ponto central por padrão
@@ -97,13 +143,17 @@ export async function renderSVGLayout(svgText: string) {
             op.x = bbox.x + bbox.width * Number(usedOrigin.xPct || 0);
             op.y = bbox.y + bbox.height * Number(usedOrigin.yPct || 0);
             const opWorld = op.matrixTransform(ctm);
-            worldPt.x = opWorld.x; worldPt.y = opWorld.y;
+            worldPt.x = opWorld.x;
+            worldPt.y = opWorld.y;
           } else if (usedOrigin.kind === 'abs') {
             spriteAnchorX = (Number(usedOrigin.x || 0) - bbox.x) / bbox.width;
             spriteAnchorY = (Number(usedOrigin.y || 0) - bbox.y) / bbox.height;
-            const op = svg.createSVGPoint(); op.x = Number(usedOrigin.x || 0); op.y = Number(usedOrigin.y || 0);
+            const op = svg.createSVGPoint();
+            op.x = Number(usedOrigin.x || 0);
+            op.y = Number(usedOrigin.y || 0);
             const opWorld = op.matrixTransform(ctm);
-            worldPt.x = opWorld.x; worldPt.y = opWorld.y;
+            worldPt.x = opWorld.x;
+            worldPt.y = opWorld.y;
           }
         }
 
@@ -128,7 +178,10 @@ export async function renderSVGLayout(svgText: string) {
           y: Number(worldPt.y),
           width: Number(bbox.width || 0),
           height: Number(bbox.height || 0),
-          svgLine: svgLine.replace(/\s+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g, ''),
+          svgLine: svgLine.replace(
+            /\s+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g,
+            '',
+          ),
           spriteAnchorX,
           spriteAnchorY,
           treeType: getInheritedAttribute(el, 'data-type') || undefined,
@@ -140,7 +193,11 @@ export async function renderSVGLayout(svgText: string) {
 
     return result;
   } finally {
-    try { await browser.close(); } catch { /* ignore */ }
+    try {
+      await browser.close();
+    } catch {
+      /* ignore */
+    }
   }
 }
 

@@ -5,6 +5,9 @@ import {
   resolveDailyStatusForDate,
   scheduledTimesForGoalOnDate,
   coerceScheduleConfig,
+  occurrencesOnCivilDate,
+  isOccurrenceDue,
+  filterGoalsOnCivilDate,
 } from './schedule-occurrence.util';
 
 describe('scheduledTimesForGoalOnDate', () => {
@@ -22,11 +25,16 @@ describe('scheduledTimesForGoalOnDate', () => {
       tz,
     );
     expect(times).toEqual(['07:00', '18:00']);
-    expect(expectedSlotCountForGoalOnDate(
-      { createdAt, scheduleConfig: { type: 'daily', times: ['7:00', '18:00'] } },
-      day,
-      tz,
-    )).toBe(2);
+    expect(
+      expectedSlotCountForGoalOnDate(
+        {
+          createdAt,
+          scheduleConfig: { type: 'daily', times: ['7:00', '18:00'] },
+        },
+        day,
+        tz,
+      ),
+    ).toBe(2);
   });
 
   it('retorna times em weekly apenas nos dias configurados', () => {
@@ -39,6 +47,32 @@ describe('scheduledTimesForGoalOnDate', () => {
 
     expect(scheduledTimesForGoalOnDate(goal, wednesday, tz)).toEqual(['09:30']);
     expect(scheduledTimesForGoalOnDate(goal, thursday, tz)).toEqual([]);
+  });
+
+  it('occurrencesOnCivilDate expõe civilDate + HH:MM', () => {
+    const day = DateTime.fromISO('2026-08-26T12:00:00', { zone: tz });
+    const occs = occurrencesOnCivilDate(
+      {
+        createdAt,
+        scheduleConfig: { type: 'daily', times: ['08:00', '18:00'] },
+      },
+      day,
+      tz,
+    );
+    expect(occs.map((o) => o.hhmm)).toEqual(['08:00', '18:00']);
+    expect(occs[0].civilDate).toBe('2026-08-26');
+    expect(
+      isOccurrenceDue(
+        occs[0],
+        DateTime.fromISO('2026-08-26T07:59:00', { zone: tz }),
+      ),
+    ).toBe(false);
+    expect(
+      isOccurrenceDue(
+        occs[0],
+        DateTime.fromISO('2026-08-26T08:00:00', { zone: tz }),
+      ),
+    ).toBe(true);
   });
 
   it('retorna HH:mm de meta once no fuso do usuário', () => {
@@ -58,11 +92,36 @@ describe('scheduledTimesForGoalOnDate', () => {
     const day = DateTime.fromISO('2026-08-26', { zone: tz });
     expect(
       scheduledTimesForGoalOnDate(
-        { createdAt, scheduleConfig: { type: 'monthly', dayOfMonth: 15, times: ['10:00'] } },
+        {
+          createdAt,
+          scheduleConfig: { type: 'monthly', dayOfMonth: 15, times: ['10:00'] },
+        },
         day,
         tz,
       ),
     ).toEqual([]);
+  });
+
+  it('filterGoalsOnCivilDate usa a mesma regra de ocorrência', () => {
+    const wed = DateTime.fromISO('2026-08-26', { zone: tz });
+    const thu = DateTime.fromISO('2026-08-27', { zone: tz });
+    const weekly = {
+      createdAt,
+      scheduleConfig: {
+        type: 'weekly' as const,
+        daysOfWeek: [3],
+        times: ['09:30'],
+      },
+    };
+    const daily = {
+      createdAt,
+      scheduleConfig: { type: 'daily' as const, times: ['08:00', '18:00'] },
+    };
+    expect(filterGoalsOnCivilDate([weekly, daily], wed, tz)).toEqual([
+      weekly,
+      daily,
+    ]);
+    expect(filterGoalsOnCivilDate([weekly, daily], thu, tz)).toEqual([daily]);
   });
 });
 
@@ -99,12 +158,17 @@ describe('coerceScheduleConfig', () => {
 
   it('usa reminderTime para Continua sem scheduleConfig', () => {
     expect(
-      coerceScheduleConfig(null, { reminderTime: '10:00', goalType: 'Continua' }),
+      coerceScheduleConfig(null, {
+        reminderTime: '10:00',
+        goalType: 'Continua',
+      }),
     ).toEqual({ type: 'daily', times: ['10:00'] });
   });
 
   it('aceita frequency DAILY no objeto de schedule do REST', () => {
-    expect(coerceScheduleConfig({ frequency: 'DAILY', times: ['10:00'] })).toEqual({
+    expect(
+      coerceScheduleConfig({ frequency: 'DAILY', times: ['10:00'] }),
+    ).toEqual({
       type: 'daily',
       times: ['10:00'],
     });
@@ -127,7 +191,9 @@ describe('resolveDailyStatusForDate', () => {
 
   it('não propaga DONE do banco para o dia seguinte sem colheita', () => {
     const tomorrow = DateTime.fromISO('2026-08-27', { zone: tz });
-    expect(resolveDailyStatusForDate(goalWithEvents, tomorrow, tz, now)).toBe('PENDING');
+    expect(resolveDailyStatusForDate(goalWithEvents, tomorrow, tz, now)).toBe(
+      'PENDING',
+    );
   });
 
   it('retorna DONE hoje quando há colheita no dia', () => {
@@ -151,7 +217,11 @@ describe('resolveDailyStatusForDate', () => {
         {
           dailyStatus: 'DONE',
           reminderUpdatedAt: '2026-08-25T20:00:00.000-03:00',
-          plantedTree: { growthEvents: [{ createdAt: '2026-01-01T12:00:00.000Z', progressIndex: 1 }] },
+          plantedTree: {
+            growthEvents: [
+              { createdAt: '2026-01-01T12:00:00.000Z', progressIndex: 1 },
+            ],
+          },
         },
         today,
         tz,
@@ -162,11 +232,15 @@ describe('resolveDailyStatusForDate', () => {
 
   it('retorna DONE no passado quando há growthEvent de conclusão no dia', () => {
     const past = DateTime.fromISO('2026-08-25', { zone: tz });
-    expect(resolveDailyStatusForDate(goalWithEvents, past, tz, now)).toBe('DONE');
+    expect(resolveDailyStatusForDate(goalWithEvents, past, tz, now)).toBe(
+      'DONE',
+    );
   });
 
   it('retorna PENDING no passado sem progresso no dia', () => {
     const past = DateTime.fromISO('2026-08-24', { zone: tz });
-    expect(resolveDailyStatusForDate(goalWithEvents, past, tz, now)).toBe('PENDING');
+    expect(resolveDailyStatusForDate(goalWithEvents, past, tz, now)).toBe(
+      'PENDING',
+    );
   });
 });

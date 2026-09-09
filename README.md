@@ -1,160 +1,127 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Jardim das Conquistas — backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API NestJS do Jardim das Conquistas: metas com agenda, jardim virtual (SVG/árvores), conversa por Telegram e WhatsApp, resumo diário e lembretes no cron.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Sobe na porta **3000**. CORS está ligado. Documentação interativa: **[http://localhost:3000/api/docs](http://localhost:3000/api/docs)** (Swagger).
 
-## Description
+## O que o sistema faz
 
-Backend para o projeto "Jardim de Conquistas" - um sistema de metas e mundos virtuais integrado com IA via Telegram e WebSocket. Permite criar metas, plantar árvores virtuais e gerenciar mundos com elementos SVG.
+- **Metas:** `Goal` + `GoalSchedule` + `GoalReminder` na mesma transação de criação. Slots são o par (dia civil no fuso do usuário, `HH:mm`).
+- **Lembretes:** policy avalia, claim grava, depois envia. Telegram/WhatsApp só entregam a mensagem; o pipeline de entrada fica em `inbound`. Detalhe do contrato: [`docs/superpowers/specs/2026-09-04-reminder-occurrence-contract.md`](docs/superpowers/specs/2026-09-04-reminder-occurrence-contract.md).
+- **Jardim:** mundos SVG, âncoras, catálogo e árvores plantadas, eventos de crescimento, WebSocket (Socket.IO) para o front.
+- **Auth:** JWT. `JWT_SECRET` é obrigatório (mínimo 16 caracteres), sem fallback de desenvolvimento.
 
-Principais funcionalidades:
-- Integração com Telegram para controle via IA (bot que processa mensagens e executa ações).
-- WebSocket para notificações em tempo real (ex.: árvore plantada).
-- APIs REST para configuração manual de mundos (upload SVG, importação de árvores do Supabase, geração de âncoras).
-- Banco de dados com Prisma + PostgreSQL, armazenamento com Supabase.
+## Stack
 
-## APIs Disponíveis
+- NestJS 11, Prisma 5 + PostgreSQL
+- OpenAI no orquestrador de conversa
+- Telegram Bot API e WhatsApp via **Evolution**
+- Storage S3-compatível (Garage) para assets; Supabase ainda entra no import legado de árvores
+- Redis opcional (sessão / rate limit; sem `REDIS_URL` cai em memória)
+- Luxon para fuso; Puppeteer / SVG.js no parsing de mundos
 
-### Health Check
-- `GET /health` - Verifica status do sistema (retorna uptime e timestamp).
+## Setup
 
-### Mundos (Worlds)
-- `GET /api/worlds/:id/svg` - Serve o SVG do mundo.
-- `POST /api/worlds/:id/svg` - Upload de SVG para o mundo.
-- `GET /api/worlds/:id/anchors-config` - Obtém configuração de âncoras (do DB ou gera via SVG).
-- `POST /api/worlds/:id/anchors-config/regenerate` - Regenera âncoras via SVG.
-- `POST /api/worlds/:id/trees/import-from-supabase` - Importa catálogo de árvores do Supabase.
-- `GET /api/worlds/:id/trees` - Lista catálogo de árvores.
-- `DELETE /api/worlds/:id/trees` - Limpa catálogo de árvores.
-- `GET /api/worlds/:id/planted-trees` - Lista árvores plantadas pelo usuário.
-- `GET /api/worlds/:id/trees/:anchorId` - Progressão de árvore em âncora específica.
-- `POST /api/worlds/:id/trees/events` - Cria evento de crescimento para árvore.
-- `POST /api/worlds/:id/planted-trees/progress` - Progressa árvore plantada.
+```bash
+npm install
+npx prisma generate
+npx prisma migrate deploy   # local: npx prisma migrate dev
+```
 
-### Usuários
-- `POST /api/users` - Cria novo usuário.
-- `GET /api/users/:id` - Obtém dados do usuário.
-- `GET /api/users/:id/telegram-linked` - Verifica se usuário está vinculado ao Telegram.
-- `POST /api/users/login` - Faz login e retorna JWT.
+Copie as variáveis para um `.env` na raiz (não commitar). O boot valida o schema em `src/config/env.validation.ts` e falha se o obrigatório faltar.
 
-## Estrutura do Projeto
+**Obrigatórias**
+
+| Variável | Uso |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL |
+| `JWT_SECRET` | Assinatura JWT (≥ 16 chars) |
+| `OPENAI_API_KEY` | LLM da conversa |
+
+**Opcionais úteis**
+
+| Variável | Uso |
+| --- | --- |
+| `OPENAI_MODEL` | Default no Joi: `gpt-4o` |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` | Bot Telegram |
+| `EVOLUTION_BASE_URL`, `EVOLUTION_API_KEY` | Cliente Evolution |
+| `EVOLUTION_WEBHOOK_PATH` | Default `/api/evolution/webhook` |
+| `PUBLIC_BASE_URL` | URL pública (webhook / proxy de assets) |
+| `WHATSAPP_NUMBER` | Número da instância |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Garage / S3 |
+| `REDIS_URL` | Redis |
+| `SUPABASE_URL`, `SUPABASE_KEY` | Import de catálogo / legado |
+| `REMINDER_GROUP_WINDOW_MINUTES` | Cluster de follow-up/last-chance (não agrupa operacional na policy) |
+
+O Joi ainda aceita nomes antigos `WUZAPI_*`; o código de WhatsApp usa **Evolution**.
+
+## Rodar
+
+```bash
+npm run start          # uma vez
+npm run start:dev      # watch
+npm run build && npm run start:prod   # dist/src/main.js
+```
+
+## Testes
+
+```bash
+npm run test
+npm run test:e2e
+npm run test:cov
+npm run typecheck
+```
+
+## HTTP (resumo)
+
+Bearer JWT na maioria das rotas autenticadas. Lista completa e DTOs: `/api/docs`.
+
+| Área | Rotas |
+| --- | --- |
+| Health | `GET /health` |
+| Usuários | `POST /api/users`, `POST /api/users/login`, `GET /api/users/me`, `PATCH /api/users/me/current-world`, `GET /api/users/:id/telegram-linked`, `GET /api/users/:id/channels-linked` |
+| Vínculo | `POST /api/users/link/generate`, `POST /api/users/link/telegram`, `POST /api/users/link/whatsapp`, `GET /api/users/link/bot-info` |
+| Metas | `GET/POST /api/goals`, `GET/PATCH/DELETE /api/goals/:id` |
+| Instâncias | `GET /api/goal-instances`, `POST /api/goal-instances/:id/complete` |
+| Dashboard | `GET /api/dashboard?period=day\|week\|month&date=...` |
+| Progresso | `GET /api/progress/week`, `/month`, `/streaks` |
+| Áreas | `GET /api/areas` |
+| Eventos | `GET/POST /api/events`, `GET/PATCH/DELETE /api/events/:id` |
+| Guia | `GET /api/garden-guide/conversations`, mensagens `GET/POST .../conversations/:id/messages` |
+| Mundos | SVG `GET/POST /api/worlds/:id/svg`, âncoras, `GET/DELETE /api/worlds/:id/trees`, import Supabase, planted-trees, progress/events |
+| Assets | `GET /api/assets/*` (proxy/assinatura S3) |
+| WhatsApp | `POST /api/evolution/webhook`, `GET /api/evolution/status`, `POST /api/whatsapp/webhook` |
+
+## Estrutura
 
 ```
 src/
-├── modules/
-│   ├── goals/          # Serviços e módulos para metas de usuário
-│   ├── ia/             # IA (OpenAI/Groq), IntentRouter
-│   ├── telegram/       # Integração com Telegram Bot
-│   ├── users/          # Usuários, auth, vinculação Telegram
-│   └── worlds/         # Mundos, SVG, âncoras, árvores, WebSocket
-├── prisma/             # Cliente Prisma e schema DB
-├── supabase/           # Serviço Supabase para storage
-├── auth/               # Guard de autenticação JWT
-├── main.ts             # Ponto de entrada
-└── app.module.ts       # Módulo raiz
+├── auth/              # JWT
+├── config/            # validação de env (Joi)
+├── domain/types/      # ScheduleConfig, tipos de meta/conquista
+├── filters/           # HTTP e Prisma
+├── logging/
+├── prisma/
+├── storage/           # S3 / Garage
+├── supabase/
+├── main.ts
+├── app.module.ts
+└── modules/
+    ├── areas/
+    ├── daily-digest/
+    ├── dashboard/
+    ├── events/
+    ├── goals/
+    ├── ia/            # orquestrador e núcleos de conversa
+    ├── inbound/       # pipeline após Telegram/WhatsApp
+    ├── messaging/     # saída
+    ├── progress/
+    ├── reminder/      # policy, claim, planner, delivery
+    ├── shared/
+    ├── telegram/
+    ├── users/
+    ├── whatsapp/      # Evolution
+    └── worlds/
 ```
 
-## Technologies Used
-
-- **NestJS**: Framework Node.js para APIs e WebSocket.
-- **Prisma**: ORM para PostgreSQL.
-- **Supabase**: Storage para arquivos (SVGs, imagens de árvores).
-- **Socket.IO**: WebSocket para eventos em tempo real.
-- **Telegram Bot API**: Controle via chat.
-- **OpenAI/Groq**: IA para processamento de intents.
-- **Puppeteer/SVG.js**: Renderização e parsing de SVGs.
-
-## Project setup
-
-## Project setup
-
-```bash
-$ npm install
-```
-
-## Compile and run the project
-
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
-```
-
-## Run tests
-
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
-#   j a r d i m - c o m q u i s t a s - b a c k 
- 
- 
+Prisma: [`prisma/schema.prisma`](prisma/schema.prisma). Scripts extras: `migrate:schedule-at`, `migrate:tree-catalog-keys`, `s3:check-cors`, `s3:apply-cors`.

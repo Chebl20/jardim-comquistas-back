@@ -6,7 +6,11 @@ jest.mock('@aws-sdk/client-s3', () => ({
   S3Client: jest.fn().mockImplementation(() => ({
     send: jest.fn(),
   })),
-  GetObjectCommand: jest.fn().mockImplementation((input: { Key: string; Bucket: string }) => ({ input })),
+  GetObjectCommand: jest
+    .fn()
+    .mockImplementation((input: { Key: string; Bucket: string }) => ({
+      input,
+    })),
 }));
 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
@@ -20,13 +24,16 @@ describe('StorageService.resolveAsset', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.S3_BUCKET = 'jardim-das-conquistas';
-    process.env.S3_ENDPOINT = 'https://s3-hk3uuyv295rhco7h32j0zt4l.coolify.chebl.cloud';
+    process.env.S3_ENDPOINT =
+      'https://s3-hk3uuyv295rhco7h32j0zt4l.coolify.chebl.cloud';
     process.env.S3_REGION = 'garage';
     process.env.S3_ACCESS_KEY = 'test';
     process.env.S3_SECRET_KEY = 'test';
-    mockGetSignedUrl.mockImplementation(async (_client: unknown, command: { input: { Key: string } }) => {
-      return `https://signed.example/${command.input.Key}?X-Amz-Algorithm=AWS4-HMAC-SHA256`;
-    });
+    mockGetSignedUrl.mockImplementation(
+      async (_client: unknown, command: { input: { Key: string } }) => {
+        return `https://signed.example/${command.input.Key}?X-Amz-Algorithm=AWS4-HMAC-SHA256`;
+      },
+    );
     service = new StorageService();
   });
 
@@ -85,7 +92,9 @@ describe('StorageService.resolveAsset', () => {
 
     it('retorna URL same-origin em vez de pré-assinada', async () => {
       const result = await service.resolveAsset('assets/pontual/stars/a/1.png');
-      expect(result).toBe('https://api.example.com/api/assets/assets/pontual/stars/a/1.png');
+      expect(result).toBe(
+        'https://api.example.com/api/assets/assets/pontual/stars/a/1.png',
+      );
       expect(mockGetSignedUrl).not.toHaveBeenCalled();
     });
   });

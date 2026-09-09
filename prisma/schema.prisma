@@ -88,10 +88,11 @@ model GoalSchedule {
 model GoalReminder {
   id              String    @id @default(uuid())
   goalId          String    @unique // 1:1 com Goal
-  // Estado atual do ciclo diário
-  dailyStatus     String? // PENDING | SENT | WAITING_OPERATIONAL_REPLY | WAITING_FOLLOW_UP_REPLY | WAITING_REACTIVATION_REPLY | DONE | SKIPPED | MISSED | SNOOZED | DISMISSED | REACTIVATION_COOLDOWN
-  // Slots já enviados hoje: [{ "time": "08:00" }]
-  slotsToday      Json? // { time: string }[]
+  // Ciclo aberto: null | WAITING_OPERATIONAL_REPLY | WAITING_FOLLOW_UP_REPLY | DONE | SKIPPED | SNOOZED | DISMISSED | MISSED
+  // Status legado de reativação no banco não entra na policy (Fase 4 cortada).
+  dailyStatus     String?
+  // Ocorrências claimed: [{ occKey, date, time, status }]. Legado: [{ time }] só no mesmo civilDate que lastSentAt.
+  slotsToday      Json?
   // Última vez que o lembrete foi enviado
   lastSentAt      DateTime?
   // Quantas vezes o lembrete foi enviado (total)

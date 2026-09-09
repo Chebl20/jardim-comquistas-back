@@ -1,5 +1,9 @@
 // prompt dedicado a responder consultas sobre status de metas
-import { CLASSIFICATIONS, DECISIONS, INTENTS } from '../../conversation/flow.types';
+import {
+  CLASSIFICATIONS,
+  DECISIONS,
+  INTENTS,
+} from '../../conversation/flow.types';
 import { PromptSpec, makePrompt, classificationLine } from '../prompt-utils';
 
 const SPEC: PromptSpec = {
@@ -147,4 +151,3 @@ const SPEC: PromptSpec = {
 };
 
 export const GOAL_STATUS_PROMPT = makePrompt(SPEC);
-  

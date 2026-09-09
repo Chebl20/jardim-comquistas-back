@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "skills": {
+    "brainstorming": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/brainstorming/SKILL.md",
+      "computedHash": "0eb8e9ba100985eb4da20c46807268cafd72ec1c4ea58132edf9be6c469867fe"
+    },
+    "clean-ddd-hexagonal": {
+      "source": "ccheney/robust-skills",
+      "sourceType": "github",
+      "skillPath": "skills/clean-ddd-hexagonal/SKILL.md",
+      "computedHash": "b12f71751f32200e2306c092f558bbaca5a11827205928590b7caeac3b648dfd"
+    },
+    "code-review": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/code-review/SKILL.md",
+      "computedHash": "b4f17857c85ca60af1df7d0b623dd03c2a48419f6123e714f3d9748ca744a1bf"
+    },
+    "codebase-design": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/codebase-design/SKILL.md",
+      "computedHash": "caea3cb8a8281ff829fd1a2b985044e77601b62f301adf43f689ccfc74c15f6f"
+    },
+    "domain-modeling": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/domain-modeling/SKILL.md",
+      "computedHash": "336547f3ff285e822fc70b69b170dc58bceef9c8ed5fad18de0046287d6be837"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
+    "improve-codebase-architecture": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
+      "computedHash": "016f12709bff30a27419e8add978a9be70f5ca1fb6738b3be6793038e0aba631"
+    },
+    "nestjs-best-practices": {
+      "source": "kadajett/agent-nestjs-skills",
+      "sourceType": "github",
+      "skillPath": "skills/nestjs-best-practices/SKILL.md",
+      "computedHash": "29c326e77d1462ed9526996acae5da0cf4003146982abc8c67378f5dbad6b181"
+    },
+    "setup-ts-deep-modules": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/in-progress/setup-ts-deep-modules/SKILL.md",
+      "computedHash": "0b0e7124ad1272d59e44bcb4224275e76421351294a91480ada62234158c1023"
+    },
+    "tdd": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/tdd/SKILL.md",
+      "computedHash": "c1ed8cd854c64d4d226097255d3fa662dae4a758a1462fadd63cc10e413d88d7"
+    },
+    "to-spec": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/to-spec/SKILL.md",
+      "computedHash": "0ee8caf20fc7df94db53e76f42588fb01eee88c6f8dc97e7a3a0565be8978e74"
+    },
+    "writing-plans": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/writing-plans/SKILL.md",
+      "computedHash": "27c75044e444a4fc68798c3f799dc23eaff3a6bfabff32e6ad75bb20f881c094"
+    }
+  }
+}
