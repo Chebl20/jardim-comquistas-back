@@ -97,7 +97,7 @@ export class WorldsSvgController {
   @ApiOperation({
     summary: 'Listar mundos',
     description:
-      'Retorna os mundos cadastrados. svgUrl é a URL assinada do fundo; svgPath fica só no banco.',
+      'Retorna os mundos cadastrados. bgPublicUrl é a URL pública do fundo; svgPath fica só no banco.',
   })
   @ApiResponse({ status: 200, description: 'Lista de mundos.' })
   async getWorlds() {
@@ -105,13 +105,13 @@ export class WorldsSvgController {
     return Promise.all(
       worlds.map(async (w) => {
         const key = normalizeWorldSvgKey(w.svgPath);
-        const svgUrl = key.startsWith('assets/')
+        const bgPublicUrl = key.startsWith('assets/')
           ? await this.storageService.getSignedUrl(key)
           : undefined;
         return {
           worldId: w.worldId,
           name: w.name,
-          svgUrl,
+          bgPublicUrl,
           createdAt: w.createdAt,
           updatedAt: w.updatedAt,
         };
