@@ -156,4 +156,3 @@ const SPEC: PromptSpec = {
 };
 
 export const PROMPT = makePrompt(SPEC);
-

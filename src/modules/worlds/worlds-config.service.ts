@@ -13,7 +13,14 @@ export class WorldsConfigService {
     return (prisma as any).worldConfig.findUnique({ where: { worldId } });
   }
 
-  async upsert(worldId: string, payload: { anchors?: any[]; defaultTreeType?: string | null; defaultGrowth?: number | null }) {
+  async upsert(
+    worldId: string,
+    payload: {
+      anchors?: any[];
+      defaultTreeType?: string | null;
+      defaultGrowth?: number | null;
+    },
+  ) {
     const data: any = {
       worldId,
       anchors: payload.anchors || [],
@@ -27,15 +34,30 @@ export class WorldsConfigService {
     });
   }
 
-  async patch(worldId: string, patch: Partial<{ anchors: any[]; defaultTreeType?: string | null; defaultGrowth?: number | null }>) {
-    const existing = await (prisma as any).worldConfig.findUnique({ where: { worldId } });
+  async patch(
+    worldId: string,
+    patch: Partial<{
+      anchors: any[];
+      defaultTreeType?: string | null;
+      defaultGrowth?: number | null;
+    }>,
+  ) {
+    const existing = await (prisma as any).worldConfig.findUnique({
+      where: { worldId },
+    });
     if (!existing) {
-      return this.upsert(worldId, { anchors: patch.anchors || [], defaultTreeType: patch.defaultTreeType ?? null, defaultGrowth: patch.defaultGrowth ?? null });
+      return this.upsert(worldId, {
+        anchors: patch.anchors || [],
+        defaultTreeType: patch.defaultTreeType ?? null,
+        defaultGrowth: patch.defaultGrowth ?? null,
+      });
     }
     const data: any = {};
     if (patch.anchors !== undefined) data.anchors = patch.anchors;
-    if (patch.defaultTreeType !== undefined) data.defaultTreeType = patch.defaultTreeType ?? null;
-    if (patch.defaultGrowth !== undefined) data.defaultGrowth = patch.defaultGrowth ?? null;
+    if (patch.defaultTreeType !== undefined)
+      data.defaultTreeType = patch.defaultTreeType ?? null;
+    if (patch.defaultGrowth !== undefined)
+      data.defaultGrowth = patch.defaultGrowth ?? null;
     return (prisma as any).worldConfig.update({ where: { worldId }, data });
   }
 
@@ -43,8 +65,24 @@ export class WorldsConfigService {
    * Patch or add a single anchor node identified by layer+slot or by x/y (nearest).
    * Returns the updated WorldConfig record.
    */
-  async patchNode(worldId: string, identifier: Partial<{ layer?: string; slot?: string; x?: number; y?: number }>, patch: Partial<{ treeType?: string | null; growth?: number | null; x?: number; y?: number }>) {
-    const row = await (prisma as any).worldConfig.findUnique({ where: { worldId } });
+  async patchNode(
+    worldId: string,
+    identifier: Partial<{
+      layer?: string;
+      slot?: string;
+      x?: number;
+      y?: number;
+    }>,
+    patch: Partial<{
+      treeType?: string | null;
+      growth?: number | null;
+      x?: number;
+      y?: number;
+    }>,
+  ) {
+    const row = await (prisma as any).worldConfig.findUnique({
+      where: { worldId },
+    });
     if (!row) throw new Error('config not found');
     // Normaliza anchors independente do formato vindo do Prisma
     let anchors: any[] = [];
@@ -59,7 +97,8 @@ export class WorldsConfigService {
       }
     } else if (row.anchors && typeof row.anchors === 'object') {
       // caso raro: objeto que contenha anchors
-      if (Array.isArray((row.anchors as any).anchors)) anchors = [...(row.anchors as any).anchors];
+      if (Array.isArray(row.anchors.anchors))
+        anchors = [...row.anchors.anchors];
       else anchors = [];
     } else {
       anchors = [];
@@ -67,11 +106,19 @@ export class WorldsConfigService {
 
     let idx = -1;
     if (identifier.layer && identifier.slot) {
-      idx = anchors.findIndex((a) => String(a.layer) === String(identifier.layer) && String(a.slot) === String(identifier.slot));
+      idx = anchors.findIndex(
+        (a) =>
+          String(a.layer) === String(identifier.layer) &&
+          String(a.slot) === String(identifier.slot),
+      );
     }
 
     // fallback: find by nearest x/y within tolerance
-    if (idx === -1 && typeof identifier.x === 'number' && typeof identifier.y === 'number') {
+    if (
+      idx === -1 &&
+      typeof identifier.x === 'number' &&
+      typeof identifier.y === 'number'
+    ) {
       const tol = 20; // pixels
       let best = { dist: Infinity, i: -1 };
       for (let i = 0; i < anchors.length; i++) {
@@ -92,8 +139,14 @@ export class WorldsConfigService {
       anchors[idx] = updatedAnchor;
     } else {
       // create new anchor if x/y provided or layer+slot provided
-      if (typeof patch.x !== 'number' && typeof patch.y !== 'number' && !(identifier.layer && identifier.slot)) {
-        throw new Error('cannot create anchor without coordinates or layer+slot');
+      if (
+        typeof patch.x !== 'number' &&
+        typeof patch.y !== 'number' &&
+        !(identifier.layer && identifier.slot)
+      ) {
+        throw new Error(
+          'cannot create anchor without coordinates or layer+slot',
+        );
       }
       updatedAnchor = {
         layer: identifier.layer ?? (patch as any)['layer'] ?? null,
@@ -110,7 +163,10 @@ export class WorldsConfigService {
       anchors.push(updatedAnchor);
     }
 
-    const saved = await (prisma as any).worldConfig.update({ where: { worldId }, data: { anchors } });
+    const saved = await (prisma as any).worldConfig.update({
+      where: { worldId },
+      data: { anchors },
+    });
     return { saved, updatedAnchor };
   }
 }

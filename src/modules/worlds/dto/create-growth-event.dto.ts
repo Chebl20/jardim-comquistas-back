@@ -2,12 +2,18 @@ import { IsOptional, IsString, IsUUID } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateGrowthEventDto {
-  @ApiPropertyOptional({ description: 'ID do catálogo de árvore', format: 'uuid' })
+  @ApiPropertyOptional({
+    description: 'ID do catálogo de árvore',
+    format: 'uuid',
+  })
   @IsOptional()
   @IsUUID()
   treeCatalogId?: string;
 
-  @ApiPropertyOptional({ description: 'Família da árvore', example: 'carvalho' })
+  @ApiPropertyOptional({
+    description: 'Família da árvore',
+    example: 'carvalho',
+  })
   @IsOptional()
   @IsString()
   family?: string;
@@ -27,7 +33,10 @@ export class CreateGrowthEventDto {
   @IsString()
   anchorId?: string;
 
-  @ApiPropertyOptional({ description: 'Tipo de meta (ex: daily, weekly)', example: 'daily' })
+  @ApiPropertyOptional({
+    description: 'Tipo de meta (ex: daily, weekly)',
+    example: 'daily',
+  })
   @IsOptional()
   @IsString()
   goalType?: string;

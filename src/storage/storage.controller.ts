@@ -24,7 +24,10 @@ export class StorageController {
       'Serve objetos do bucket S3/Garage same-origin (evita CORS no Pixi). ' +
       'Ativado quando S3_ASSET_PROXY=true; URLs retornadas pela API apontam para este endpoint.',
   })
-  @ApiParam({ name: 'path', description: 'Chave do objeto, ex: assets/pontual/stars/a/1.png' })
+  @ApiParam({
+    name: 'path',
+    description: 'Chave do objeto, ex: assets/pontual/stars/a/1.png',
+  })
   @ApiResponse({ status: 200, description: 'Arquivo retornado.' })
   @ApiResponse({ status: 404, description: 'Objeto não encontrado.' })
   async getAsset(
@@ -44,13 +47,16 @@ export class StorageController {
     }
 
     res.setHeader('Cache-Control', 'public, max-age=300');
-    res.setHeader('Content-Type', object.contentType || this.guessContentType(key));
+    res.setHeader(
+      'Content-Type',
+      object.contentType || this.guessContentType(key),
+    );
     if (object.contentLength != null) {
       res.setHeader('Content-Length', String(object.contentLength));
     }
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
 
-    return new StreamableFile(object.body as Readable);
+    return new StreamableFile(object.body);
   }
 
   private guessContentType(key: string): string {

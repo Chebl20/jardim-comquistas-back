@@ -1,59 +1,31 @@
 import { DateTime } from 'luxon';
-import type { ScheduleConfig } from '../ia/conversation/flow.types';
-import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from './weekday.util';
-import { prisma } from '../../prisma/client';
+import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
+import {
+  luxonWeekdayToJsDayOfWeek,
+  normalizeDaysOfWeekJson,
+} from './weekday.util';
 
-type GoalLike = {
+export type GoalLike = {
   id?: string;
-  createdAt: Date;
-  scheduleConfig?: ScheduleConfig | null;
+  createdAt: Date | string;
+  schedule?: ScheduleConfig | null;
+  scheduleConfig?: ScheduleConfig | null | unknown;
 };
 
-/**
- * Busca exceções canceladas (isCancelled=true) para um conjunto de goals em uma data específica.
- * Retorna um Set de goalIds que têm exceções de cancelamento para a data.
- */
-export async function getCancelledExceptionsForDate(
-  goalIds: string[],
-  targetDate: DateTime,
-  timezone: string,
-): Promise<Set<string>> {
-  if (goalIds.length === 0) return new Set();
-
-  const targetStart = targetDate.setZone(timezone).startOf('day');
-  const targetEnd = targetDate.setZone(timezone).endOf('day');
-
-  const exceptions = await prisma.goalOccurrenceException.findMany({
-    where: {
-      goalId: { in: goalIds },
-      isCancelled: true,
-      originalOccurrenceStart: {
-        gte: targetStart.toJSDate(),
-        lte: targetEnd.toJSDate(),
-      },
-    },
-    select: { goalId: true },
-  });
-
-  return new Set(exceptions.map((e) => e.goalId));
-}
-
-/**
- * Verifica se um goal específico tem exceção de cancelamento para uma data.
- */
-export async function hasCancelledExceptionForDate(
-  goalId: string,
-  targetDate: DateTime,
-  timezone: string,
-): Promise<boolean> {
-  const cancelled = await getCancelledExceptionsForDate([goalId], targetDate, timezone);
-  return cancelled.has(goalId);
+function rawSchedule(goal: GoalLike): unknown {
+  return goal.schedule ?? goal.scheduleConfig;
 }
 
 /** `day` é o mesmo dia civil ou posterior ao dia em que a meta foi criada (fuso `tz`). */
-export function isOnOrAfterGoalCreationDay(day: DateTime, createdAt: Date | string, tz: string): boolean {
+export function isOnOrAfterGoalCreationDay(
+  day: DateTime,
+  createdAt: Date | string,
+  tz: string,
+): boolean {
   const dayStart = day.setZone(tz).startOf('day');
-  const createdDay = DateTime.fromJSDate(new Date(createdAt)).setZone(tz).startOf('day');
+  const createdDay = DateTime.fromJSDate(new Date(createdAt))
+    .setZone(tz)
+    .startOf('day');
   return dayStart >= createdDay;
 }
 
@@ -61,9 +33,14 @@ export function isOnOrAfterGoalCreationDay(day: DateTime, createdAt: Date | stri
  * Quantidade de "slots" esperados para a meta em um dia civil no fuso `tz`
  * (ex.: weekly ter/qui com 1 horário → 1; daily com 2 horários → 2).
  */
-export function expectedSlotCountForGoalOnDate(goal: GoalLike, day: DateTime, tz: string): number {
-  const sc = goal.scheduleConfig;
-  if (!sc || typeof sc !== 'object') return 0;
+export function expectedSlotCountForGoalOnDate(
+  goal: GoalLike,
+  day: DateTime,
+  tz: string,
+): number {
+  const raw = rawSchedule(goal);
+  if (!raw || typeof raw !== 'object') return 0;
+  const sc = raw as ScheduleConfig;
   if (!isOnOrAfterGoalCreationDay(day, goal.createdAt, tz)) return 0;
   const dayStart = day.setZone(tz).startOf('day');
 
@@ -74,7 +51,9 @@ export function expectedSlotCountForGoalOnDate(goal: GoalLike, day: DateTime, tz
 
   if (sc.type === 'daily') {
     if (sc.durationDays) {
-      const createdAt = DateTime.fromJSDate(new Date(goal.createdAt)).setZone(tz);
+      const createdAt = DateTime.fromJSDate(new Date(goal.createdAt)).setZone(
+        tz,
+      );
       const daysSince = Math.floor(dayStart.diff(createdAt, 'days').days);
       if (daysSince >= sc.durationDays) return 0;
     }
@@ -88,7 +67,8 @@ export function expectedSlotCountForGoalOnDate(goal: GoalLike, day: DateTime, tz
   }
 
   if (sc.type === 'monthly') {
-    const dom = typeof sc.dayOfMonth === 'number' ? Math.trunc(sc.dayOfMonth) : NaN;
+    const dom =
+      typeof sc.dayOfMonth === 'number' ? Math.trunc(sc.dayOfMonth) : NaN;
     if (!Number.isFinite(dom) || dom < 1 || dom > 31) return 0;
     if (dayStart.day !== dom) return 0;
     return Array.isArray(sc.times) && sc.times.length > 0 ? sc.times.length : 0;
@@ -125,7 +105,11 @@ export function normalizeTimeToHHmm(value: string): string | null {
 }
 
 export function coerceTimesList(raw: unknown): string[] {
-  const items = Array.isArray(raw) ? raw : raw == null || raw === '' ? [] : [raw];
+  const items = Array.isArray(raw)
+    ? raw
+    : raw == null || raw === ''
+      ? []
+      : [raw];
   const out: string[] = [];
   for (const item of items) {
     const t = normalizeTimeToHHmm(String(item));
@@ -140,7 +124,11 @@ export function coerceTimesList(raw: unknown): string[] {
  */
 export function coerceScheduleConfig(
   raw: unknown,
-  opts?: { reminderTime?: Date | string | null; timeToken?: string | null; goalType?: string | null },
+  opts?: {
+    reminderTime?: Date | string | null;
+    timeToken?: string | null;
+    goalType?: string | null;
+  },
 ): ScheduleConfig | undefined {
   const reminderRaw =
     opts?.reminderTime instanceof Date
@@ -149,9 +137,12 @@ export function coerceScheduleConfig(
         ? String(opts.reminderTime).trim()
         : '';
   const tokenRaw = opts?.timeToken != null ? String(opts.timeToken).trim() : '';
-  const fallbackTimes = coerceTimesList([reminderRaw, tokenRaw].filter(Boolean));
+  const fallbackTimes = coerceTimesList(
+    [reminderRaw, tokenRaw].filter(Boolean),
+  );
 
-  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  const o =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
   const type = (
     (o && typeof o.type === 'string' && o.type) ||
     (o && typeof o.frequency === 'string' && o.frequency) ||
@@ -160,7 +151,10 @@ export function coerceScheduleConfig(
     .trim()
     .toLowerCase();
   const durationDays =
-    o && typeof o.durationDays === 'number' && Number.isInteger(o.durationDays) && o.durationDays >= 1
+    o &&
+    typeof o.durationDays === 'number' &&
+    Number.isInteger(o.durationDays) &&
+    o.durationDays >= 1
       ? o.durationDays
       : undefined;
 
@@ -184,12 +178,16 @@ export function coerceScheduleConfig(
     if (times.length === 0) times = timesFromAt();
     if (times.length === 0) times = fallbackTimes;
     if (times.length === 0) return undefined;
-    return durationDays ? { type: 'daily', times, durationDays } : { type: 'daily', times };
+    return durationDays
+      ? { type: 'daily', times, durationDays }
+      : { type: 'daily', times };
   }
 
   if (type === 'weekly') {
     const days = Array.isArray(o?.daysOfWeek)
-      ? o!.daysOfWeek.map((d) => (typeof d === 'number' ? d : parseInt(String(d), 10))).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
+      ? o.daysOfWeek
+          .map((d) => (typeof d === 'number' ? d : parseInt(String(d), 10)))
+          .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6)
       : [];
     let times = coerceTimesList(o?.times);
     if (times.length === 0) times = timesFromAt();
@@ -200,16 +198,25 @@ export function coerceScheduleConfig(
 
   if (type === 'monthly') {
     const rawDom = o?.dayOfMonth;
-    const dom = typeof rawDom === 'number' ? Math.trunc(rawDom) : parseInt(String(rawDom ?? ''), 10);
+    const dom =
+      typeof rawDom === 'number'
+        ? Math.trunc(rawDom)
+        : parseInt(String(rawDom ?? ''), 10);
     let times = coerceTimesList(o?.times);
     if (times.length === 0) times = timesFromAt();
     if (times.length === 0) times = fallbackTimes;
-    if (!Number.isFinite(dom) || dom < 1 || dom > 31 || times.length === 0) return undefined;
+    if (!Number.isFinite(dom) || dom < 1 || dom > 31 || times.length === 0)
+      return undefined;
     return { type: 'monthly', dayOfMonth: dom, times };
   }
 
   const inferredTimes = coerceTimesList(o?.times);
-  const times = inferredTimes.length > 0 ? inferredTimes : timesFromAt().length > 0 ? timesFromAt() : fallbackTimes;
+  const times =
+    inferredTimes.length > 0
+      ? inferredTimes
+      : timesFromAt().length > 0
+        ? timesFromAt()
+        : fallbackTimes;
   if (times.length === 0) return undefined;
 
   const goalKind = String(opts?.goalType || '').toLowerCase();
@@ -217,17 +224,23 @@ export function coerceScheduleConfig(
   if (isPontual) {
     return { type: 'once', at: reminderRaw || `${times[0]}` };
   }
-  return durationDays ? { type: 'daily', times, durationDays } : { type: 'daily', times };
+  return durationDays
+    ? { type: 'daily', times, durationDays }
+    : { type: 'daily', times };
 }
 
 /**
  * Horários agendados (HH:mm) para a meta em um dia civil no fuso `tz`.
  * Retorna [] quando a meta não tem ocorrência naquele dia.
  */
-export function scheduledTimesForGoalOnDate(goal: GoalLike, day: DateTime, tz: string): string[] {
+export function scheduledTimesForGoalOnDate(
+  goal: GoalLike,
+  day: DateTime,
+  tz: string,
+): string[] {
   if (expectedSlotCountForGoalOnDate(goal, day, tz) === 0) return [];
 
-  const sc = goal.scheduleConfig;
+  const sc = rawSchedule(goal) as ScheduleConfig | null | undefined;
   if (!sc || typeof sc !== 'object') return [];
 
   if (sc.type === 'once') {
@@ -244,6 +257,53 @@ export function scheduledTimesForGoalOnDate(goal: GoalLike, day: DateTime, tz: s
   return [];
 }
 
+export type SlotOccurrence = {
+  civilDate: string;
+  hhmm: string;
+  at: DateTime;
+};
+
+/** Ocorrências agendadas no dia civil `day` no fuso `tz`. Sem I/O. */
+export function occurrencesOnCivilDate(
+  goal: GoalLike,
+  day: DateTime,
+  tz: string,
+): SlotOccurrence[] {
+  const zone = day.setZone(tz);
+  const civilDate = zone.toISODate() || '';
+  return scheduledTimesForGoalOnDate(goal, day, tz).map((hhmm) => {
+    const [hh, mm] = hhmm.split(':').map(Number);
+    const at = zone.set({
+      hour: hh || 0,
+      minute: mm || 0,
+      second: 0,
+      millisecond: 0,
+    });
+    return { civilDate, hhmm, at };
+  });
+}
+
+export function hasOccurrenceOnCivilDate(
+  goal: GoalLike,
+  day: DateTime,
+  tz: string,
+): boolean {
+  return occurrencesOnCivilDate(goal, day, tz).length > 0;
+}
+
+export function filterGoalsOnCivilDate<T extends GoalLike>(
+  goals: T[],
+  day: DateTime,
+  tz: string,
+): T[] {
+  return goals.filter((g) => hasOccurrenceOnCivilDate(g, day, tz));
+}
+
+/** Catch-up aberto: due quando o instante local já passou. */
+export function isOccurrenceDue(occ: SlotOccurrence, now: DateTime): boolean {
+  return now.toUTC() >= occ.at.toUTC();
+}
+
 type GrowthEventLike = {
   id?: string;
   createdAt: Date | string;
@@ -253,15 +313,25 @@ type GrowthEventLike = {
 type GoalDailyStatusLike = {
   dailyStatus?: string | null;
   reminderUpdatedAt?: Date | string | null;
-  reminder?: { updatedAt?: Date | string | null; dailyStatus?: string | null } | null;
+  reminder?: {
+    updatedAt?: Date | string | null;
+    dailyStatus?: string | null;
+  } | null;
   plantedTree?: {
     growthEvents?: GrowthEventLike[];
   } | null;
 };
 
 /** Mesmo dia civil no fuso `tz`. */
-export function isSameCalendarDay(a: DateTime, b: DateTime, tz: string): boolean {
-  return a.setZone(tz).startOf('day').hasSame(b.setZone(tz).startOf('day'), 'day');
+export function isSameCalendarDay(
+  a: DateTime,
+  b: DateTime,
+  tz: string,
+): boolean {
+  return a
+    .setZone(tz)
+    .startOf('day')
+    .hasSame(b.setZone(tz).startOf('day'), 'day');
 }
 
 /** Há colheita/conclusão no dia civil (ignora o plantio inicial progressIndex=1). */
@@ -287,7 +357,11 @@ export function hasCompletionOnCalendarDay(
   });
 }
 
-function reminderTouchedOnDay(goal: GoalDailyStatusLike, day: DateTime, tz: string): boolean {
+function reminderTouchedOnDay(
+  goal: GoalDailyStatusLike,
+  day: DateTime,
+  tz: string,
+): boolean {
   const raw = goal.reminderUpdatedAt ?? goal.reminder?.updatedAt ?? null;
   if (!raw) return false;
   const at = DateTime.fromJSDate(new Date(raw)).setZone(tz);
@@ -341,7 +415,12 @@ export function weekRangeContainingDate(
 export function monthRangeFromInput(
   input: string,
   tz: string,
-): { monthStart: DateTime; monthEnd: DateTime; nextMonthStart: DateTime; yearMonth: string } | null {
+): {
+  monthStart: DateTime;
+  monthEnd: DateTime;
+  nextMonthStart: DateTime;
+  yearMonth: string;
+} | null {
   const raw = String(input || '').trim();
   if (!raw) return null;
 

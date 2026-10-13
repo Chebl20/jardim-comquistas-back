@@ -23,7 +23,9 @@ export function normalizePhone(input: string): string {
   return String(input || '').replace(/\D/g, '');
 }
 
-export function phoneFromRemoteJid(remoteJid: string | undefined | null): string | null {
+export function phoneFromRemoteJid(
+  remoteJid: string | undefined | null,
+): string | null {
   if (!remoteJid || typeof remoteJid !== 'string') return null;
   if (remoteJid.endsWith('@g.us')) return null;
   const base = remoteJid.split('@')[0] || '';
@@ -36,7 +38,12 @@ export function phoneFromRemoteJid(remoteJid: string | undefined | null): string
 export function phoneFromEventInfo(info: any): string | null {
   if (!info || typeof info !== 'object') return null;
 
-  const candidates = [info.SenderAlt, info.RemoteJid, info.Chat, info.Sender].filter(
+  const candidates = [
+    info.SenderAlt,
+    info.RemoteJid,
+    info.Chat,
+    info.Sender,
+  ].filter(
     (value): value is string => typeof value === 'string' && value.length > 0,
   );
 
@@ -59,7 +66,12 @@ function normalizeJid(jid: string): string {
 
 /** JID completo (@lid / @s.whatsapp.net) para envio via Evolution API. */
 export function replyTargetFromEventInfo(info: any): string | null {
-  const candidates = [info.Chat, info.Sender, info.RemoteJid, info.SenderAlt].filter(
+  const candidates = [
+    info.Chat,
+    info.Sender,
+    info.RemoteJid,
+    info.SenderAlt,
+  ].filter(
     (value): value is string => typeof value === 'string' && value.length > 0,
   );
 
@@ -152,7 +164,9 @@ export function extractTextFromMessage(message: any): string | null {
 }
 
 /** Normaliza o payload do Evolution GO para estrutura interna consistente. */
-function normalizeWebhookPayload(payload: EvolutionWebhookPayload): EvolutionWebhookPayload {
+function normalizeWebhookPayload(
+  payload: EvolutionWebhookPayload,
+): EvolutionWebhookPayload {
   const normalized: EvolutionWebhookPayload = { ...payload };
 
   // Inferir tipo "Message" quando data.Info existe mas event está ausente
@@ -192,14 +206,20 @@ export function parseWebhookBody(
   rawBody?: Buffer,
 ): EvolutionWebhookPayload | null {
   // Payload JSON direto do Evolution GO: { event, data, instanceId, instanceToken }
-  if (body && typeof body === 'object' && (body.event !== undefined || body.data !== undefined)) {
+  if (
+    body &&
+    typeof body === 'object' &&
+    (body.event !== undefined || body.data !== undefined)
+  ) {
     return normalizeWebhookPayload(body as EvolutionWebhookPayload);
   }
 
   // Fallback: tentar parsear rawBody como JSON
   if (rawBody?.length) {
     try {
-      const parsed = JSON.parse(rawBody.toString('utf8')) as EvolutionWebhookPayload;
+      const parsed = JSON.parse(
+        rawBody.toString('utf8'),
+      ) as EvolutionWebhookPayload;
       if (parsed && typeof parsed === 'object') {
         return normalizeWebhookPayload(parsed);
       }
@@ -227,7 +247,8 @@ export function extractWebhookHeaderToken(
   headers: Record<string, string | string[] | undefined>,
 ): string | undefined {
   // Evolution GO usa header "apikey"
-  const apikeyHeader = headers['apikey'] ?? headers['Apikey'] ?? headers['APIKEY'];
+  const apikeyHeader =
+    headers['apikey'] ?? headers['Apikey'] ?? headers['APIKEY'];
   if (typeof apikeyHeader === 'string' && apikeyHeader.trim()) {
     return apikeyHeader.trim();
   }
@@ -260,10 +281,9 @@ export function isWebhookAuthorized(params: {
     return { ok: true };
   }
 
-  const tokenCandidates = [
-    payload.instanceToken,
-    headerToken,
-  ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+  const tokenCandidates = [payload.instanceToken, headerToken].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
 
   const tokenValid = tokenCandidates.some((token) =>
     verifyWebhookToken(token, expectedToken),

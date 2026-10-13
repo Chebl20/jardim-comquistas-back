@@ -43,7 +43,11 @@ describe('StorageController', () => {
 
   it('rejeita keys fora de assets/', async () => {
     await expect(
-      controller.getAsset('other/file.png', { headers: {} } as any, { setHeader: jest.fn() } as any),
+      controller.getAsset(
+        'other/file.png',
+        { headers: {} } as any,
+        { setHeader: jest.fn() } as any,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

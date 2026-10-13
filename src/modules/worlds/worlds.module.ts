@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { WorldsService } from './worlds.service';
 import { WorldsConfigService } from './worlds-config.service';
 import { TreesImportService } from './trees-import.service';
@@ -13,9 +13,28 @@ import { SupabaseService } from '../../supabase/supabase.service';
 import { SharedModule } from '../shared/shared.module';
 
 @Module({
-  imports: [SharedModule],
-  providers: [WorldsService, WorldsConfigService, TreesImportService, WorldsGateway, WorldsEventsService, SupabaseService],
-  controllers: [WorldsSvgController, WorldsAnchorsController, WorldsTreesController, WorldsPlantedController, WorldsEventsController],
-  exports: [WorldsService, WorldsConfigService, TreesImportService, WorldsGateway, WorldsEventsService],
+  imports: [forwardRef(() => SharedModule)],
+  providers: [
+    WorldsService,
+    WorldsConfigService,
+    TreesImportService,
+    WorldsGateway,
+    WorldsEventsService,
+    SupabaseService,
+  ],
+  controllers: [
+    WorldsSvgController,
+    WorldsAnchorsController,
+    WorldsTreesController,
+    WorldsPlantedController,
+    WorldsEventsController,
+  ],
+  exports: [
+    WorldsService,
+    WorldsConfigService,
+    TreesImportService,
+    WorldsGateway,
+    WorldsEventsService,
+  ],
 })
 export class WorldsModule {}

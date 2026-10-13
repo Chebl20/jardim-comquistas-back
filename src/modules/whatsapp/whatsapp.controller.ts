@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Post,
-  Req,
-  Res,
-  HttpCode,
-  Logger,
-} from '@nestjs/common';
+import { Controller, Post, Req, Res, HttpCode, Logger } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { WhatsAppService } from './whatsapp.service';

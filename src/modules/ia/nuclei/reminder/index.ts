@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NucleusInput, Nucleus, ReminderMeta } from '../nucleus.interface';
-import { FlowResult, Action, ReplyAction, FLOW_STATES, DECISIONS, CLASSIFICATIONS } from '../../conversation/flow.types';
+import {
+  FlowResult,
+  Action,
+  ReplyAction,
+  FLOW_STATES,
+  DECISIONS,
+  CLASSIFICATIONS,
+} from '../../conversation/flow.types';
 import { ConversationAIService } from '../../conversation-ai.service';
 import { REMINDER_PROMPT } from './prompt';
 import { decisionFromClassification } from '../prompt-utils';
@@ -40,26 +47,47 @@ export class ReminderNucleus implements Nucleus<Action> {
     // Se vem de CLARIFICATION, timezone pode ser undefined
     if (!meta.timezone) {
       try {
-        meta.timezone = await this.userGoalService.getUserTimezone(input.userId);
-        this.logger.debug(`ReminderNucleus: carregou timezone "${meta.timezone}" do usuário`);
+        meta.timezone = await this.userGoalService.getUserTimezone(
+          input.userId,
+        );
+        this.logger.debug(
+          `ReminderNucleus: carregou timezone "${meta.timezone}" do usuário`,
+        );
       } catch (e) {
-        this.logger.debug(`ReminderNucleus: não conseguiu carregar timezone do usuário`, e);
+        this.logger.debug(
+          `ReminderNucleus: não conseguiu carregar timezone do usuário`,
+          e,
+        );
       }
     }
 
     // Carregar otherGoals para dar contexto ao LLM
     if (text && meta.timezone) {
       if (meta.pendingGoalIds && meta.pendingGoalIds.length > 0) {
-        const goals = await this.userGoalService.getGoalsByIds(meta.pendingGoalIds);
-        meta = { ...meta, otherGoals: goals.map((g: any) => ({ id: g.id, title: g.title })) };
-      } else {
-        const goalsWithStatus = await this.userGoalService.getGoalsForTodayWithStatus(
-          input.userId,
-          meta.timezone,
+        const goals = await this.userGoalService.getGoalsByIds(
+          meta.pendingGoalIds,
         );
-        meta = { ...meta, otherGoals: goalsWithStatus.map((g) => ({ id: g.id, title: g.title })) };
+        meta = {
+          ...meta,
+          otherGoals: goals.map((g: any) => ({ id: g.id, title: g.title })),
+        };
+      } else {
+        const goalsWithStatus =
+          await this.userGoalService.getGoalsForTodayWithStatus(
+            input.userId,
+            meta.timezone,
+          );
+        meta = {
+          ...meta,
+          otherGoals: goalsWithStatus.map((g) => ({
+            id: g.id,
+            title: g.title,
+          })),
+        };
       }
-      this.logger.debug(`ReminderNucleus: carregou ${meta.otherGoals?.length || 0} metas para contexto`);
+      this.logger.debug(
+        `ReminderNucleus: carregou ${meta.otherGoals?.length || 0} metas para contexto`,
+      );
     }
 
     try {
@@ -100,21 +128,28 @@ export class ReminderNucleus implements Nucleus<Action> {
         actions.push({ type: 'reply', text: message });
       }
 
-      const goalsCompleted = llmRes.goalsCompleted as Array<{ id: string; title?: string; description?: string }> | undefined;
-      let dismissGoalId = llmRes.dismissGoalId as string | undefined;
+      const goalsCompleted = llmRes.goalsCompleted as
+        | Array<{ id: string; title?: string; description?: string }>
+        | undefined;
+      let dismissGoalId = llmRes.dismissGoalId;
 
       // 🔴 Validar dismissGoalId — pode ser ID ou título (extraído do LLM)
       if (dismissGoalId) {
         const validGoalIds = [
           meta.goalId,
-          ...(Array.isArray(meta.otherGoals) ? meta.otherGoals.map((g: any) => g.id) : []),
+          ...(Array.isArray(meta.otherGoals)
+            ? meta.otherGoals.map((g: any) => g.id)
+            : []),
         ].filter((id) => id != null); // remover nulls
 
         // Primeira tentativa: é um ID válido?
         if (!validGoalIds.includes(dismissGoalId)) {
           // Tenta matching por título (o LLM pode ter extraído o título)
           const matchedGoal = Array.isArray(meta.otherGoals)
-            ? meta.otherGoals.find((g: any) => g.title?.toLowerCase() === dismissGoalId?.toLowerCase())
+            ? meta.otherGoals.find(
+                (g: any) =>
+                  g.title?.toLowerCase() === dismissGoalId?.toLowerCase(),
+              )
             : null;
 
           if (matchedGoal?.id) {
@@ -130,7 +165,9 @@ export class ReminderNucleus implements Nucleus<Action> {
             // Fallback: usar meta.goalId se estamos respondendo a um lembrete específico
             if (meta.goalId && validGoalIds.includes(meta.goalId)) {
               dismissGoalId = meta.goalId;
-              this.logger.debug(`ReminderNucleus: usando meta.goalId como fallback: ${meta.goalId}`);
+              this.logger.debug(
+                `ReminderNucleus: usando meta.goalId como fallback: ${meta.goalId}`,
+              );
             } else {
               // Não conseguimos identificar qual meta
               const goalList = Array.isArray(meta.otherGoals)
@@ -154,7 +191,10 @@ export class ReminderNucleus implements Nucleus<Action> {
       if (goalsCompleted && goalsCompleted.length > 0) {
         const goals = goalsCompleted.map((g) => ({
           id: g.id,
-          title: g.title ?? meta.otherGoals?.find((og) => og.id === g.id)?.title ?? 'Progresso',
+          title:
+            g.title ??
+            meta.otherGoals?.find((og) => og.id === g.id)?.title ??
+            'Progresso',
           description: g.description ?? 'Progresso concluído',
         }));
         actions.push({
@@ -178,7 +218,9 @@ export class ReminderNucleus implements Nucleus<Action> {
         });
       } else if (dismissGoalId) {
         const tz = meta.timezone || 'America/Sao_Paulo';
-        const endOfDay = this.policyEngine.resolveEndOfDay(tz).toISOString();
+        const endOfDay = this.policyEngine
+          .resolveEndOfDay(tz, DateTime.now())
+          .toISOString();
         actions.push({
           type: 'dismiss_goal_for_today',
           payload: {
@@ -286,9 +328,10 @@ export class ReminderNucleus implements Nucleus<Action> {
       goalDescription:
         meta.goalDescription || reminderContext.pendingGoalDescription,
       goalType: meta.goalType || reminderContext.goalType,
-      reminderTime: meta.reminderTime || reminderContext.reminderTime || undefined,
+      reminderTime:
+        meta.reminderTime || reminderContext.reminderTime || undefined,
       timezone: meta.timezone || reminderContext.timezone || undefined,
-      reminderKind: reminderKind as ReminderKind,
+      reminderKind: reminderKind,
     };
   }
 }

@@ -20,7 +20,8 @@ export class DashboardDayGoalDto {
   dailyStatus: string | null;
 
   @ApiPropertyOptional({
-    description: 'Agendamento reconstruído da meta (times, at, daysOfWeek, etc.)',
+    description:
+      'Agendamento reconstruído da meta (times, at, daysOfWeek, etc.)',
   })
   scheduleConfig?: Record<string, unknown> | null;
 }
@@ -34,7 +35,8 @@ export class DashboardDayResponseDto {
 
   @ApiProperty({
     type: [DashboardDayGoalDto],
-    description: 'Metas agendadas para o dia; dailyStatus reflete a date da query.',
+    description:
+      'Metas agendadas para o dia; dailyStatus reflete a date da query.',
   })
   goals: DashboardDayGoalDto[];
 

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { webcrypto } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -27,7 +28,9 @@ async function bootstrap() {
   // Swagger
   const config = new DocumentBuilder()
     .setTitle('Jardim das Conquistas API')
-    .setDescription('API do backend do Jardim das Conquistas — gerenciamento de metas, mundos, árvores e integração com Telegram/WhatsApp.')
+    .setDescription(
+      'API do backend do Jardim das Conquistas — gerenciamento de metas, mundos, árvores e integração com Telegram/WhatsApp.',
+    )
     .setVersion('1.0')
     .addBearerAuth()
     .build();
@@ -37,4 +40,3 @@ async function bootstrap() {
   await app.listen(3000);
 }
 bootstrap();
-

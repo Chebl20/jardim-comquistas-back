@@ -10,7 +10,12 @@ import { ConversationAIService } from '../../conversation-ai.service';
 import { GOAL_PROGRESS_PROMPT, GOAL_PROGRESS_CLASSIFICATIONS } from './prompt';
 
 export interface GoalProgressMeta {
-  userGoalsSummary?: Array<{ id: string; title: string; type?: string; goalType?: string }>;
+  userGoalsSummary?: Array<{
+    id: string;
+    title: string;
+    type?: string;
+    goalType?: string;
+  }>;
   candidates?: Array<{ id: string; title: string }>;
   pendingGoalId?: string;
   pendingGoalTitle?: string;
@@ -26,9 +31,11 @@ export class GoalProgressNucleus implements Nucleus<Action> {
 
   constructor(private readonly llm: ConversationAIService) {}
 
-  async analyze(input: NucleusInput<GoalProgressMeta>): Promise<FlowResult<Action>> {
+  async analyze(
+    input: NucleusInput<GoalProgressMeta>,
+  ): Promise<FlowResult<Action>> {
     const text = (input.text || '').trim();
-    const meta = (input.meta || {}) as GoalProgressMeta;
+    const meta = input.meta || {};
 
     try {
       const prompt = GOAL_PROGRESS_PROMPT(
@@ -47,15 +54,26 @@ export class GoalProgressNucleus implements Nucleus<Action> {
 
       const classification = llmRes.classification || '';
       const suggestedReply = llmRes.suggestedReply || '';
-      const confidence = typeof llmRes.confidence === 'number' ? llmRes.confidence : 0.5;
+      const confidence =
+        typeof llmRes.confidence === 'number' ? llmRes.confidence : 0.5;
 
       const payload = llmRes.extracted?.payload || {};
-      const matchedGoalId = typeof payload.matchedGoalId === 'string' ? payload.matchedGoalId : undefined;
-      const matchedGoalTitle = typeof payload.matchedGoalTitle === 'string' ? payload.matchedGoalTitle : '';
-      const matchedGoalType = payload.matchedGoalType === 'Pontual' || payload.matchedGoalType === 'Continua'
-        ? payload.matchedGoalType
-        : 'Continua';
-      const candidates = Array.isArray(payload.candidates) ? payload.candidates : undefined;
+      const matchedGoalId =
+        typeof payload.matchedGoalId === 'string'
+          ? payload.matchedGoalId
+          : undefined;
+      const matchedGoalTitle =
+        typeof payload.matchedGoalTitle === 'string'
+          ? payload.matchedGoalTitle
+          : '';
+      const matchedGoalType =
+        payload.matchedGoalType === 'Pontual' ||
+        payload.matchedGoalType === 'Continua'
+          ? payload.matchedGoalType
+          : 'Continua';
+      const candidates = Array.isArray(payload.candidates)
+        ? payload.candidates
+        : undefined;
 
       if (classification === GOAL_PROGRESS_CLASSIFICATIONS.NEW_INTENT) {
         return {
@@ -66,7 +84,9 @@ export class GoalProgressNucleus implements Nucleus<Action> {
       }
 
       if (classification === GOAL_PROGRESS_CLASSIFICATIONS.UNCERTAIN) {
-        const replyAction = suggestedReply ? [{ type: 'reply' as const, text: suggestedReply }] : [];
+        const replyAction = suggestedReply
+          ? [{ type: 'reply' as const, text: suggestedReply }]
+          : [];
         return {
           actions: replyAction,
           decision: DECISIONS.UNCERTAIN,
@@ -76,7 +96,10 @@ export class GoalProgressNucleus implements Nucleus<Action> {
 
       const actions: Action[] = [];
 
-      if (classification === GOAL_PROGRESS_CLASSIFICATIONS.SINGLE_MATCH && matchedGoalId) {
+      if (
+        classification === GOAL_PROGRESS_CLASSIFICATIONS.SINGLE_MATCH &&
+        matchedGoalId
+      ) {
         if (suggestedReply) {
           actions.push({ type: 'reply', text: suggestedReply });
         }
@@ -97,7 +120,11 @@ export class GoalProgressNucleus implements Nucleus<Action> {
         };
       }
 
-      if (classification === GOAL_PROGRESS_CLASSIFICATIONS.CONFIRMATION_RESPONSE && meta.pendingGoalId) {
+      if (
+        classification ===
+          GOAL_PROGRESS_CLASSIFICATIONS.CONFIRMATION_RESPONSE &&
+        meta.pendingGoalId
+      ) {
         const confirmed = payload.confirmed === true;
         if (confirmed) {
           if (suggestedReply) {
@@ -108,14 +135,24 @@ export class GoalProgressNucleus implements Nucleus<Action> {
             payload: {
               goalId: meta.pendingGoalId,
               goalTitle: meta.pendingGoalTitle || undefined,
-              goalType: (meta.pendingGoalType === 'Pontual' || meta.pendingGoalType === 'Continua') ? meta.pendingGoalType : 'Continua',
+              goalType:
+                meta.pendingGoalType === 'Pontual' ||
+                meta.pendingGoalType === 'Continua'
+                  ? meta.pendingGoalType
+                  : 'Continua',
               userMessage: meta.pendingUserMessage || undefined,
             },
           });
           actions.push({
             type: 'redirect',
             to: FLOW_STATES.CLARIFICATION,
-            payload: { pendingGoalId: undefined, pendingGoalTitle: undefined, pendingGoalType: undefined, pendingUserMessage: undefined, recentEvent: 'goal_completed' },
+            payload: {
+              pendingGoalId: undefined,
+              pendingGoalTitle: undefined,
+              pendingGoalType: undefined,
+              pendingUserMessage: undefined,
+              recentEvent: 'goal_completed',
+            },
           });
         } else {
           const cancelReply = suggestedReply || 'Tudo bem, não vou marcar.';
@@ -123,7 +160,11 @@ export class GoalProgressNucleus implements Nucleus<Action> {
           actions.push({
             type: 'redirect',
             to: FLOW_STATES.CLARIFICATION,
-            payload: { pendingGoalId: undefined, pendingGoalTitle: undefined, pendingGoalType: undefined },
+            payload: {
+              pendingGoalId: undefined,
+              pendingGoalTitle: undefined,
+              pendingGoalType: undefined,
+            },
           });
         }
         return {
@@ -133,7 +174,12 @@ export class GoalProgressNucleus implements Nucleus<Action> {
         };
       }
 
-      if (classification === GOAL_PROGRESS_CLASSIFICATIONS.DISAMBIGUATION_RESPONSE && matchedGoalId && meta.candidates?.length) {
+      if (
+        classification ===
+          GOAL_PROGRESS_CLASSIFICATIONS.DISAMBIGUATION_RESPONSE &&
+        matchedGoalId &&
+        meta.candidates?.length
+      ) {
         if (suggestedReply) {
           actions.push({ type: 'reply', text: suggestedReply });
         }
@@ -149,7 +195,11 @@ export class GoalProgressNucleus implements Nucleus<Action> {
         actions.push({
           type: 'redirect',
           to: FLOW_STATES.CLARIFICATION,
-          payload: { candidates: undefined, pendingUserMessage: undefined, recentEvent: 'goal_completed' },
+          payload: {
+            candidates: undefined,
+            pendingUserMessage: undefined,
+            recentEvent: 'goal_completed',
+          },
         });
         return {
           actions,
@@ -158,7 +208,10 @@ export class GoalProgressNucleus implements Nucleus<Action> {
         };
       }
 
-      if (classification === GOAL_PROGRESS_CLASSIFICATIONS.MULTIPLE_MATCH && candidates?.length) {
+      if (
+        classification === GOAL_PROGRESS_CLASSIFICATIONS.MULTIPLE_MATCH &&
+        candidates?.length
+      ) {
         if (suggestedReply) {
           actions.push({ type: 'reply', text: suggestedReply });
         }
@@ -190,9 +243,13 @@ export class GoalProgressNucleus implements Nucleus<Action> {
         };
       }
 
-      this.logger.warn(`GoalProgress: unhandled classification=${classification}`);
+      this.logger.warn(
+        `GoalProgress: unhandled classification=${classification}`,
+      );
       return {
-        actions: suggestedReply ? [{ type: 'reply', text: suggestedReply }] : [],
+        actions: suggestedReply
+          ? [{ type: 'reply', text: suggestedReply }]
+          : [],
         decision: DECISIONS.HANDLED,
         confidence,
       };
