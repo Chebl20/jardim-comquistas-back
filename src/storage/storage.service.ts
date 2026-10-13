@@ -58,18 +58,23 @@ export class StorageService {
       return { body: null };
     }
 
-    const response = await this.client.send(
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-      }),
-    );
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+        }),
+      );
 
-    return {
-      body: (response.Body as Readable) ?? null,
-      contentType: response.ContentType,
-      contentLength: response.ContentLength,
-    };
+      return {
+        body: (response.Body as Readable) ?? null,
+        contentType: response.ContentType,
+        contentLength: response.ContentLength,
+      };
+    } catch (err) {
+      if (isMissingS3Object(err)) return { body: null };
+      throw err;
+    }
   }
 
   async getSignedUrl(key: string, expiresIn = this.expiresIn): Promise<string> {
@@ -160,4 +165,12 @@ export class StorageService {
       treeCatalog: await this.signTreeCatalog(planted.treeCatalog),
     };
   }
+}
+
+function isMissingS3Object(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const error = err as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } };
+  const code = error.name || error.Code;
+  if (code === 'NoSuchKey' || code === 'NotFound') return true;
+  return error.$metadata?.httpStatusCode === 404;
 }

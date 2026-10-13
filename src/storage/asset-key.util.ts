@@ -98,3 +98,20 @@ export function normalizeWorldSvgKey(value: string): string {
 
   return trimmed;
 }
+
+/**
+ * Maps a stored world background path to a Garage object key.
+ * `supabase://bucket/words/lago/Lago.svg` and `assets/words/lago/Lago.svg` both become `assets/words/lago/Lago.svg`.
+ */
+export function worldBackgroundAssetKey(svgPath: string | null | undefined): string | null {
+  if (!svgPath || typeof svgPath !== 'string') return null;
+  const trimmed = svgPath.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('assets/')) return trimmed;
+  if (!trimmed.startsWith('supabase://')) return null;
+
+  const parts = trimmed.replace(/^supabase:\/\//, '').split('/').filter(Boolean);
+  if (parts.length < 2) return null;
+  parts.shift();
+  return `assets/${parts.join('/')}`;
+}

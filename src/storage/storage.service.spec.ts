@@ -13,6 +13,7 @@ jest.mock('@aws-sdk/client-s3', () => ({
     })),
 }));
 
+import { S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { StorageService } from './storage.service';
 
@@ -97,5 +98,39 @@ describe('StorageService.resolveAsset', () => {
       );
       expect(mockGetSignedUrl).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('StorageService.getObject', () => {
+  let service: StorageService;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.S3_BUCKET = 'jardim-das-conquistas';
+    process.env.S3_ENDPOINT = 'https://s3-hk3uuyv295rhco7h32j0zt4l.coolify.chebl.cloud';
+    process.env.S3_REGION = 'garage';
+    process.env.S3_ACCESS_KEY = 'test';
+    process.env.S3_SECRET_KEY = 'test';
+    service = new StorageService();
+  });
+
+  function mockSend() {
+    const results = (S3Client as unknown as jest.Mock).mock.results;
+    return results[results.length - 1].value.send as jest.Mock;
+  }
+
+  it('devolve body null quando o objeto não existe', async () => {
+    mockSend().mockRejectedValue({ name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } });
+    await expect(service.getObject('assets/words/lago/bg.svg')).resolves.toEqual({ body: null });
+  });
+
+  it('devolve body null quando o Garage responde NotFound', async () => {
+    mockSend().mockRejectedValue({ name: 'NotFound', $metadata: { httpStatusCode: 404 } });
+    await expect(service.getObject('assets/words/lago/bg.svg')).resolves.toEqual({ body: null });
+  });
+
+  it('propaga erros que não são objeto ausente', async () => {
+    mockSend().mockRejectedValue(new Error('boom'));
+    await expect(service.getObject('assets/words/lago/Lago.svg')).rejects.toThrow('boom');
   });
 });
