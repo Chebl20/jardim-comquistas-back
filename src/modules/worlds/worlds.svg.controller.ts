@@ -8,6 +8,8 @@ import { WorldsConfigService } from './worlds-config.service';
 import { WorldsService } from './worlds.service';
 import { SupabaseService } from '../../supabase/supabase.service';
 import { prisma } from '../../prisma/client';
+import { StorageService } from '../../storage/storage.service';
+import { worldBackgroundAssetKey } from '../../storage/asset-key.util';
 
 @ApiTags('Mundos — SVG e Scan')
 @Controller('api/worlds')
@@ -16,6 +18,7 @@ export class WorldsSvgController {
     private readonly configService: WorldsConfigService,
     private readonly worldsService: WorldsService,
     private readonly supabaseService: SupabaseService,
+    private readonly storageService: StorageService,
   ) {}
 
   @Get(':id/svg')
@@ -40,31 +43,22 @@ export class WorldsSvgController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Listar mundos', description: 'Retorna todos os mundos cadastrados com resumo.' })
+  @ApiOperation({ summary: 'Listar mundos', description: 'Retorna os mundos cadastrados. svgUrl é a URL assinada do fundo; svgPath fica só no banco.' })
   @ApiResponse({ status: 200, description: 'Lista de mundos.' })
   async getWorlds() {
     const worlds = await this.worldsService.getAllWorlds();
-    return worlds.map((w: any) => {
-      let bgPublicUrl: string | undefined;
-      try {
-        if (typeof w.svgPath === 'string' && w.svgPath.startsWith('supabase://')) {
-          const rest = w.svgPath.replace(/^supabase:\/\//, '');
-          const parts = rest.split('/');
-          const bucket = parts.shift();
-          const p = parts.join('/');
-          const supaUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-          if (bucket && p && supaUrl) bgPublicUrl = `${supaUrl}/storage/v1/object/public/${bucket}/${p}`;
-        }
-      } catch {}
+    return Promise.all(worlds.map(async (w) => {
+      const key = worldBackgroundAssetKey(w.svgPath);
+      const svgUrl = key ? await this.storageService.resolveAsset(key) : undefined;
       return {
         worldId: w.worldId,
         name: w.name,
-        svgPath: w.svgPath,
-        bgPublicUrl,
+        svgUrl,
+        bgPublicUrl: svgUrl,
         createdAt: w.createdAt,
         updatedAt: w.updatedAt,
       };
-    });
+    }));
   }
 
   @Post('scan')
