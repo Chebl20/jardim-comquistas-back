@@ -4,16 +4,20 @@ import { prisma } from '../../prisma/client';
 import { UserGoalService } from '../goals/user-goal.service';
 import { formatScheduleSummary } from '../shared/schedule-formatter.util';
 import { pickGoalEmoji } from '../shared/goal-emoji.util';
-import type { ScheduleConfig } from '../ia/conversation/flow.types';
+import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
 import { MessagingService } from '../messaging/messaging.service';
 
 /**
- * Formata os horários do dia para o resumo diário (chega na manhã).
- * Para metas com múltiplos horários (ex: remédio 3x ao dia), lista TODOS os horários do dia.
- * Ex: "02:00, 10:00 e 18:00" em vez de só "próximo às 18:00".
+ * Formata o horário/data de uma meta para o resumo diário.
+ * Digest-specific: lista TODOS os horários do dia para metas com múltiplos slots
+ * (ex: "02:00, 10:00 e 18:00") e usa "hoje/amanhã" para pontual.
+ * Para casos não cobertos, delega para formatScheduleSummary.
  */
 function formatDigestScheduleLabel(
-  goal: { reminderTime?: Date | string | null; goalType?: string; frequency?: number | null; scheduleConfig?: unknown },
+  goal: {
+    goalKind?: string;
+    schedule?: ScheduleConfig | null;
+  },
   timezone: string,
 ): string | null {
   const formatTime = (dt: Date | string): string =>
@@ -23,64 +27,51 @@ function formatDigestScheduleLabel(
       timeZone: timezone,
     });
 
-  const sc = goal.scheduleConfig as ScheduleConfig | undefined;
+  const diffDaysLabel = (reminder: Date): string | null => {
+    const now = new Date();
+    const userNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
+    const userReminder = new Date(
+      reminder.toLocaleString('en-US', { timeZone: timezone }),
+    );
+    const diffDays = Math.floor(
+      (new Date(userReminder).setHours(0, 0, 0, 0) -
+        new Date(userNow.toDateString()).getTime()) /
+        86400000,
+    );
+    if (userReminder <= userNow) {
+      return diffDays === 0 ? `hoje às ${formatTime(reminder)}` : null;
+    }
+    const label =
+      diffDays === 0 ? 'hoje' : diffDays === 1 ? 'amanhã' : `em ${diffDays} dias`;
+    return `${label} às ${formatTime(reminder)}`;
+  };
+
+  const sc = goal.schedule;
   if (sc && typeof sc === 'object') {
     if (sc.type === 'once') {
-      const reminder = new Date(sc.at);
-      const now = new Date();
-      const userNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-      const userReminder = new Date(reminder.toLocaleString('en-US', { timeZone: timezone }));
-      const diffDays = Math.floor(
-        (userReminder.setHours(0, 0, 0, 0) - new Date(userNow.toDateString()).getTime()) / 86400000,
-      );
-      if (userReminder <= userNow) {
-        if (diffDays === 0) return `hoje às ${formatTime(reminder)}`;
-        return null;
-      }
-      const dateLabel = diffDays === 0 ? 'hoje' : diffDays === 1 ? 'amanhã' : `em ${diffDays} dias`;
-      return `${dateLabel} às ${formatTime(reminder)}`;
+      return diffDaysLabel(new Date(sc.at));
     }
     if (sc.type === 'daily' || sc.type === 'weekly') {
-      if (!sc.times || sc.times.length === 0) return null;
-      // Ordena horários cronologicamente (02:00, 10:00, 18:00)
+      if (!sc.times || sc.times.length === 0)
+        return formatScheduleSummary(sc, timezone) || null;
       const sorted = [...sc.times].sort((a, b) => {
         const [hA, mA] = a.split(':').map(Number);
         const [hB, mB] = b.split(':').map(Number);
-        return (hA * 60 + (mA || 0)) - (hB * 60 + (mB || 0));
+        return hA * 60 + (mA || 0) - (hB * 60 + (mB || 0));
       });
-      const timesStr = sorted.length > 1 ? sorted.slice(0, -1).join(', ') + ' e ' + sorted[sorted.length - 1] : sorted[0];
+      const timesStr =
+        sorted.length > 1
+          ? sorted.slice(0, -1).join(', ') + ' e ' + sorted[sorted.length - 1]
+          : sorted[0];
       if (sc.type === 'daily' && 'durationDays' in sc && sc.durationDays) {
         return `${sc.durationDays} dias: ${timesStr}`;
       }
       return timesStr;
     }
+    return formatScheduleSummary(sc, timezone) || null;
   }
 
-  // Legado: reminderTime / frequency
-  if (!goal.reminderTime) return null;
-  try {
-    const reminder = new Date(goal.reminderTime);
-    const timeStr = formatTime(reminder);
-    const goalType = String(goal.goalType || '').toLowerCase();
-    const freq = goal.frequency ?? 1;
-    if (goalType === 'pontual') {
-      const now = new Date();
-      const userNow = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-      const userReminder = new Date(reminder.toLocaleString('en-US', { timeZone: timezone }));
-      const diffDays = Math.floor(
-        (userReminder.setHours(0, 0, 0, 0) - new Date(userNow.toDateString()).getTime()) / 86400000,
-      );
-      if (userReminder <= userNow) {
-        if (diffDays === 0) return `hoje às ${timeStr}`;
-        return null;
-      }
-      const dateLabel = diffDays === 0 ? 'hoje' : diffDays === 1 ? 'amanhã' : `em ${diffDays} dias`;
-      return `${dateLabel} às ${timeStr}`;
-    }
-    return freq >= 1 ? `às ${timeStr}` : timeStr;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 @Injectable()
@@ -110,15 +101,22 @@ export class DailyDigestService {
       },
     });
     if (!user || !this.messagingService.hasAnyChannel(user)) {
-      this.logger.warn(`sendDigestForUser: user ${userId} sem canal de mensagem`);
+      this.logger.warn(
+        `sendDigestForUser: user ${userId} sem canal de mensagem`,
+      );
       return null;
     }
 
     const timezone = user.timezone || 'America/Sao_Paulo';
-    const goals = await this.userGoalService.getGoalsForTodayForUser(userId, timezone);
+    const goals = await this.userGoalService.getGoalsForTodayForUser(
+      userId,
+      timezone,
+    );
 
     const lines: string[] = [];
-    const dateStr = DateTime.now().setZone(timezone).toFormat("cccc, d 'de' MMMM", { locale: 'pt-BR' });
+    const dateStr = DateTime.now()
+      .setZone(timezone)
+      .toFormat("cccc, d 'de' MMMM", { locale: 'pt-BR' });
 
     lines.push(`📋 Resumo do seu dia — ${dateStr}`);
     lines.push('');
@@ -128,19 +126,22 @@ export class DailyDigestService {
     } else {
       for (const g of goals) {
         const emoji = pickGoalEmoji(g.conquestType, g.title);
-        const when =
-          formatDigestScheduleLabel(g, timezone) ||
-          (g.scheduleConfig ? formatScheduleSummary(g.scheduleConfig, timezone) : null) ||
-          (g.reminderTime ? new Date(g.reminderTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: timezone }) : '');
+        const when = formatDigestScheduleLabel(g, timezone) || '';
         const suffix = when ? ` — ${when}` : '';
         lines.push(`${emoji} ${g.title}${suffix}`);
       }
     }
 
     const message = lines.join('\n');
-    const sent = await this.messagingService.sendToUser(user, message, 'daily-digest');
+    const sent = await this.messagingService.sendToUser(
+      user,
+      message,
+      'daily-digest',
+    );
     if (!sent) {
-      this.logger.warn(`sendDigestForUser: falha ao enviar para user ${userId}`);
+      this.logger.warn(
+        `sendDigestForUser: falha ao enviar para user ${userId}`,
+      );
       return null;
     }
     return message;

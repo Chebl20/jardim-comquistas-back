@@ -60,7 +60,8 @@ Payload atual: ${JSON.stringify(payload || {})}`;
   ): Promise<ConversationAIResult> {
     const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
     const systemContent =
-      systemPromptOverride || this.systemPrompt(input.currentState, input.payload);
+      systemPromptOverride ||
+      this.systemPrompt(input.currentState, input.payload);
 
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemContent },
@@ -117,7 +118,9 @@ Payload atual: ${JSON.stringify(payload || {})}`;
     } else {
       try {
         const rawSnippet = String(raw).slice(0, 2000);
-        this.logger.debug(`LLM returned no explicit decision; raw snippet: ${rawSnippet}`);
+        this.logger.debug(
+          `LLM returned no explicit decision; raw snippet: ${rawSnippet}`,
+        );
       } catch (_) {}
     }
 
@@ -131,9 +134,14 @@ Payload atual: ${JSON.stringify(payload || {})}`;
       target: parsed.target,
       goalIds: Array.isArray(parsed.goalIds) ? parsed.goalIds : undefined,
       goalsCompleted: Array.isArray(parsed.goalsCompleted)
-        ? parsed.goalsCompleted.filter((g: any) => g && typeof g.id === 'string')
+        ? parsed.goalsCompleted.filter(
+            (g: any) => g && typeof g.id === 'string',
+          )
         : undefined,
-      dismissGoalId: typeof parsed.dismissGoalId === 'string' ? parsed.dismissGoalId : undefined,
+      dismissGoalId:
+        typeof parsed.dismissGoalId === 'string'
+          ? parsed.dismissGoalId
+          : undefined,
     };
   }
 }

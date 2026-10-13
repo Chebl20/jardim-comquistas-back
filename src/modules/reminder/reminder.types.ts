@@ -1,81 +1,40 @@
 import type { DateTime } from 'luxon';
+import type { GoalReminderView } from '../goals/goal-reminder.view';
 
 export const REMINDER_KINDS = {
   OPERATIONAL: 'operational',
   FOLLOW_UP: 'follow_up',
   LAST_CHANCE: 'last_chance',
-  REACTIVATION: 'reactivation',
 } as const;
 
-export type ReminderKind = typeof REMINDER_KINDS[keyof typeof REMINDER_KINDS];
+export type ReminderKind = (typeof REMINDER_KINDS)[keyof typeof REMINDER_KINDS];
 
 export const REMINDER_POLICY_ACTIONS = {
   SEND_OPERATIONAL: 'send_operational',
   SEND_FOLLOW_UP: 'send_follow_up',
   SEND_LAST_CHANCE: 'send_last_chance',
-  SEND_REACTIVATION: 'send_reactivation',
   WAIT: 'wait',
   SKIP_CYCLE: 'skip_cycle',
 } as const;
 
 export type ReminderPolicyAction =
-  typeof REMINDER_POLICY_ACTIONS[keyof typeof REMINDER_POLICY_ACTIONS];
+  (typeof REMINDER_POLICY_ACTIONS)[keyof typeof REMINDER_POLICY_ACTIONS];
 
 export const REMINDER_STATUSES = {
   WAITING_OPERATIONAL_REPLY: 'WAITING_OPERATIONAL_REPLY',
   WAITING_FOLLOW_UP_REPLY: 'WAITING_FOLLOW_UP_REPLY',
-  WAITING_REACTIVATION_REPLY: 'WAITING_REACTIVATION_REPLY',
   DONE: 'DONE',
   MISSED: 'MISSED',
   SNOOZED: 'SNOOZED',
   DISMISSED: 'DISMISSED',
-  REACTIVATION_COOLDOWN: 'REACTIVATION_COOLDOWN',
+  SKIPPED: 'SKIPPED',
 } as const;
 
 export type ReminderStatus =
-  typeof REMINDER_STATUSES[keyof typeof REMINDER_STATUSES];
+  (typeof REMINDER_STATUSES)[keyof typeof REMINDER_STATUSES];
 
-/**
- * ReminderGoalRecord – flat shape usada pelo policy engine e grouping util.
- *
- * Os campos de reminder state (dailyStatus, silenceUntil, etc.) residem agora
- * na tabela GoalReminder, mas são "achatados" aqui pelo adapter `goalToLegacyRecord`
- * para não precisar mudar o contrato do policy engine.
- */
-export interface ReminderGoalRecord {
-  id: string;
-  userId: string;
-  title: string;
-  description: string | null;
-  goalKind: string;
-  conquestType: string;
-  // Reconstruído pelo adapter a partir de GoalSchedule
-  reminderTime: Date | string | null;
-  scheduleConfig?: unknown;
-  // Estado de dispatch – achatado a partir de GoalReminder pelo adapter
-  reminderSlotsToday?: unknown;
-  lastReminderSentAt: Date | string | null;
-  dailyStatus: string | null;
-  reminderUpdatedAt?: Date | string | null;
-  silenceUntil: Date | string | null;
-  completed: boolean;
-  reminderCount: number;
-  createdAt: Date | string;
-  user: {
-    id: string;
-    name: string;
-    telegramId: string | null;
-    whatsappId?: string | null;
-    preferredChannel?: string | null;
-    timezone: string | null;
-  } | null;
-  plantedTree?: {
-    growthEvents?: Array<{
-      createdAt: Date | string;
-      progressIndex: number;
-    }>;
-  } | null;
-}
+/** Policy/grouping/claim leem o seam de leitura `GoalReminderView`. */
+export type ReminderGoalRecord = GoalReminderView;
 
 export interface ReminderPolicyInput {
   goal: ReminderGoalRecord;
@@ -83,6 +42,8 @@ export interface ReminderPolicyInput {
   timezone: string;
   /** Grupo da meta (para follow-up/last chance por grupo) */
   group?: import('./grouping/reminder-group.util').ReminderGroup;
+  /** Metas puladas neste dia civil (GoalOccurrenceException). Sem I/O na policy. */
+  cancelledGoalIds?: Set<string>;
 }
 
 export interface ReminderPolicyDecision {

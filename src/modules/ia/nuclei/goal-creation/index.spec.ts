@@ -1,6 +1,10 @@
 import { GoalCreationNucleus } from './index';
 import { ConversationActionExecutorService } from '../../conversation/conversation-action-executor.service';
-import { CLASSIFICATIONS, FLOW_STATES, CreateGoalAction } from '../../conversation/flow.types';
+import {
+  CLASSIFICATIONS,
+  FLOW_STATES,
+  CreateGoalAction,
+} from '../../conversation/flow.types';
 
 describe('Goal creation hardening', () => {
   it('normaliza conquestType inválido e converte reminderTime relativo antes de persistir', async () => {
@@ -44,9 +48,14 @@ describe('Goal creation hardening', () => {
     expect(action.payload.goalType).toBe('Pontual');
     expect(typeof action.payload.reminderTime).toBe('string');
     expect(Number.isNaN(Date.parse(action.payload.reminderTime!))).toBe(false);
-    expect(action.successReply).toContain('Anotado! Vou te lembrar em instantes.');
+    expect(action.successReply).toContain(
+      'Anotado! Vou te lembrar em instantes.',
+    );
     expect(action.successReply).toContain('📅 Quando vou te lembrar');
-    expect(action.payload.scheduleConfig).toEqual({ type: 'once', at: action.payload.reminderTime });
+    expect(action.payload.scheduleConfig).toEqual({
+      type: 'once',
+      at: action.payload.reminderTime,
+    });
   });
 
   it('não cria meta quando o payload final ainda está incompleto', async () => {
@@ -65,7 +74,9 @@ describe('Goal creation hardening', () => {
       }),
     };
     const comm = {
-      generateProgressMetadata: jest.fn().mockRejectedValue(new Error('metadata unavailable')),
+      generateProgressMetadata: jest
+        .fn()
+        .mockRejectedValue(new Error('metadata unavailable')),
     };
 
     const nucleus = new GoalCreationNucleus(llm as any, comm as any);
@@ -120,7 +131,10 @@ describe('Goal creation hardening', () => {
     });
 
     expect(result.actions).toHaveLength(2);
-    expect(result.actions[0]).toMatchObject({ type: 'continue', to: FLOW_STATES.GOAL_CREATION });
+    expect(result.actions[0]).toMatchObject({
+      type: 'continue',
+      to: FLOW_STATES.GOAL_CREATION,
+    });
     expect(result.actions[1]).toMatchObject({
       type: 'reply',
       text: expect.stringContaining('A que horas'),
@@ -160,10 +174,15 @@ describe('Goal creation hardening', () => {
       meta: {},
     });
 
-    const action = result.actions.find((a) => a.type === 'create_goal') as CreateGoalAction;
+    const action = result.actions.find(
+      (a) => a.type === 'create_goal',
+    ) as CreateGoalAction;
     expect(action).toBeDefined();
     expect(action.payload.goalType).toBe('Continua');
-    expect(action.payload.scheduleConfig).toEqual({ type: 'daily', times: ['10:00'] });
+    expect(action.payload.scheduleConfig).toEqual({
+      type: 'daily',
+      times: ['10:00'],
+    });
   });
 
   it('envia reply de falha e nunca reply de sucesso quando a persistência quebra', async () => {
@@ -200,13 +219,16 @@ describe('Goal creation hardening', () => {
             reminderTime: new Date().toISOString(),
           },
           successReply: 'Meta criada com sucesso!',
-          failureReply: 'Não consegui salvar essa meta agora. Quer que eu tente de novo com você?',
+          failureReply:
+            'Não consegui salvar essa meta agora. Quer que eu tente de novo com você?',
         } as CreateGoalAction,
       ],
       'world-1',
     );
 
-    expect(result.reply).toBe('Não consegui salvar essa meta agora. Quer que eu tente de novo com você?');
+    expect(result.reply).toBe(
+      'Não consegui salvar essa meta agora. Quer que eu tente de novo com você?',
+    );
     expect(stateService.appendAssistantMessage).toHaveBeenCalledWith(
       'user-1234567890',
       'Não consegui salvar essa meta agora. Quer que eu tente de novo com você?',
@@ -272,7 +294,9 @@ describe('Goal creation hardening', () => {
     expect(replyText).toContain('pausar');
     // Deve marcar no continue payload que foi detectada redução suspeita
     const continueAction = result.actions[0] as any;
-    expect(continueAction.payload.suspiciousScheduleReductionDetected).toBe(true);
+    expect(continueAction.payload.suspiciousScheduleReductionDetected).toBe(
+      true,
+    );
   });
 
   it('executa dismiss_goal_for_today quando usuário confirma pausar lembrete', async () => {
@@ -324,5 +348,54 @@ describe('Goal creation hardening', () => {
       }),
     );
   });
-});
 
+  it('usa timezone do user na confirmação (não SP fixo)', async () => {
+    const llm = {
+      analyze: jest.fn().mockResolvedValue({
+        classification: CLASSIFICATIONS.CONTINUE,
+        confidence: 0.99,
+        extracted: {
+          payload: {
+            title: 'Beber água',
+            goalType: 'Continua',
+            conquestType: 'Corpo',
+            scheduleConfig: { type: 'daily', times: ['08:00'] },
+          },
+        },
+        suggestedReply: 'Anotado!',
+        finished: true,
+      }),
+    };
+    const comm = {
+      generateProgressMetadata: jest.fn().mockResolvedValue({
+        title: 'Beber água',
+        description: 'Progresso',
+      }),
+    };
+
+    const nucleus = new GoalCreationNucleus(llm as any, comm as any);
+    const result = await nucleus.analyze({
+      userId: 'user-manaus',
+      currentSession: FLOW_STATES.GOAL_CREATION,
+      text: 'todo dia às 8',
+      meta: { timezone: 'America/Manaus' },
+    });
+
+    const llmPayload = llm.analyze.mock.calls[0][0].payload;
+    expect(llmPayload.timezone).toBe('America/Manaus');
+    const manausNow = new Date().toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'America/Manaus',
+    });
+    expect(llmPayload.nowFormatted).toBe(manausNow);
+
+    const action = result.actions.find(
+      (a) => a.type === 'create_goal',
+    ) as CreateGoalAction;
+    expect(action.payload.scheduleConfig).toEqual({
+      type: 'daily',
+      times: ['08:00'],
+    });
+  });
+});

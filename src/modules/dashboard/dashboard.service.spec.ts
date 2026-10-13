@@ -35,7 +35,7 @@ describe('DashboardService.getDashboardWeek', () => {
         completed: false,
         status: 'ACTIVE',
         createdAt: new Date('2026-01-01T12:00:00.000Z'),
-        scheduleConfig: { type: 'daily', times: ['09:30'] },
+        schedule: { type: 'daily', times: ['09:30'] },
       },
       {
         id: 'goal-2',
@@ -44,7 +44,7 @@ describe('DashboardService.getDashboardWeek', () => {
         completed: false,
         status: 'ACTIVE',
         createdAt: new Date('2026-01-01T12:00:00.000Z'),
-        scheduleConfig: { type: 'daily', times: ['14:00'] },
+        schedule: { type: 'daily', times: ['14:00'] },
       },
     ]);
 
@@ -86,7 +86,9 @@ describe('DashboardService.getDashboardDay', () => {
 
   it('não propaga dailyStatus DONE de hoje para data futura', async () => {
     jest.spyOn(DateTime, 'now').mockReturnValue(
-      DateTime.fromISO('2026-08-26T15:00:00', { zone: 'America/Sao_Paulo' }) as DateTime<true>,
+      DateTime.fromISO('2026-08-26T15:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
     );
 
     mockGetGoalsForDateForUser.mockResolvedValue([
@@ -96,8 +98,7 @@ describe('DashboardService.getDashboardDay', () => {
         conquestType: 'Corpo',
         dailyStatus: 'DONE',
         reminder: { dailyStatus: 'DONE' },
-        silenceUntil: new Date('2026-08-26T23:59:59.000Z'),
-        scheduleConfig: { type: 'daily', times: ['08:00'] },
+        schedule: { type: 'daily', times: ['08:00'] },
         plantedTree: { growthEvents: [] },
       },
     ]);
@@ -114,7 +115,9 @@ describe('DashboardService.getDashboardDay', () => {
 
   it('hoje com DONE residual de ontem volta PENDING (CONTINUA diária)', async () => {
     jest.spyOn(DateTime, 'now').mockReturnValue(
-      DateTime.fromISO('2026-08-27T10:00:00', { zone: 'America/Sao_Paulo' }) as DateTime<true>,
+      DateTime.fromISO('2026-08-27T10:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
     );
 
     mockGetGoalsForDateForUser.mockResolvedValue([
@@ -124,8 +127,11 @@ describe('DashboardService.getDashboardDay', () => {
         conquestType: 'Corpo',
         dailyStatus: 'DONE',
         reminderUpdatedAt: '2026-08-26T18:00:00.000-03:00',
-        reminder: { dailyStatus: 'DONE', updatedAt: '2026-08-26T18:00:00.000-03:00' },
-        scheduleConfig: { type: 'daily', times: ['07:00'] },
+        reminder: {
+          dailyStatus: 'DONE',
+          updatedAt: '2026-08-26T18:00:00.000-03:00',
+        },
+        schedule: { type: 'daily', times: ['07:00'] },
         plantedTree: {
           growthEvents: [
             { createdAt: '2026-01-01T12:00:00.000Z', progressIndex: 1 },

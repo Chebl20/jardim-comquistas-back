@@ -9,7 +9,10 @@ export class UserLinkService {
   // Gera um código único para o usuário e salva no banco
   async generateLinkCode(userId: string) {
     const code = randomBytes(4).toString('hex');
-    await prisma.user.update({ where: { id: userId }, data: { linkCode: code } });
+    await prisma.user.update({
+      where: { id: userId },
+      data: { linkCode: code },
+    });
     return code;
   }
 

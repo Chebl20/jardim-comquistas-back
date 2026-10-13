@@ -58,19 +58,35 @@ export class DashboardWeekGardenLayerDto {
 }
 
 export class DashboardWeekResponseDto {
-  @ApiProperty({ description: 'Data base informada na query', example: '2026-08-26' })
+  @ApiProperty({
+    description: 'Data base informada na query',
+    example: '2026-08-26',
+  })
   date: string | null;
 
-  @ApiPropertyOptional({ description: 'Filtro de área', example: 'Corpo', nullable: true })
+  @ApiPropertyOptional({
+    description: 'Filtro de área',
+    example: 'Corpo',
+    nullable: true,
+  })
   areaId: string | null;
 
-  @ApiProperty({ description: 'Início da semana (segunda)', example: '2026-08-24' })
+  @ApiProperty({
+    description: 'Início da semana (segunda)',
+    example: '2026-08-24',
+  })
   weekStart: string | null;
 
-  @ApiProperty({ description: 'Fim da semana (domingo)', example: '2026-08-30' })
+  @ApiProperty({
+    description: 'Fim da semana (domingo)',
+    example: '2026-08-30',
+  })
   weekEnd: string | null;
 
-  @ApiProperty({ type: [DashboardWeekDayDto], description: 'Grade de 7 dias com metas e horários' })
+  @ApiProperty({
+    type: [DashboardWeekDayDto],
+    description: 'Grade de 7 dias com metas e horários',
+  })
   weekGrid: DashboardWeekDayDto[];
 
   @ApiProperty({ type: DashboardWeekProgressDto })

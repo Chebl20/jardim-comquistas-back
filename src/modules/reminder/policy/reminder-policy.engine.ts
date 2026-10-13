@@ -8,47 +8,31 @@ import {
   ReminderPolicyDecision,
   ReminderPolicyInput,
 } from '../reminder.types';
-import type { ScheduleConfig } from '../../ia/conversation/flow.types';
-import { luxonWeekdayToJsDayOfWeek, normalizeDaysOfWeekJson } from '../../shared/weekday.util';
+import type { ScheduleConfig } from '../../../domain/types/schedule-config.type';
 import {
   isOnOrAfterGoalCreationDay,
-  hasCancelledExceptionForDate,
   hasCompletionOnCalendarDay,
+  occurrencesOnCivilDate,
+  isOccurrenceDue,
 } from '../../shared/schedule-occurrence.util';
+import { claimedTimesForCivilDate } from '../claim/claimed-slots.util';
+import { makeOccKey } from '../../shared/occurrence-key.util';
 import { getGroupLastOperationalAt } from '../grouping/reminder-group.util';
 import type { ReminderGroup } from '../grouping/reminder-group.util';
 
 @Injectable()
 export class ReminderPolicyEngine {
-  private readonly maxDelaySec = Number(
-    process.env.REMINDER_MAX_DELAY_SEC || 300,
-  );
   private readonly followUp1Minutes = Number(
     process.env.REMINDER_FOLLOW_UP_1_MINUTES || 5,
   );
   private readonly followUp2Minutes = Number(
     process.env.REMINDER_FOLLOW_UP_2_MINUTES || 15,
   );
-  private readonly groupWindowMinutes = Number(
-    process.env.REMINDER_GROUP_WINDOW_MINUTES || 60,
-  );
   private readonly groupFollowUpMinutes = Number(
     process.env.REMINDER_GROUP_FOLLOW_UP_MINUTES || 5,
   );
   private readonly groupLastChanceMinutes = Number(
     process.env.REMINDER_GROUP_LAST_CHANCE_MINUTES || 15,
-  );
-  private readonly followUpDelayMinutes = Number(
-    process.env.REMINDER_FOLLOW_UP_DELAY_MINUTES || 60,
-  );
-  private readonly reactivationMinGoalAgeDays = Number(
-    process.env.REMINDER_REACTIVATION_MIN_GOAL_AGE_DAYS || 14,
-  );
-  private readonly reactivationMinInactivityDays = Number(
-    process.env.REMINDER_REACTIVATION_MIN_INACTIVITY_DAYS || 10,
-  );
-  private readonly reactivationCooldownDays = Number(
-    process.env.REMINDER_REACTIVATION_COOLDOWN_DAYS || 14,
   );
   private readonly dismissCooldownDays = Number(
     process.env.REMINDER_DISMISS_COOLDOWN_DAYS || 7,
@@ -57,18 +41,39 @@ export class ReminderPolicyEngine {
     process.env.REMINDER_SNOOZE_MINUTES || 90,
   );
 
-  async evaluate(input: ReminderPolicyInput): Promise<ReminderPolicyDecision> {
+  evaluate(input: ReminderPolicyInput): ReminderPolicyDecision {
     const { goal, now, timezone } = input;
-    const status = String(goal.dailyStatus || '');
-    const silenceUntil = this.toDateTime(goal.silenceUntil, timezone);
+    const status = String(goal.reminder.dailyStatus || '');
+    const silenceUntil = this.toDateTime(goal.reminder.silenceUntil, timezone);
 
-    const hasSchedule = this.getScheduleConfig(goal);
-    const hasLegacyTime = goal.reminderTime;
-    if (goal.completed || (!hasSchedule && !hasLegacyTime)) {
+    const sc = goal.schedule;
+    if (goal.completed || !sc) {
       return this.wait('goal_ineligible');
     }
 
+    const occsToday = occurrencesOnCivilDate(
+      {
+        createdAt: new Date(goal.createdAt as Date),
+        schedule: sc,
+      },
+      now,
+      timezone,
+    );
+    const nextDueSlot = occsToday.find(
+      (occ) =>
+        !claimedTimesForCivilDate(goal.reminder.slotsToday, occ.civilDate, {
+          lastSentAt: goal.reminder.lastSentAt,
+          timezone,
+        }).includes(occ.hhmm) && isOccurrenceDue(occ, now),
+    );
+
     if (status === REMINDER_STATUSES.DONE) {
+      if (nextDueSlot) {
+        return this.sendOperationalWithSlot(
+          now,
+          makeOccKey(nextDueSlot.civilDate, nextDueSlot.hhmm),
+        );
+      }
       const doneToday =
         hasCompletionOnCalendarDay(goal, now, timezone) ||
         this.reminderUpdatedToday(goal, now, timezone);
@@ -81,59 +86,40 @@ export class ReminderPolicyEngine {
       return this.wait('cooldown_active');
     }
 
-    // Verificar se esta meta foi pulada para hoje (exceção de cancelamento)
-    if (goal.id) {
-      const isCancelledForToday = await hasCancelledExceptionForDate(goal.id, now, timezone);
-      if (isCancelledForToday) {
-        return this.wait('occurrence_cancelled_exception');
-      }
+    if (
+      (status === REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY ||
+        status === REMINDER_STATUSES.WAITING_FOLLOW_UP_REPLY) &&
+      occsToday.length === 0 &&
+      sc
+    ) {
+      return this.wait('not_scheduled_today');
+    }
+
+    if (goal.id && input.cancelledGoalIds?.has(goal.id)) {
+      return this.wait('occurrence_cancelled_exception');
     }
 
     if (status === REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY) {
+      if (nextDueSlot) {
+        return this.sendOperationalWithSlot(
+          now,
+          makeOccKey(nextDueSlot.civilDate, nextDueSlot.hhmm),
+        );
+      }
       return this.evaluateGroupFollowUp(goal, now, timezone, input.group);
     }
 
     if (status === REMINDER_STATUSES.WAITING_FOLLOW_UP_REPLY) {
+      if (nextDueSlot) {
+        return this.sendOperationalWithSlot(
+          now,
+          makeOccKey(nextDueSlot.civilDate, nextDueSlot.hhmm),
+        );
+      }
       return this.evaluateGroupLastChance(goal, now, timezone, input.group);
     }
 
-    if (status === REMINDER_STATUSES.WAITING_REACTIVATION_REPLY) {
-      return {
-        action: REMINDER_POLICY_ACTIONS.SKIP_CYCLE,
-        reason: 'reactivation_window_expired',
-        nextStatus: REMINDER_STATUSES.REACTIVATION_COOLDOWN,
-        silenceUntil: now.plus({ days: this.reactivationCooldownDays }).toJSDate(),
-      };
-    }
-
-    const sc = this.getScheduleConfig(goal);
-    if (sc) {
-      return this.evaluateScheduleConfig(goal, sc, now, timezone);
-    }
-
-    if (this.isPontual(goal)) {
-      return this.evaluatePontual(goal, now, timezone);
-    }
-
-    return this.evaluateContinua(goal, now, timezone);
-  }
-
-  private getScheduleConfig(goal: ReminderGoalRecord): ScheduleConfig | null {
-    const sc = goal.scheduleConfig;
-    if (!sc || typeof sc !== 'object') return null;
-    const o = sc as Record<string, unknown>;
-    if (o.type === 'once' && typeof o.at === 'string') return sc as ScheduleConfig;
-    if (o.type === 'daily' && Array.isArray(o.times) && o.times.length > 0) return sc as ScheduleConfig;
-    if (o.type === 'weekly' && Array.isArray(o.daysOfWeek) && Array.isArray(o.times) && o.times.length > 0)
-      return sc as ScheduleConfig;
-    if (
-      o.type === 'monthly' &&
-      typeof o.dayOfMonth === 'number' &&
-      Array.isArray(o.times) &&
-      o.times.length > 0
-    )
-      return sc as ScheduleConfig;
-    return null;
+    return this.evaluateScheduleConfig(goal, sc, now, timezone);
   }
 
   private evaluateScheduleConfig(
@@ -142,56 +128,68 @@ export class ReminderPolicyEngine {
     now: DateTime,
     timezone: string,
   ): ReminderPolicyDecision {
-    if (!isOnOrAfterGoalCreationDay(now.setZone(timezone), new Date(goal.createdAt as Date), timezone)) {
+    if (
+      !isOnOrAfterGoalCreationDay(
+        now.setZone(timezone),
+        new Date(goal.createdAt as Date),
+        timezone,
+      )
+    ) {
       return this.wait('before_goal_creation');
     }
     if (sc.type === 'once') {
       const reminderAt = this.toDateTime(sc.at, timezone);
       if (!reminderAt) return this.wait('invalid_schedule');
       const diffSec = now.toUTC().diff(reminderAt.toUTC(), 'seconds').seconds;
-      if (!goal.lastReminderSentAt && diffSec >= 0) {
-        return this.sendOperational(now);
+      const occs = occurrencesOnCivilDate(
+        { createdAt: new Date(goal.createdAt as Date), schedule: sc },
+        now,
+        timezone,
+      );
+      const claimed = occs[0]
+        ? claimedTimesForCivilDate(goal.reminder.slotsToday, occs[0].civilDate, {
+            lastSentAt: goal.reminder.lastSentAt,
+            timezone,
+          })
+        : [];
+      if (claimed.length > 0) return this.wait('already_sent');
+      if (!goal.reminder.lastSentAt && diffSec >= 0) {
+        const slotKey = occs[0]
+          ? makeOccKey(occs[0].civilDate, occs[0].hhmm)
+          : undefined;
+        return slotKey
+          ? this.sendOperationalWithSlot(now, slotKey)
+          : this.sendOperational(now);
       }
       return this.wait('not_due');
     }
 
     if (sc.type === 'daily' || sc.type === 'weekly' || sc.type === 'monthly') {
       const userNow = now.setZone(timezone);
-      if (sc.type === 'daily' && sc.durationDays) {
-        const createdAt = this.toDateTime(goal.createdAt, timezone);
-        if (createdAt) {
-          const daysSinceCreation = Math.floor(userNow.diff(createdAt, 'days').days);
-          if (daysSinceCreation >= sc.durationDays) {
-            return this.wait('duration_ended');
-          }
-        }
-      }
-      const todayDow = luxonWeekdayToJsDayOfWeek(userNow.weekday);
-      if (sc.type === 'weekly' && !normalizeDaysOfWeekJson(sc.daysOfWeek).includes(todayDow)) {
+      const occs = occurrencesOnCivilDate(
+        { createdAt: new Date(goal.createdAt as Date), schedule: sc },
+        userNow,
+        timezone,
+      );
+      if (occs.length === 0) {
         return this.wait('not_scheduled_today');
       }
-      if (sc.type === 'monthly' && userNow.day !== sc.dayOfMonth) {
-        return this.wait('not_scheduled_today');
-      }
-
-      const slotsSent = this.getSlotsSentToday(goal);
-      for (const timeStr of sc.times) {
-        const [hh, mm] = timeStr.split(':').map(Number);
-        const scheduled = userNow.set({ hour: hh || 0, minute: mm || 0, second: 0, millisecond: 0 });
-        const diffSec = now.toUTC().diff(scheduled.toUTC(), 'seconds').seconds;
-        const slotKey = timeStr;
-        if (diffSec >= 0 && diffSec <= this.maxDelaySec && !slotsSent.includes(slotKey)) {
-          if (this.shouldReactivate(goal, now, timezone)) {
-            return {
-              action: REMINDER_POLICY_ACTIONS.SEND_REACTIVATION,
-              reason: 'reactivation_due',
-              kind: REMINDER_KINDS.REACTIVATION,
-              nextStatus: REMINDER_STATUSES.WAITING_REACTIVATION_REPLY,
-              silenceUntil: now.plus({ hours: 24 }).toJSDate(),
-            };
-          }
-          return this.sendOperationalWithSlot(now, slotKey);
-        }
+      const civilDate = occs[0].civilDate;
+      const slotsSent = claimedTimesForCivilDate(
+        goal.reminder.slotsToday,
+        civilDate,
+        {
+          lastSentAt: goal.reminder.lastSentAt,
+          timezone,
+        },
+      );
+      for (const occ of occs) {
+        if (slotsSent.includes(occ.hhmm)) continue;
+        if (!isOccurrenceDue(occ, now)) continue;
+        return this.sendOperationalWithSlot(
+          now,
+          makeOccKey(occ.civilDate, occ.hhmm),
+        );
       }
       return this.wait('not_due');
     }
@@ -199,132 +197,31 @@ export class ReminderPolicyEngine {
     return this.wait('invalid_schedule');
   }
 
-  private getSlotsSentToday(goal: ReminderGoalRecord): string[] {
-    const slots = goal.reminderSlotsToday;
-    if (!Array.isArray(slots)) return [];
-    return slots
-      .filter((s): s is { time: string } => s && typeof s === 'object' && typeof (s as any).time === 'string')
-      .map((s) => s.time);
-  }
-
-  private sendOperationalWithSlot(now: DateTime, slotKey: string): ReminderPolicyDecision {
+  private sendOperationalWithSlot(
+    now: DateTime,
+    slotKey: string,
+  ): ReminderPolicyDecision {
     return {
       action: REMINDER_POLICY_ACTIONS.SEND_OPERATIONAL,
       reason: 'operational_due',
       kind: REMINDER_KINDS.OPERATIONAL,
       nextStatus: REMINDER_STATUSES.WAITING_OPERATIONAL_REPLY,
       silenceUntil: now.plus({ minutes: this.followUp1Minutes }).toJSDate(),
-      slotKey, // usado pelo ReminderService para atualizar reminderSlotsToday
+      slotKey,
     };
   }
 
-  resolveSnoozeUntil(kind: string | undefined, now: DateTime): Date {
-    if (kind === REMINDER_KINDS.REACTIVATION) {
-      return now.plus({ days: 3 }).toJSDate();
-    }
+  resolveSnoozeUntil(_kind: string | undefined, now: DateTime): Date {
     return now.plus({ minutes: this.snoozeMinutes }).toJSDate();
   }
 
-  resolveDismissUntil(kind: string | undefined, now: DateTime): Date {
-    if (kind === REMINDER_KINDS.REACTIVATION) {
-      return now.plus({ days: this.reactivationCooldownDays }).toJSDate();
-    }
+  resolveDismissUntil(_kind: string | undefined, now: DateTime): Date {
     return now.plus({ days: this.dismissCooldownDays }).toJSDate();
   }
 
-  /** Fim do dia no timezone do usuário — usado para "não vou conseguir hoje". */
-  resolveEndOfDay(timezone: string): Date {
-    return DateTime.now().setZone(timezone).endOf('day').toJSDate();
-  }
-
-  private evaluatePontual(
-    goal: ReminderGoalRecord,
-    now: DateTime,
-    timezone: string,
-  ): ReminderPolicyDecision {
-    const reminderAt = this.toDateTime(goal.reminderTime, timezone);
-    if (!reminderAt) return this.wait('invalid_reminder_time');
-
-    const diffSec = now.toUTC().diff(reminderAt.toUTC(), 'seconds').seconds;
-    if (!goal.lastReminderSentAt && diffSec >= 0) {
-      return this.sendOperational(now);
-    }
-
-    return this.wait('not_due');
-  }
-
-  private evaluateContinua(
-    goal: ReminderGoalRecord,
-    now: DateTime,
-    timezone: string,
-  ): ReminderPolicyDecision {
-    const reminderAt = this.toDateTime(goal.reminderTime, timezone);
-    if (!reminderAt) return this.wait('invalid_reminder_time');
-
-    const scheduledToday = now
-      .setZone(timezone)
-      .set({
-        hour: reminderAt.setZone(timezone).hour,
-        minute: reminderAt.setZone(timezone).minute,
-        second: 0,
-        millisecond: 0,
-      });
-    const diffSec = now.toUTC().diff(scheduledToday.toUTC(), 'seconds').seconds;
-    const lastSentAt = this.toDateTime(goal.lastReminderSentAt, timezone);
-    const sentThisCycle =
-      !!lastSentAt &&
-      lastSentAt.toUTC() >= scheduledToday.toUTC() &&
-      lastSentAt.toUTC() < scheduledToday.plus({ days: 1 }).toUTC();
-
-    if (!sentThisCycle && diffSec >= 0 && diffSec <= this.maxDelaySec) {
-      if (this.shouldReactivate(goal, now, timezone)) {
-        return {
-          action: REMINDER_POLICY_ACTIONS.SEND_REACTIVATION,
-          reason: 'reactivation_due',
-          kind: REMINDER_KINDS.REACTIVATION,
-          nextStatus: REMINDER_STATUSES.WAITING_REACTIVATION_REPLY,
-          silenceUntil: now.plus({ hours: 24 }).toJSDate(),
-        };
-      }
-
-      return this.sendOperational(now);
-    }
-
-    return this.wait('not_due');
-  }
-
-  private shouldReactivate(
-    goal: ReminderGoalRecord,
-    now: DateTime,
-    timezone: string,
-  ) {
-    const createdAt = this.toDateTime(goal.createdAt, timezone);
-    if (!createdAt) return false;
-
-    const ageDays = Math.floor(now.diff(createdAt, 'days').days);
-    if (ageDays < this.reactivationMinGoalAgeDays) return false;
-
-    const latestProgress = this.resolveLatestProgress(goal, timezone) ?? createdAt;
-    const inactivityDays = Math.floor(now.diff(latestProgress, 'days').days);
-    if (inactivityDays < this.reactivationMinInactivityDays) return false;
-
-    if (goal.reminderCount >= 3) return true;
-
-    const noRealProgress =
-      (goal.plantedTree?.growthEvents?.length ?? 0) <= 1 &&
-      ageDays >= this.reactivationMinGoalAgeDays * 2;
-
-    return noRealProgress;
-  }
-
-  private resolveLatestProgress(goal: ReminderGoalRecord, timezone: string) {
-    const events = Array.isArray(goal.plantedTree?.growthEvents)
-      ? goal.plantedTree?.growthEvents ?? []
-      : [];
-
-    if (events.length <= 1) return null;
-
-    return this.toDateTime(events[0]?.createdAt, timezone);
+  /** Fim do dia civil no timezone do usuário — usado para "não vou conseguir hoje". */
+  resolveEndOfDay(timezone: string, now: DateTime = DateTime.now()): Date {
+    return now.setZone(timezone).endOf('day').toJSDate();
   }
 
   private sendOperational(now: DateTime): ReminderPolicyDecision {
@@ -337,20 +234,35 @@ export class ReminderPolicyEngine {
     };
   }
 
+  private lastOperationalOnCivilDate(
+    goal: ReminderGoalRecord,
+    now: DateTime,
+    timezone: string,
+    group?: ReminderGroup,
+  ): DateTime | null {
+    const lastOp = group
+      ? getGroupLastOperationalAt(group, timezone)
+      : this.toDateTime(goal.reminder.lastSentAt, timezone);
+    if (!lastOp) return null;
+    const today = now.setZone(timezone).toISODate();
+    if (lastOp.setZone(timezone).toISODate() !== today) return null;
+    return lastOp;
+  }
+
   private evaluateGroupFollowUp(
     goal: ReminderGoalRecord,
     now: DateTime,
     timezone: string,
     group?: ReminderGroup,
   ): ReminderPolicyDecision {
-    if (!group) {
+    const lastOp = this.lastOperationalOnCivilDate(goal, now, timezone, group);
+    if (!lastOp) return this.wait('follow_up_not_same_civil_date');
+    if (group) {
+      const followUpDue = lastOp.plus({ minutes: this.groupFollowUpMinutes });
+      if (now < followUpDue) {
+        return this.wait('group_follow_up_not_due');
+      }
       return this.sendFollowUp(now);
-    }
-    const lastOp = getGroupLastOperationalAt(group, timezone);
-    if (!lastOp) return this.wait('group_no_operational_yet');
-    const followUpDue = lastOp.plus({ minutes: this.groupFollowUpMinutes });
-    if (now < followUpDue) {
-      return this.wait('group_follow_up_not_due');
     }
     return this.sendFollowUp(now);
   }
@@ -361,14 +273,16 @@ export class ReminderPolicyEngine {
     timezone: string,
     group?: ReminderGroup,
   ): ReminderPolicyDecision {
-    if (!group) {
+    const lastOp = this.lastOperationalOnCivilDate(goal, now, timezone, group);
+    if (!lastOp) return this.wait('follow_up_not_same_civil_date');
+    if (group) {
+      const lastChanceDue = lastOp.plus({
+        minutes: this.groupLastChanceMinutes,
+      });
+      if (now < lastChanceDue) {
+        return this.wait('group_last_chance_not_due');
+      }
       return this.sendLastChance(now);
-    }
-    const followUpSentAt = getGroupLastOperationalAt(group, timezone);
-    if (!followUpSentAt) return this.sendLastChance(now);
-    const lastChanceDue = followUpSentAt.plus({ minutes: this.groupLastChanceMinutes });
-    if (now < lastChanceDue) {
-      return this.wait('group_last_chance_not_due');
     }
     return this.sendLastChance(now);
   }
@@ -402,14 +316,13 @@ export class ReminderPolicyEngine {
     now: DateTime,
     timezone: string,
   ): boolean {
-    const raw = goal.reminderUpdatedAt;
+    const raw = goal.reminder.updatedAt;
     if (!raw) return false;
     const at = this.toDateTime(raw, timezone);
-    return !!at && at.startOf('day').hasSame(now.setZone(timezone).startOf('day'), 'day');
-  }
-
-  private isPontual(goal: ReminderGoalRecord) {
-    return String(goal.goalKind || '').toLowerCase() === 'pontual';
+    return (
+      !!at &&
+      at.startOf('day').hasSame(now.setZone(timezone).startOf('day'), 'day')
+    );
   }
 
   private toDateTime(

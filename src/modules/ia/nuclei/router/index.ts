@@ -23,7 +23,10 @@ export class RouterNucleus {
   async analyze(input: NucleusInput): Promise<RouterResult> {
     // the router prompt asks the LLM to classify the domain and return a
     // JSON with { target: "FLOW_STATE" | null, confidence: number }
-    const systemPrompt = ROUTER_PROMPT(input.currentSession || FLOW_STATES.CLARIFICATION, input.meta || {});
+    const systemPrompt = ROUTER_PROMPT(
+      input.currentSession || FLOW_STATES.CLARIFICATION,
+      input.meta || {},
+    );
     let aiRes;
     try {
       aiRes = await this.llm.analyze(
@@ -35,7 +38,10 @@ export class RouterNucleus {
         systemPrompt,
       );
     } catch (e) {
-      this.logger.warn('Router LLM format error, defaulting to clarification', e);
+      this.logger.warn(
+        'Router LLM format error, defaulting to clarification',
+        e,
+      );
       return { target: FLOW_STATES.CLARIFICATION, confidence: 1 };
     }
 
@@ -43,8 +49,14 @@ export class RouterNucleus {
 
     let target: FlowState | null = null;
     // confidence inválida: degradar graciosamente em vez de derrubar o fluxo
-    if (typeof aiRes.confidence !== 'number' || aiRes.confidence < 0 || aiRes.confidence > 1) {
-      this.logger.warn(`Router returned invalid confidence ${aiRes.confidence}, defaulting to clarification`);
+    if (
+      typeof aiRes.confidence !== 'number' ||
+      aiRes.confidence < 0 ||
+      aiRes.confidence > 1
+    ) {
+      this.logger.warn(
+        `Router returned invalid confidence ${aiRes.confidence}, defaulting to clarification`,
+      );
       return { target: FLOW_STATES.CLARIFICATION, confidence: 0 };
     }
 

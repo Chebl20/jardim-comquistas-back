@@ -1,8 +1,15 @@
-import { EvolutionClient, EvolutionSendTextError, normalizeSubscribeEvents } from './evolution.client';
+import {
+  EvolutionClient,
+  EvolutionSendTextError,
+  normalizeSubscribeEvents,
+} from './evolution.client';
 
 describe('normalizeSubscribeEvents', () => {
   it('converts events to uppercase', () => {
-    expect(normalizeSubscribeEvents(['Message', 'ALL'])).toEqual(['MESSAGE', 'ALL']);
+    expect(normalizeSubscribeEvents(['Message', 'ALL'])).toEqual([
+      'MESSAGE',
+      'ALL',
+    ]);
   });
 });
 
@@ -133,13 +140,17 @@ describe('EvolutionClient', () => {
     });
 
     await expect(
-      client.sendTextWithTargets(['28089136451755@lid', '559882066740'], 'resposta', {
-        replyContext: {
-          stanzaId: '3EB0FB259FC408FC71E7AE',
-          participant: '28089136451755:89@lid',
-          quotedText: 'Quais sao as minhas metas?',
+      client.sendTextWithTargets(
+        ['28089136451755@lid', '559882066740'],
+        'resposta',
+        {
+          replyContext: {
+            stanzaId: '3EB0FB259FC408FC71E7AE',
+            participant: '28089136451755:89@lid',
+            quotedText: 'Quais sao as minhas metas?',
+          },
         },
-      }),
+      ),
     ).rejects.toMatchObject({
       target: '28089136451755@lid',
       terminal: true,
@@ -159,16 +170,22 @@ describe('EvolutionClient', () => {
         json: async () => ({ success: true }),
       });
 
-    await client.sendTextWithTargets(['28089136451755@lid', '559882066740'], 'resposta', {
-      replyContext: {
-        stanzaId: '3EB0FB259FC408FC71E7AE',
-        participant: '28089136451755:89@lid',
-        quotedText: 'Quais sao as minhas metas?',
+    await client.sendTextWithTargets(
+      ['28089136451755@lid', '559882066740'],
+      'resposta',
+      {
+        replyContext: {
+          stanzaId: '3EB0FB259FC408FC71E7AE',
+          participant: '28089136451755:89@lid',
+          quotedText: 'Quais sao as minhas metas?',
+        },
       },
-    });
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body));
+    const bodies = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(init.body),
+    );
     expect(bodies.map((body) => body.number)).toEqual([
       '28089136451755@lid',
       '28089136451755@lid',

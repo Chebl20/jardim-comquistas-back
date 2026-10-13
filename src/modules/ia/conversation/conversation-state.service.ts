@@ -19,7 +19,9 @@ export class ConversationStateService {
   async load(userId: string): Promise<LoadedConversationState> {
     const session = await this.sessionService.getSession(userId);
     const payload: Record<string, any> =
-      session?.payload && typeof session.payload === 'object' ? { ...(session.payload as object) } : {};
+      session?.payload && typeof session.payload === 'object'
+        ? { ...(session.payload as object) }
+        : {};
     const rawState = (session?.state ?? FLOW_STATES.CLARIFICATION) as FlowState;
     return {
       session,
@@ -28,24 +30,42 @@ export class ConversationStateService {
     };
   }
 
-  async appendUserMessage(userId: string, text: string, currentSession?: { state?: string; payload?: any } | null) {
+  async appendUserMessage(
+    userId: string,
+    text: string,
+    currentSession?: { state?: string; payload?: any } | null,
+  ) {
     if (!text.trim()) return;
     try {
-      const session = currentSession ?? (await this.sessionService.getSession(userId));
+      const session =
+        currentSession ?? (await this.sessionService.getSession(userId));
       const payload: Record<string, any> =
-        session?.payload && typeof session.payload === 'object' ? { ...(session.payload as object) } : {};
-      const recent = Array.isArray(payload.recentMessages) ? [...payload.recentMessages] : [];
+        session?.payload && typeof session.payload === 'object'
+          ? { ...(session.payload as object) }
+          : {};
+      const recent = Array.isArray(payload.recentMessages)
+        ? [...payload.recentMessages]
+        : [];
       recent.push({ role: 'user', text });
       const truncated = recent.slice(-RECENT_MESSAGES_PERSIST);
       const updatedPayload = { ...payload, recentMessages: truncated };
       if (session) {
-        await this.sessionService.updateSession(userId, { payload: updatedPayload });
+        await this.sessionService.updateSession(userId, {
+          payload: updatedPayload,
+        });
       } else {
-        await this.sessionService.createSession(userId, FLOW_STATES.CLARIFICATION, updatedPayload);
+        await this.sessionService.createSession(
+          userId,
+          FLOW_STATES.CLARIFICATION,
+          updatedPayload,
+        );
       }
       return updatedPayload;
     } catch (e) {
-      this.logger.debug('Failed to append user message to session recentMessages', e);
+      this.logger.debug(
+        'Failed to append user message to session recentMessages',
+        e,
+      );
       return undefined;
     }
   }
@@ -54,8 +74,12 @@ export class ConversationStateService {
     try {
       const session = await this.sessionService.getSession(userId);
       const payload: Record<string, any> =
-        session?.payload && typeof session.payload === 'object' ? { ...(session.payload as object) } : {};
-      const recent = Array.isArray(payload.recentMessages) ? [...payload.recentMessages] : [];
+        session?.payload && typeof session.payload === 'object'
+          ? { ...(session.payload as object) }
+          : {};
+      const recent = Array.isArray(payload.recentMessages)
+        ? [...payload.recentMessages]
+        : [];
       recent.push({ role: 'assistant', text });
       const truncated = recent.slice(-RECENT_MESSAGES_PERSIST);
       if (session) {
@@ -63,21 +87,35 @@ export class ConversationStateService {
           payload: { ...payload, recentMessages: truncated },
         });
       } else {
-        await this.sessionService.createSession(userId, FLOW_STATES.CLARIFICATION, {
-          ...payload,
-          recentMessages: truncated,
-        });
+        await this.sessionService.createSession(
+          userId,
+          FLOW_STATES.CLARIFICATION,
+          {
+            ...payload,
+            recentMessages: truncated,
+          },
+        );
       }
     } catch (e) {
-      this.logger.debug('Failed to append assistant reply to session recentMessages', e);
+      this.logger.debug(
+        'Failed to append assistant reply to session recentMessages',
+        e,
+      );
     }
   }
 
-  async continueFlow(userId: string, payload: Record<string, unknown>, to?: FlowState) {
+  async continueFlow(
+    userId: string,
+    payload: Record<string, unknown>,
+    to?: FlowState,
+  ) {
     const sess = await this.sessionService.getSession(userId);
     const base: Record<string, unknown> =
-      sess?.payload && typeof sess.payload === 'object' ? (sess.payload as Record<string, unknown>) : {};
-    const newState = to ?? (sess?.state as FlowState | undefined) ?? FLOW_STATES.CLARIFICATION;
+      sess?.payload && typeof sess.payload === 'object'
+        ? (sess.payload as Record<string, unknown>)
+        : {};
+    const newState =
+      to ?? (sess?.state as FlowState | undefined) ?? FLOW_STATES.CLARIFICATION;
     await this.sessionService.updateSessionVersioned(
       userId,
       {
@@ -88,10 +126,16 @@ export class ConversationStateService {
     );
   }
 
-  async redirectFlow(userId: string, to: FlowState, payload?: Record<string, unknown>) {
+  async redirectFlow(
+    userId: string,
+    to: FlowState,
+    payload?: Record<string, unknown>,
+  ) {
     const sess = await this.sessionService.getSession(userId);
     const base: Record<string, unknown> =
-      sess?.payload && typeof sess.payload === 'object' ? (sess.payload as Record<string, unknown>) : {};
+      sess?.payload && typeof sess.payload === 'object'
+        ? (sess.payload as Record<string, unknown>)
+        : {};
     await this.sessionService.updateSessionVersioned(
       userId,
       {
@@ -100,7 +144,9 @@ export class ConversationStateService {
           ...base,
           ...(payload ?? {}),
           messages: Array.isArray(base.messages) ? base.messages : [],
-          recentMessages: Array.isArray(base.recentMessages) ? base.recentMessages : [],
+          recentMessages: Array.isArray(base.recentMessages)
+            ? base.recentMessages
+            : [],
         },
       },
       sess?.version ?? 0,
@@ -110,14 +156,18 @@ export class ConversationStateService {
   async resetFlow(userId: string) {
     const sess = await this.sessionService.getSession(userId);
     const base: Record<string, unknown> =
-      sess?.payload && typeof sess.payload === 'object' ? (sess.payload as Record<string, unknown>) : {};
+      sess?.payload && typeof sess.payload === 'object'
+        ? (sess.payload as Record<string, unknown>)
+        : {};
     await this.sessionService.updateSessionVersioned(
       userId,
       {
         state: FLOW_STATES.CLARIFICATION,
         payload: {
           messages: Array.isArray(base.messages) ? base.messages : [],
-          recentMessages: Array.isArray(base.recentMessages) ? base.recentMessages : [],
+          recentMessages: Array.isArray(base.recentMessages)
+            ? base.recentMessages
+            : [],
         },
       },
       sess?.version ?? 0,

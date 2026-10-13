@@ -1,5 +1,11 @@
 import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ProgressService } from './progress.service';
 import { AuthGuard } from '../../auth/auth.guard';
 
@@ -20,7 +26,11 @@ export class ProgressController {
     @Query('areaId') areaId: string | undefined,
     @Req() req: any,
   ) {
-    return this.progressService.getWeeklyProgress(req.user.userId, date, areaId);
+    return this.progressService.getWeeklyProgress(
+      req.user.userId,
+      date,
+      areaId,
+    );
   }
 
   @Get('month')
@@ -28,8 +38,16 @@ export class ProgressController {
   @ApiQuery({ name: 'month', required: true })
   @ApiQuery({ name: 'areaId', required: false })
   @ApiResponse({ status: 200, description: 'Estatísticas mensais' })
-  async getMonthlyProgress(@Query('month') month: string, @Query('areaId') areaId: string, @Req() req: any) {
-    return this.progressService.getMonthlyProgress(req.user.userId, month, areaId);
+  async getMonthlyProgress(
+    @Query('month') month: string,
+    @Query('areaId') areaId: string,
+    @Req() req: any,
+  ) {
+    return this.progressService.getMonthlyProgress(
+      req.user.userId,
+      month,
+      areaId,
+    );
   }
 
   @Get('streaks')
