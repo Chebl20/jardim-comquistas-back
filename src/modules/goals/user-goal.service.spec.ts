@@ -306,4 +306,63 @@ describe('UserGoalService', () => {
       ).not.toHaveBeenCalled();
     });
   });
+
+  describe('complete/undo instanceId', () => {
+    it('complete parseia instanceId e conclui pelo goalId', async () => {
+      (prisma.goal as unknown as { findFirst: jest.Mock }).findFirst = jest
+        .fn()
+        .mockResolvedValue({
+          id: 'goal-c',
+          userId: 'user-1',
+          goalKind: 'Continua',
+        });
+      (prisma.goalReminder as unknown as { upsert: jest.Mock }).upsert = jest
+        .fn()
+        .mockResolvedValue({});
+
+      await service.completeInstanceForUser(
+        'goal-c:2026-10-15:08:00',
+        'user-1',
+      );
+
+      expect(
+        (prisma.goalReminder as unknown as { upsert: jest.Mock }).upsert,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { goalId: 'goal-c' },
+          update: { dailyStatus: 'DONE', silenceUntil: null },
+        }),
+      );
+    });
+
+    it('undo parseia instanceId e volta PENDING', async () => {
+      (prisma.goal as unknown as { findFirst: jest.Mock }).findFirst = jest
+        .fn()
+        .mockResolvedValue({
+          id: 'goal-c',
+          userId: 'user-1',
+          goalKind: 'Continua',
+        });
+      (prisma.goalReminder as unknown as { upsert: jest.Mock }).upsert = jest
+        .fn()
+        .mockResolvedValue({});
+
+      await service.undoInstanceForUser('goal-c:2026-10-15:08:00', 'user-1');
+
+      expect(
+        (prisma.goalReminder as unknown as { upsert: jest.Mock }).upsert,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { goalId: 'goal-c' },
+          update: { dailyStatus: 'PENDING', silenceUntil: null },
+        }),
+      );
+    });
+
+    it('instanceId inválido é recusado', async () => {
+      await expect(
+        service.completeInstanceForUser('nao-e-id', 'user-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 });

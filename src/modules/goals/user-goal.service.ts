@@ -24,6 +24,7 @@ import {
 export type { ResolvedScheduleFields } from '../shared/schedule-fields.util';
 export { resolveScheduleFields };
 import { getCancelledExceptionsForDate } from '../shared/cancelled-exceptions.query';
+import { parseGoalInstanceId } from './goal-instance-id';
 
 const DEFAULT_USER_TIMEZONE = 'America/Sao_Paulo';
 
@@ -436,6 +437,42 @@ export class UserGoalService {
       where: { id: goalId, userId },
       data: { completed: true },
     });
+    return prisma.goal.findFirst({ where: { id: goalId, userId } });
+  }
+
+  private parseOwnedInstanceId(rawId: string) {
+    const parsed = parseGoalInstanceId(rawId);
+    if (!parsed) {
+      throw new BadRequestException(
+        'instanceId inválido. Use {goalId}:{YYYY-MM-DD}:{HH:mm}.',
+      );
+    }
+    return parsed;
+  }
+
+  async completeInstanceForUser(rawId: string, userId: string) {
+    const { goalId } = this.parseOwnedInstanceId(rawId);
+    return this.markGoalDoneFromReminder(goalId, userId);
+  }
+
+  async undoInstanceForUser(rawId: string, userId: string) {
+    const { goalId } = this.parseOwnedInstanceId(rawId);
+    const goal = await this.requireGoalOwnedByUser(goalId, userId);
+    const actualType = normalizeGoalType(goal.goalKind as any);
+
+    await prisma.goalReminder.upsert({
+      where: { goalId },
+      update: { dailyStatus: 'PENDING', silenceUntil: null },
+      create: { goalId, dailyStatus: 'PENDING', sentCount: 0 },
+    });
+
+    if (actualType === 'Pontual') {
+      await prisma.goal.updateMany({
+        where: { id: goalId, userId },
+        data: { completed: false },
+      });
+    }
+
     return prisma.goal.findFirst({ where: { id: goalId, userId } });
   }
 

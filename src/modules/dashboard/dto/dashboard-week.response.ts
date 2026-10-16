@@ -10,6 +10,15 @@ export class DashboardWeekGoalDto {
   @ApiProperty({ description: 'Área de conquista', example: 'Corpo' })
   conquestType: string;
 
+  @ApiProperty({ example: 'fitness_center' })
+  icon: string;
+
+  @ApiProperty({
+    example: 'garden-green',
+    enum: ['garden-green', 'accent-sky', 'accent-pink', 'accent-autumn'],
+  })
+  accentColor: 'garden-green' | 'accent-sky' | 'accent-pink' | 'accent-autumn';
+
   @ApiProperty({
     description: 'Quantidade de lembretes agendados neste dia',
     example: 1,

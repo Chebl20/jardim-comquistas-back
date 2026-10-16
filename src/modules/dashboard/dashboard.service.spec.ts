@@ -59,12 +59,16 @@ describe('DashboardService.getDashboardWeek', () => {
       title: 'Pescar',
       slots: 1,
       times: ['09:30'],
+      icon: 'palette',
+      accentColor: 'accent-pink',
     });
     expect(wednesday!.goals[1]).toMatchObject({
       id: 'goal-2',
       title: 'Beber água',
       slots: 1,
       times: ['14:00'],
+      icon: 'fitness_center',
+      accentColor: 'garden-green',
     });
   });
 });
@@ -95,20 +99,21 @@ describe('DashboardService.getDashboardDay', () => {
       {
         id: 'goal-1',
         title: 'Beber água',
+        goalKind: 'Continua',
         conquestType: 'Corpo',
         dailyStatus: 'DONE',
         reminder: { dailyStatus: 'DONE' },
         schedule: { type: 'daily', times: ['08:00'] },
         plantedTree: { growthEvents: [] },
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
       },
     ]);
 
     const result = await service.getDashboardDay('user-1', '2026-08-27');
 
-    expect(result.goals).toHaveLength(1);
-    expect(result.goals[0].dailyStatus).toBe('PENDING');
-    expect(result.goals[0].reminder.dailyStatus).toBe('PENDING');
-    expect(result.goals[0].silenceUntil).toBeNull();
+    expect(result.occurrences).toHaveLength(1);
+    expect(result.occurrences[0].status).toBe('PENDING');
+    expect(result.occurrences[0].instanceId).toBe('goal-1:2026-08-27:08:00');
 
     jest.restoreAllMocks();
   });
@@ -124,6 +129,7 @@ describe('DashboardService.getDashboardDay', () => {
       {
         id: 'goal-1',
         title: 'Correr 5km',
+        goalKind: 'Continua',
         conquestType: 'Corpo',
         dailyStatus: 'DONE',
         reminderUpdatedAt: '2026-08-26T18:00:00.000-03:00',
@@ -138,13 +144,60 @@ describe('DashboardService.getDashboardDay', () => {
             { createdAt: '2026-08-26T18:00:00.000-03:00', progressIndex: 2 },
           ],
         },
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
       },
     ]);
 
     const result = await service.getDashboardDay('user-1', '2026-08-27');
 
-    expect(result.goals[0].dailyStatus).toBe('PENDING');
-    expect(result.goals[0].reminder.dailyStatus).toBe('PENDING');
+    expect(result.occurrences[0].status).toBe('MISSED');
+    expect(result.goals).toBeUndefined();
+
+    jest.restoreAllMocks();
+  });
+
+  it('1 occurrence por meta mesmo com vários times; accentColor é token', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-27T07:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForDateForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        dailyStatus: 'PENDING',
+        reminder: { dailyStatus: 'PENDING' },
+        schedule: { type: 'daily', times: ['08:00', '18:00'] },
+        plantedTree: { growthEvents: [] },
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+      },
+    ]);
+
+    const result = await service.getDashboardDay('user-1', '2026-08-27');
+
+    expect(result).toEqual({
+      date: '2026-08-27',
+      occurrences: [
+        {
+          instanceId: 'goal-water:2026-08-27:08:00',
+          goalId: 'goal-water',
+          title: 'Beber água',
+          goalKind: 'Continua',
+          conquestType: 'Corpo',
+          schedule: { type: 'daily', times: ['08:00', '18:00'] },
+          startTime: '08:00',
+          endTime: '08:30',
+          status: 'PENDING',
+          icon: 'fitness_center',
+          accentColor: 'garden-green',
+        },
+      ],
+      harvestSummary: { collected: 0, total: 1 },
+    });
 
     jest.restoreAllMocks();
   });
