@@ -26,25 +26,35 @@ describe('DashboardService.getDashboardWeek', () => {
     (prisma.growthEvent.findMany as jest.Mock).mockResolvedValue([]);
   });
 
-  it('inclui times em weekGrid.goals para posicionamento na grade semanal', async () => {
+  it('weekGrid.occurrences no mesmo shape do Dia (instanceId da célula)', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T07:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
     mockGetGoalsForUser.mockResolvedValue([
       {
         id: 'goal-1',
         title: 'Pescar',
+        goalKind: 'Continua',
         conquestType: 'Lazer',
         completed: false,
         status: 'ACTIVE',
         createdAt: new Date('2026-01-01T12:00:00.000Z'),
         schedule: { type: 'daily', times: ['09:30'] },
+        plantedTree: { growthEvents: [] },
       },
       {
         id: 'goal-2',
         title: 'Beber água',
+        goalKind: 'Continua',
         conquestType: 'Corpo',
         completed: false,
         status: 'ACTIVE',
         createdAt: new Date('2026-01-01T12:00:00.000Z'),
         schedule: { type: 'daily', times: ['14:00'] },
+        plantedTree: { growthEvents: [] },
       },
     ]);
 
@@ -53,23 +63,68 @@ describe('DashboardService.getDashboardWeek', () => {
     expect(result.weekGrid).toHaveLength(7);
     const wednesday = result.weekGrid.find((d) => d.date === '2026-08-26');
     expect(wednesday).toBeDefined();
-    expect(wednesday!.goals).toHaveLength(2);
-    expect(wednesday!.goals[0]).toMatchObject({
-      id: 'goal-1',
+    expect((wednesday as { goals?: unknown }).goals).toBeUndefined();
+    expect(wednesday!.occurrences).toHaveLength(2);
+    expect(wednesday!.occurrences[0]).toMatchObject({
+      instanceId: 'goal-1:2026-08-26:09:30',
+      goalId: 'goal-1',
       title: 'Pescar',
-      slots: 1,
-      times: ['09:30'],
+      goalKind: 'Continua',
+      conquestType: 'Lazer',
+      startTime: '09:30',
+      endTime: '10:00',
+      status: 'PENDING',
       icon: 'palette',
       accentColor: 'accent-pink',
     });
-    expect(wednesday!.goals[1]).toMatchObject({
-      id: 'goal-2',
+    expect(wednesday!.occurrences[1]).toMatchObject({
+      instanceId: 'goal-2:2026-08-26:14:00',
+      goalId: 'goal-2',
       title: 'Beber água',
-      slots: 1,
-      times: ['14:00'],
+      startTime: '14:00',
+      endTime: '14:30',
+      status: 'PENDING',
       icon: 'fitness_center',
       accentColor: 'garden-green',
     });
+
+    jest.restoreAllMocks();
+  });
+
+  it('1 occurrence por meta no dia mesmo com vários times', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T07:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        completed: false,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00', '18:00'] },
+        plantedTree: { growthEvents: [] },
+      },
+    ]);
+
+    const result = await service.getDashboardWeek('user-1', '2026-08-26');
+    const wednesday = result.weekGrid.find((d) => d.date === '2026-08-26');
+
+    expect(wednesday!.expectedSlots).toBe(2);
+    expect(wednesday!.occurrences).toHaveLength(1);
+    expect(wednesday!.occurrences[0]).toMatchObject({
+      instanceId: 'goal-water:2026-08-26:08:00',
+      startTime: '08:00',
+      endTime: '08:30',
+      schedule: { type: 'daily', times: ['08:00', '18:00'] },
+    });
+
+    jest.restoreAllMocks();
   });
 });
 
@@ -197,6 +252,102 @@ describe('DashboardService.getDashboardDay', () => {
         },
       ],
       harvestSummary: { collected: 0, total: 1 },
+    });
+
+    jest.restoreAllMocks();
+  });
+});
+
+describe('DashboardService.getDashboardMonth', () => {
+  let service: DashboardService;
+  const mockGetGoalsForUser = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new DashboardService({
+      getGoalsForUser: mockGetGoalsForUser,
+    } as unknown as UserGoalService);
+
+    (prisma.user.findUnique as jest.Mock).mockResolvedValue({
+      timezone: 'America/Sao_Paulo',
+    });
+    (prisma.growthEvent.findMany as jest.Mock).mockResolvedValue([]);
+  });
+
+  it('monthGrid.occurrences no mesmo shape do Dia (instanceId da célula)', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T07:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForUser.mockResolvedValue([
+      {
+        id: 'goal-1',
+        title: 'Pescar',
+        goalKind: 'Continua',
+        conquestType: 'Lazer',
+        completed: false,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['09:30'] },
+        plantedTree: { growthEvents: [] },
+      },
+    ]);
+
+    const result = await service.getDashboardMonth('user-1', '2026-08');
+    const day = result.monthGrid.find((d) => d.date === '2026-08-26');
+
+    expect(result.month).toBe('2026-08');
+    expect((day as { goals?: unknown }).goals).toBeUndefined();
+    expect(day!.occurrences).toHaveLength(1);
+    expect(day!.occurrences[0]).toMatchObject({
+      instanceId: 'goal-1:2026-08-26:09:30',
+      goalId: 'goal-1',
+      title: 'Pescar',
+      startTime: '09:30',
+      endTime: '10:00',
+      status: 'PENDING',
+      icon: 'palette',
+      accentColor: 'accent-pink',
+    });
+    expect(result.monthlyGoal).toMatchObject({ harvested: 0 });
+    expect(result.activeDays).toBe(0);
+
+    jest.restoreAllMocks();
+  });
+
+  it('1 occurrence por meta no dia mesmo com vários times', async () => {
+    jest.spyOn(DateTime, 'now').mockReturnValue(
+      DateTime.fromISO('2026-08-26T07:00:00', {
+        zone: 'America/Sao_Paulo',
+      }) as DateTime<true>,
+    );
+
+    mockGetGoalsForUser.mockResolvedValue([
+      {
+        id: 'goal-water',
+        title: 'Beber água',
+        goalKind: 'Continua',
+        conquestType: 'Corpo',
+        completed: false,
+        status: 'ACTIVE',
+        createdAt: new Date('2026-01-01T12:00:00.000Z'),
+        schedule: { type: 'daily', times: ['08:00', '18:00'] },
+        plantedTree: { growthEvents: [] },
+      },
+    ]);
+
+    const result = await service.getDashboardMonth('user-1', '2026-08-26');
+    const day = result.monthGrid.find((d) => d.date === '2026-08-26');
+
+    expect(day!.expectedSlots).toBe(2);
+    expect(day!.occurrences).toHaveLength(1);
+    expect(day!.occurrences[0]).toMatchObject({
+      instanceId: 'goal-water:2026-08-26:08:00',
+      startTime: '08:00',
+      endTime: '08:30',
+      schedule: { type: 'daily', times: ['08:00', '18:00'] },
     });
 
     jest.restoreAllMocks();

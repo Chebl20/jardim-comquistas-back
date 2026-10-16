@@ -1,37 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
-export class DashboardWeekGoalDto {
-  @ApiProperty({ description: 'ID da meta', format: 'uuid' })
-  id: string;
-
-  @ApiProperty({ description: 'Título da meta', example: 'Beber água' })
-  title: string;
-
-  @ApiProperty({ description: 'Área de conquista', example: 'Corpo' })
-  conquestType: string;
-
-  @ApiProperty({ example: 'fitness_center' })
-  icon: string;
-
-  @ApiProperty({
-    example: 'garden-green',
-    enum: ['garden-green', 'accent-sky', 'accent-pink', 'accent-autumn'],
-  })
-  accentColor: 'garden-green' | 'accent-sky' | 'accent-pink' | 'accent-autumn';
-
-  @ApiProperty({
-    description: 'Quantidade de lembretes agendados neste dia',
-    example: 1,
-  })
-  slots: number;
-
-  @ApiProperty({
-    description: 'Horários agendados no dia (HH:mm, fuso do usuário)',
-    example: ['08:00'],
-    type: [String],
-  })
-  times: string[];
-}
+import { DashboardDayOccurrenceDto } from './dashboard-day.response';
 
 export class DashboardWeekDayDto {
   @ApiProperty({ description: 'Data do dia (ISO)', example: '2026-08-26' })
@@ -43,8 +11,12 @@ export class DashboardWeekDayDto {
   @ApiProperty({ description: 'Colheitas registradas no dia', example: 0 })
   harvestCount: number;
 
-  @ApiProperty({ type: [DashboardWeekGoalDto] })
-  goals: DashboardWeekGoalDto[];
+  @ApiProperty({
+    type: [DashboardDayOccurrenceDto],
+    description:
+      'Mesmo item do Dia: 1 occurrence por meta (primeiro times), instanceId da célula.',
+  })
+  occurrences: DashboardDayOccurrenceDto[];
 }
 
 export class DashboardWeekProgressDto {
@@ -94,7 +66,7 @@ export class DashboardWeekResponseDto {
 
   @ApiProperty({
     type: [DashboardWeekDayDto],
-    description: 'Grade de 7 dias com metas e horários',
+    description: 'Grade de 7 dias com occurrences da timeline',
   })
   weekGrid: DashboardWeekDayDto[];
 

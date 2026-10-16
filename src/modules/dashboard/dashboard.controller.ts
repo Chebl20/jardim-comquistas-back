@@ -10,6 +10,7 @@ import { DashboardService } from './dashboard.service';
 import { AuthGuard } from '../../auth/auth.guard';
 import { DashboardWeekResponseDto } from './dto/dashboard-week.response';
 import { DashboardDayResponseDto } from './dto/dashboard-day.response';
+import { DashboardMonthResponseDto } from './dto/dashboard-month.response';
 
 @ApiTags('Dashboard')
 @Controller('api/dashboard')
@@ -25,7 +26,9 @@ export class DashboardController {
       'Retorna informações agregadas para a visão diária, semanal ou mensal. ' +
       'Na visão day (`period=day`) devolve `occurrences` da timeline ' +
       '(1 por meta; `schedule.times` lista os horários) com `status` PENDING|DONE|MISSED. ' +
-      'Na visão week (`period=week`), cada meta em `weekGrid[].goals` inclui `times` (HH:mm).',
+      'Na visão week (`period=week`) e month (`period=month`), cada célula em ' +
+      '`weekGrid[].occurrences` / `monthGrid[].occurrences` usa o mesmo item do Dia ' +
+      '(1 por meta; instanceId da data da célula).',
   })
   @ApiQuery({
     name: 'period',
@@ -53,8 +56,15 @@ export class DashboardController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Visão week: weekGrid com metas e horários (times) por dia.',
+    description:
+      'Visão week: weekGrid[].occurrences no mesmo shape do Dia + weeklyProgress.',
     type: DashboardWeekResponseDto,
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Visão month: monthGrid[].occurrences no mesmo shape do Dia + monthlyGoal.',
+    type: DashboardMonthResponseDto,
   })
   async getDashboard(
     @Query('period') period: 'day' | 'week' | 'month',

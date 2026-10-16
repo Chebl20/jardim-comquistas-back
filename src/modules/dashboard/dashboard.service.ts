@@ -40,6 +40,49 @@ function timelineStatus(
   return 'PENDING';
 }
 
+type TimelineOccurrence = {
+  instanceId: string;
+  goalId: string;
+  title: string;
+  goalKind: string;
+  conquestType: string;
+  schedule: ScheduleConfig | null;
+  startTime: string;
+  endTime: string;
+  status: 'PENDING' | 'DONE' | 'MISSED';
+  icon: string;
+  accentColor: string;
+};
+
+function toTimelineOccurrence(
+  goal: any,
+  civilDate: DateTime,
+  now: DateTime,
+  tz: string,
+): TimelineOccurrence {
+  const resolvedDate = civilDate.toISODate() || '';
+  const times = scheduledTimesForGoalOnDate(goal, civilDate, tz);
+  const startTime = times[0] || FALLBACK_START_TIME;
+  const rawStatus = resolveDailyStatusForDate(goal, civilDate, tz, now);
+  const status = timelineStatus(rawStatus, startTime, civilDate, now, tz);
+  const visual = visualForConquestType(goal.conquestType);
+  const schedule = (goal.schedule ?? null) as ScheduleConfig | null;
+
+  return {
+    instanceId: buildGoalInstanceId(String(goal.id), resolvedDate, startTime),
+    goalId: String(goal.id),
+    title: String(goal.title),
+    goalKind: String(goal.goalKind ?? ''),
+    conquestType: String(goal.conquestType ?? ''),
+    schedule,
+    startTime,
+    endTime: plusThirtyMinutes(startTime),
+    status,
+    icon: visual.icon,
+    accentColor: visual.accentColor,
+  };
+}
+
 @Injectable()
 export class DashboardService {
   constructor(private readonly userGoalService: UserGoalService) {}
@@ -73,28 +116,9 @@ export class DashboardService {
     }
 
     const resolvedDate = targetDate.toISODate() || datePart;
-    const occurrences = goals.map((g: any) => {
-      const times = scheduledTimesForGoalOnDate(g, targetDate, tz);
-      const startTime = times[0] || FALLBACK_START_TIME;
-      const rawStatus = resolveDailyStatusForDate(g, targetDate, tz, now);
-      const status = timelineStatus(rawStatus, startTime, targetDate, now, tz);
-      const visual = visualForConquestType(g.conquestType);
-      const schedule = (g.schedule ?? null) as ScheduleConfig | null;
-
-      return {
-        instanceId: buildGoalInstanceId(String(g.id), resolvedDate, startTime),
-        goalId: String(g.id),
-        title: String(g.title),
-        goalKind: String(g.goalKind ?? ''),
-        conquestType: String(g.conquestType ?? ''),
-        schedule,
-        startTime,
-        endTime: plusThirtyMinutes(startTime),
-        status,
-        icon: visual.icon,
-        accentColor: visual.accentColor,
-      };
-    });
+    const occurrences = goals.map((g: any) =>
+      toTimelineOccurrence(g, targetDate, now, tz),
+    );
 
     const collected = occurrences.filter((o) => o.status === 'DONE').length;
 
@@ -130,15 +154,7 @@ export class DashboardService {
           date: string | null;
           expectedSlots: number;
           harvestCount: number;
-          goals: {
-            id: string;
-            title: string;
-            conquestType: string;
-            icon: string;
-            accentColor: string;
-            slots: number;
-            times: string[];
-          }[];
+          occurrences: TimelineOccurrence[];
         }>,
         weeklyProgress: { percentage: 0, total: 0, harvested: 0 },
         harvestCount: 0,
@@ -150,6 +166,7 @@ export class DashboardService {
       anchor,
       tz,
     );
+    const now = DateTime.now().setZone(tz);
 
     const goals = await this.userGoalService.getGoalsForUser(userId);
     const inScope = goals.filter((g: any) => {
@@ -165,43 +182,18 @@ export class DashboardService {
       date: string | null;
       expectedSlots: number;
       harvestCount: number;
-      goals: {
-        id: string;
-        title: string;
-        conquestType: string;
-        icon: string;
-        accentColor: string;
-        slots: number;
-        times: string[];
-      }[];
+      occurrences: TimelineOccurrence[];
     }> = [];
 
     for (let i = 0; i < 7; i++) {
       const d = monday.plus({ days: i });
-      const dayGoals: {
-        id: string;
-        title: string;
-        conquestType: string;
-        icon: string;
-        accentColor: string;
-        slots: number;
-        times: string[];
-      }[] = [];
+      const occurrences: TimelineOccurrence[] = [];
       let expectedSlots = 0;
       for (const g of inScope) {
         const n = expectedSlotCountForGoalOnDate(g, d, tz);
         if (n > 0) {
           expectedSlots += n;
-          const visual = visualForConquestType(g.conquestType);
-          dayGoals.push({
-            id: g.id,
-            title: g.title,
-            conquestType: g.conquestType,
-            icon: visual.icon,
-            accentColor: visual.accentColor,
-            slots: n,
-            times: scheduledTimesForGoalOnDate(g, d, tz),
-          });
+          occurrences.push(toTimelineOccurrence(g, d, now, tz));
         }
       }
       totalSlots += expectedSlots;
@@ -209,7 +201,7 @@ export class DashboardService {
         date: d.toISODate(),
         expectedSlots,
         harvestCount: 0,
-        goals: dayGoals,
+        occurrences,
       });
     }
 
@@ -312,6 +304,7 @@ export class DashboardService {
 
     const { monthStart, monthEnd, nextMonthStart, yearMonth } = parsed;
     const daysInMonth = monthStart.daysInMonth ?? 31;
+    const now = DateTime.now().setZone(tz);
 
     const goals = await this.userGoalService.getGoalsForUser(userId);
     const inScope = goals.filter((g: any) => {
@@ -326,14 +319,7 @@ export class DashboardService {
       date: string | null;
       expectedSlots: number;
       harvestCount: number;
-      goals: {
-        id: string;
-        title: string;
-        conquestType: string;
-        icon: string;
-        accentColor: string;
-        slots: number;
-      }[];
+      occurrences: TimelineOccurrence[];
     };
 
     const monthGrid: DayCell[] = [];
@@ -341,21 +327,13 @@ export class DashboardService {
 
     for (let i = 0; i < daysInMonth; i++) {
       const d = monthStart.plus({ days: i });
-      const dayGoals: DayCell['goals'] = [];
+      const occurrences: TimelineOccurrence[] = [];
       let expectedSlots = 0;
       for (const g of inScope) {
         const n = expectedSlotCountForGoalOnDate(g, d, tz);
         if (n > 0) {
           expectedSlots += n;
-          const visual = visualForConquestType(g.conquestType);
-          dayGoals.push({
-            id: g.id,
-            title: g.title,
-            conquestType: g.conquestType,
-            icon: visual.icon,
-            accentColor: visual.accentColor,
-            slots: n,
-          });
+          occurrences.push(toTimelineOccurrence(g, d, now, tz));
         }
       }
       totalSlots += expectedSlots;
@@ -363,7 +341,7 @@ export class DashboardService {
         date: d.toISODate(),
         expectedSlots,
         harvestCount: 0,
-        goals: dayGoals,
+        occurrences,
       });
     }
 
