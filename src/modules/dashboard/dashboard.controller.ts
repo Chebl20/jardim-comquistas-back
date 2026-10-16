@@ -23,8 +23,8 @@ export class DashboardController {
     summary: 'Dashboard principal',
     description:
       'Retorna informações agregadas para a visão diária, semanal ou mensal. ' +
-      'Na visão day (`period=day`), `goals[].dailyStatus` e `goals[].reminder.dailyStatus` ' +
-      'refletem a `date` consultada (DONE só no dia da conclusão; senão PENDING). ' +
+      'Na visão day (`period=day`) devolve `occurrences` da timeline ' +
+      '(1 por meta; `schedule.times` lista os horários) com `status` PENDING|DONE|MISSED. ' +
       'Na visão week (`period=week`), cada meta em `weekGrid[].goals` inclui `times` (HH:mm).',
   })
   @ApiQuery({
@@ -47,7 +47,8 @@ export class DashboardController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Visão day: metas do dia com dailyStatus contextual à date.',
+    description:
+      'Visão day: occurrences da timeline + harvestSummary. accentColor é token do jardim.',
     type: DashboardDayResponseDto,
   })
   @ApiResponse({

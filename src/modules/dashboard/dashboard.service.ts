@@ -4,12 +4,41 @@ import { prisma } from '../../prisma/client';
 import { UserGoalService } from '../goals/user-goal.service';
 import {
   expectedSlotCountForGoalOnDate,
-  isSameCalendarDay,
   monthRangeFromInput,
   resolveDailyStatusForDate,
   scheduledTimesForGoalOnDate,
   weekRangeContainingDate,
 } from '../shared/schedule-occurrence.util';
+import { visualForConquestType } from '../shared/area-visual.util';
+import { buildGoalInstanceId } from '../goals/goal-instance-id';
+import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
+
+const FALLBACK_START_TIME = '08:00';
+
+function plusThirtyMinutes(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  const base = DateTime.fromObject({ hour: h || 0, minute: m || 0 });
+  return base.plus({ minutes: 30 }).toFormat('HH:mm');
+}
+
+function timelineStatus(
+  raw: string | null,
+  startTime: string,
+  targetDate: DateTime,
+  now: DateTime,
+  tz: string,
+): 'PENDING' | 'DONE' | 'MISSED' {
+  if (raw === 'DONE') return 'DONE';
+  const [h, m] = startTime.split(':').map(Number);
+  const slot = targetDate.setZone(tz).set({
+    hour: h || 0,
+    minute: m || 0,
+    second: 0,
+    millisecond: 0,
+  });
+  if (slot.isValid && now.toMillis() >= slot.toMillis()) return 'MISSED';
+  return 'PENDING';
+}
 
 @Injectable()
 export class DashboardService {
@@ -43,49 +72,36 @@ export class DashboardService {
       goals = goals.filter((g: any) => String(g.conquestType) === a);
     }
 
-    const isToday = isSameCalendarDay(targetDate, now, tz);
-    const dayGoals = goals.map((g) => {
-      const dailyStatus = resolveDailyStatusForDate(g, targetDate, tz, now);
+    const resolvedDate = targetDate.toISODate() || datePart;
+    const occurrences = goals.map((g: any) => {
+      const times = scheduledTimesForGoalOnDate(g, targetDate, tz);
+      const startTime = times[0] || FALLBACK_START_TIME;
+      const rawStatus = resolveDailyStatusForDate(g, targetDate, tz, now);
+      const status = timelineStatus(rawStatus, startTime, targetDate, now, tz);
+      const visual = visualForConquestType(g.conquestType);
+      const schedule = (g.schedule ?? null) as ScheduleConfig | null;
+
       return {
-        ...g,
-        dailyStatus,
-        scheduleConfig: g.schedule,
-        reminder: { ...g.reminder, dailyStatus },
-        silenceUntil: isToday ? g.reminder.silenceUntil : null,
+        instanceId: buildGoalInstanceId(String(g.id), resolvedDate, startTime),
+        goalId: String(g.id),
+        title: String(g.title),
+        goalKind: String(g.goalKind ?? ''),
+        conquestType: String(g.conquestType ?? ''),
+        schedule,
+        startTime,
+        endTime: plusThirtyMinutes(startTime),
+        status,
+        icon: visual.icon,
+        accentColor: visual.accentColor,
       };
     });
 
-    const doneCnt = dayGoals.filter((g) => g.dailyStatus === 'DONE').length;
-    const totalToday = dayGoals.length;
-
-    const nowTs = now.toMillis();
-    const careNeeded = dayGoals.filter((g) => {
-      if (g.dailyStatus === 'DONE') return false;
-      const times = scheduledTimesForGoalOnDate(g, targetDate, tz);
-      if (!times.length) return false;
-      const lastTime = times[times.length - 1];
-      const [h, m] = lastTime.split(':').map(Number);
-      const slotTs = targetDate.set({ hour: h, minute: m ?? 0 }).toMillis();
-      return slotTs <= nowTs;
-    });
-
-    const growthPct =
-      totalToday === 0
-        ? 0
-        : Math.min(100, Math.round((doneCnt / totalToday) * 100));
+    const collected = occurrences.filter((o) => o.status === 'DONE').length;
 
     return {
-      date: datePart,
-      areaId: areaId && String(areaId).trim() ? String(areaId).trim() : null,
-      goals: dayGoals,
-      summary: 'Resumo do dia',
-      bloomingToday: [],
-      _bloomingTodayStub: true,
-      growth: { percentage: growthPct },
-      careNeeded,
-      harvestSummary: { collected: doneCnt, total: totalToday },
-      guideSuggestions: [],
-      _guideSuggestionsStub: true,
+      date: resolvedDate,
+      occurrences,
+      harvestSummary: { collected, total: occurrences.length },
     };
   }
 
@@ -118,6 +134,8 @@ export class DashboardService {
             id: string;
             title: string;
             conquestType: string;
+            icon: string;
+            accentColor: string;
             slots: number;
             times: string[];
           }[];
@@ -151,6 +169,8 @@ export class DashboardService {
         id: string;
         title: string;
         conquestType: string;
+        icon: string;
+        accentColor: string;
         slots: number;
         times: string[];
       }[];
@@ -162,6 +182,8 @@ export class DashboardService {
         id: string;
         title: string;
         conquestType: string;
+        icon: string;
+        accentColor: string;
         slots: number;
         times: string[];
       }[] = [];
@@ -170,10 +192,13 @@ export class DashboardService {
         const n = expectedSlotCountForGoalOnDate(g, d, tz);
         if (n > 0) {
           expectedSlots += n;
+          const visual = visualForConquestType(g.conquestType);
           dayGoals.push({
             id: g.id,
             title: g.title,
             conquestType: g.conquestType,
+            icon: visual.icon,
+            accentColor: visual.accentColor,
             slots: n,
             times: scheduledTimesForGoalOnDate(g, d, tz),
           });
@@ -305,6 +330,8 @@ export class DashboardService {
         id: string;
         title: string;
         conquestType: string;
+        icon: string;
+        accentColor: string;
         slots: number;
       }[];
     };
@@ -320,10 +347,13 @@ export class DashboardService {
         const n = expectedSlotCountForGoalOnDate(g, d, tz);
         if (n > 0) {
           expectedSlots += n;
+          const visual = visualForConquestType(g.conquestType);
           dayGoals.push({
             id: g.id,
             title: g.title,
             conquestType: g.conquestType,
+            icon: visual.icon,
+            accentColor: visual.accentColor,
             slots: n,
           });
         }

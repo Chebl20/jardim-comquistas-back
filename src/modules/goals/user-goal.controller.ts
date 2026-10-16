@@ -124,9 +124,27 @@ export class GoalInstanceController {
   }
 
   @Post(':id/complete')
-  @ApiOperation({ summary: 'Concluir instância de uma meta para o dia' })
+  @ApiOperation({
+    summary: 'Concluir ocorrência da timeline',
+    description:
+      '`id` é o `instanceId` da timeline (`{goalId}:{YYYY-MM-DD}:{HH:mm}`). ' +
+      'Sem tabela de instância, o back parseia a string e conclui a meta daquele dia. ' +
+      'URL-encode o id (contém `:`).',
+  })
   @ApiResponse({ status: 201, description: 'Concluída' })
   async completeInstance(@Param('id') id: string, @Req() req: any) {
-    return this.userGoalService.completeGoal(id, req.user.userId);
+    return this.userGoalService.completeInstanceForUser(id, req.user.userId);
+  }
+
+  @Post(':id/undo')
+  @ApiOperation({
+    summary: 'Desfazer ocorrência da timeline',
+    description:
+      '`id` é o `instanceId` da timeline (`{goalId}:{YYYY-MM-DD}:{HH:mm}`). ' +
+      'Volta o status do dia para PENDING. URL-encode o id.',
+  })
+  @ApiResponse({ status: 201, description: 'Desfeita' })
+  async undoInstance(@Param('id') id: string, @Req() req: any) {
+    return this.userGoalService.undoInstanceForUser(id, req.user.userId);
   }
 }

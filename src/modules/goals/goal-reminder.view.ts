@@ -2,6 +2,10 @@ import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
 import { isValidScheduleConfig } from '../../domain/types/schedule-config.type';
 import { coerceScheduleConfig } from '../shared/schedule-occurrence.util';
 import { normalizeDaysOfWeekJson } from '../shared/weekday.util';
+import {
+  visualForConquestType,
+  type GardenAccentColor,
+} from '../shared/area-visual.util';
 
 const DEFAULT_TIMEZONE = 'America/Sao_Paulo';
 
@@ -21,6 +25,8 @@ export type GoalReminderView = {
   description: string | null;
   goalKind: string;
   conquestType: string;
+  icon: string;
+  accentColor: GardenAccentColor;
   completed: boolean;
   createdAt: Date | string;
   timezone: string;
@@ -141,6 +147,7 @@ export function toGoalReminderView(row: {
   const timezone = userTz || scheduleTz || DEFAULT_TIMEZONE;
 
   const rem = row.reminder;
+  const visual = visualForConquestType(row.conquestType);
   return {
     id: row.id,
     userId: row.userId ?? row.user?.id ?? '',
@@ -148,6 +155,8 @@ export function toGoalReminderView(row: {
     description: row.description ?? null,
     goalKind: row.goalKind,
     conquestType: row.conquestType,
+    icon: visual.icon,
+    accentColor: visual.accentColor,
     completed: row.completed,
     createdAt: row.createdAt,
     timezone,

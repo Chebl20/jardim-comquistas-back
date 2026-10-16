@@ -1,45 +1,67 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export class DashboardDayGoalDto {
+export class DashboardDayOccurrenceDto {
+  @ApiProperty({
+    description: '{goalId}:{date}:{startTime} — chave da linha da timeline',
+    example: '70df550e-9b35-4e4f-8de4-cdf1692d698b:2026-10-15:08:00',
+  })
+  instanceId: string;
+
   @ApiProperty({ format: 'uuid' })
-  id: string;
+  goalId: string;
 
   @ApiProperty({ example: 'Beber água' })
   title: string;
+
+  @ApiProperty({ example: 'Continua', enum: ['Continua', 'Pontual'] })
+  goalKind: string;
 
   @ApiProperty({ example: 'Corpo' })
   conquestType: string;
 
   @ApiPropertyOptional({
-    description:
-      'Status contextual à date consultada (não o GoalReminder global). ' +
-      'CONTINUA+DAILY: DONE só no dia em que houve conclusão; demais dias PENDING.',
-    example: null,
+    description: 'Agenda canônica da meta (times lista todos os horários)',
     nullable: true,
   })
-  dailyStatus: string | null;
+  schedule: Record<string, unknown> | null;
 
-  @ApiPropertyOptional({
-    description:
-      'Agendamento reconstruído da meta (times, at, daysOfWeek, etc.)',
+  @ApiProperty({ example: '08:00' })
+  startTime: string;
+
+  @ApiProperty({ example: '08:30', description: 'startTime + 30min' })
+  endTime: string;
+
+  @ApiProperty({
+    example: 'PENDING',
+    enum: ['PENDING', 'DONE', 'MISSED'],
   })
-  scheduleConfig?: Record<string, unknown> | null;
+  status: 'PENDING' | 'DONE' | 'MISSED';
+
+  @ApiProperty({ example: 'fitness_center' })
+  icon: string;
+
+  @ApiProperty({
+    example: 'garden-green',
+    enum: ['garden-green', 'accent-sky', 'accent-pink', 'accent-autumn'],
+  })
+  accentColor: 'garden-green' | 'accent-sky' | 'accent-pink' | 'accent-autumn';
+}
+
+export class DashboardDayHarvestSummaryDto {
+  @ApiProperty({ example: 1 })
+  collected: number;
+
+  @ApiProperty({ example: 2 })
+  total: number;
 }
 
 export class DashboardDayResponseDto {
-  @ApiProperty({ example: '2026-08-27' })
+  @ApiProperty({ example: '2026-10-15' })
   date: string;
 
-  @ApiPropertyOptional({ nullable: true })
-  areaId: string | null;
+  @ApiProperty({ type: [DashboardDayOccurrenceDto] })
+  occurrences: DashboardDayOccurrenceDto[];
 
-  @ApiProperty({
-    type: [DashboardDayGoalDto],
-    description:
-      'Metas agendadas para o dia; dailyStatus reflete a date da query.',
-  })
-  goals: DashboardDayGoalDto[];
-
-  @ApiProperty({ example: 'Resumo do dia' })
-  summary: string;
+  @ApiProperty({ type: DashboardDayHarvestSummaryDto })
+  harvestSummary: DashboardDayHarvestSummaryDto;
 }

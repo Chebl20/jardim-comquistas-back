@@ -18,6 +18,37 @@ describe('toGoalReminderView', () => {
       reminder: { sentCount: 0 },
     });
     expect(view.schedule).toEqual({ type: 'daily', times: ['08:00', '18:00'] });
+    expect(view.icon).toBe('fitness_center');
+    expect(view.accentColor).toBe('garden-green');
+  });
+
+  it('Familia e Hobby_Lazer recebem o mesmo token do day', () => {
+    expect(
+      toGoalReminderView({
+        id: 'g2',
+        title: 'Abraço',
+        goalKind: 'Pontual',
+        conquestType: 'Familia',
+        completed: false,
+        createdAt: '2026-09-01T12:00:00.000Z',
+      }),
+    ).toMatchObject({
+      icon: 'family_restroom',
+      accentColor: 'accent-pink',
+    });
+    expect(
+      toGoalReminderView({
+        id: 'g3',
+        title: 'Pescar',
+        goalKind: 'Continua',
+        conquestType: 'Hobby_Lazer',
+        completed: false,
+        createdAt: '2026-09-01T12:00:00.000Z',
+      }),
+    ).toMatchObject({
+      icon: 'palette',
+      accentColor: 'accent-pink',
+    });
   });
 
   it('timezone do user ganha de schedule.timeZone', () => {
