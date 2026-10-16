@@ -27,6 +27,7 @@ export class DashboardDayOccurrenceDto {
 
   @ApiProperty({ example: '08:00' })
   startTime: string;
+  
 
   @ApiProperty({ example: '08:30', description: 'startTime + 30min' })
   endTime: string;
