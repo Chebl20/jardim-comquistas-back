@@ -72,7 +72,7 @@ export class WorldsPlantedController {
 
     const where: any = {
       worldId: safeId,
-      OR: [{ goal: { userId } }],
+      goal: { is: { userId } },
     };
     if (anchorId) where.anchorId = String(anchorId).trim();
     if (treeCatalogId) where.treeCatalogId = String(treeCatalogId).trim();
@@ -162,7 +162,7 @@ export class WorldsPlantedController {
   @ApiOperation({
     summary: 'Limpar todas as árvores plantadas',
     description:
-      'Remove todas as árvores plantadas de um mundo. Requer confirm=1.',
+      'Remove as árvores plantadas do usuário autenticado neste mundo. Requer confirm=1.',
   })
   @ApiParam({ name: 'id', description: 'ID do mundo' })
   @ApiQuery({
@@ -173,10 +173,17 @@ export class WorldsPlantedController {
   @ApiResponse({ status: 200, description: 'Árvores removidas.' })
   async clearPlantedTrees(
     @Param('id') id: string,
+    @Req() req: any,
     @Query('confirm') confirm?: string,
   ) {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
+
+    const userId = req?.user?.userId;
+    if (!userId)
+      throw new BadRequestException(
+        'userId não encontrado no contexto da requisição',
+      );
 
     const doClear = confirm === '1' || confirm === 'true';
     if (!doClear)
@@ -186,15 +193,16 @@ export class WorldsPlantedController {
 
     const out = await (prisma as any).$transaction(async (tx: any) => {
       const plantedRows = await tx.plantedTree.findMany({
-        where: { worldId: safeId },
+        where: { worldId: safeId, goal: { is: { userId } } },
         select: { id: true },
       });
       const ids = (plantedRows || []).map((r: any) => r.id);
       if (!ids.length)
         return { ok: true, deletedPlantedTrees: 0, deletedEvents: 0 };
 
-      await tx.goal.deleteMany({ where: { plantedTreeId: { in: ids } } });
-      await tx.goal.deleteMany({ where: { plantedTreeId: { in: ids } } });
+      await tx.goal.deleteMany({
+        where: { plantedTreeId: { in: ids }, userId },
+      });
 
       const deletedEvents = await tx.growthEvent.deleteMany({
         where: { plantedTreeId: { in: ids } },

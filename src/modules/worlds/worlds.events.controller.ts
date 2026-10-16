@@ -41,8 +41,14 @@ export class WorldsEventsController {
   async getTreeProgression(
     @Param('id') id: string,
     @Param('anchorId') anchorId: string,
+    @Req() req: any,
   ) {
-    return this.worldsEventsService.getTreeProgression(id, anchorId);
+    const userId = req?.user?.userId;
+    if (!userId)
+      throw new BadRequestException(
+        'userId não encontrado no contexto da requisição',
+      );
+    return this.worldsEventsService.getTreeProgression(id, anchorId, userId);
   }
 
   @Post(':id/trees/progression')
@@ -56,13 +62,19 @@ export class WorldsEventsController {
   async getTreeProgressionByBody(
     @Param('id') id: string,
     @Body() body: { anchorId?: string },
+    @Req() req: any,
   ) {
     const safeId = String(id || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
     const aid = String(body?.anchorId || '').trim();
     if (!aid) throw new BadRequestException('invalid anchor id in body');
+    const userId = req?.user?.userId;
+    if (!userId)
+      throw new BadRequestException(
+        'userId não encontrado no contexto da requisição',
+      );
 
-    return this.getTreeProgression(id, aid);
+    return this.worldsEventsService.getTreeProgression(safeId, aid, userId);
   }
 
   @Post(':id/trees/events')

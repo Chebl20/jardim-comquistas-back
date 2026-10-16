@@ -191,7 +191,7 @@ export class WorldsEventsService {
         out.plantedId,
         out.eventStage,
         out.progressIndex,
-        null,
+        userId,
       );
     } catch (e) {
       // ignore emit errors
@@ -206,14 +206,20 @@ export class WorldsEventsService {
     };
   }
 
-  async getTreeProgression(worldId: string, anchorId: string) {
+  async getTreeProgression(worldId: string, anchorId: string, userId: string) {
     const safeId = String(worldId || '').replace(/[^a-zA-Z0-9-_]/g, '');
     if (!safeId) throw new BadRequestException('invalid world id');
     const aid = String(anchorId || '').trim();
     if (!aid) throw new BadRequestException('invalid anchor id');
+    if (!userId || typeof userId !== 'string')
+      throw new BadRequestException('userId obrigatório');
 
     const plantedCandidates = await (prisma as any).plantedTree.findMany({
-      where: { worldId: safeId, anchorId: aid },
+      where: {
+        worldId: safeId,
+        anchorId: aid,
+        goal: { is: { userId } },
+      },
       include: {
         treeCatalog: true,
         growthEvents: { orderBy: { createdAt: 'asc' } },
