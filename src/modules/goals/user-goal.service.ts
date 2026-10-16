@@ -405,6 +405,7 @@ export class UserGoalService {
     this.worldsGateway.emitTreePlanted(
       data.worldId,
       await this.storageService.signPlantedTree(plantedTreeFull),
+      data.userId,
     );
     this.worldsGateway.emitTreeProgress(
       data.worldId,

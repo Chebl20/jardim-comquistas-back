@@ -41,3 +41,14 @@ export class AuthGuard implements CanActivate {
 export function signJwt(payload: any) {
   return jwt.sign(payload, jwtSecret(), { expiresIn: '7d' });
 }
+
+export function verifyAuthToken(token: string): { userId: string; email?: string } {
+  const payload = jwt.verify(token, jwtSecret()) as {
+    userId?: string;
+    email?: string;
+  };
+  if (!payload?.userId || typeof payload.userId !== 'string') {
+    throw new UnauthorizedException('Token inválido');
+  }
+  return { userId: payload.userId, email: payload.email };
+}
