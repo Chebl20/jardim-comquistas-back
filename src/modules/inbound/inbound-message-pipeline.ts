@@ -8,6 +8,10 @@ import {
   type InboundChannel,
   type InboundRequest,
 } from './inbound.types';
+import {
+  formatUserClockReply,
+  matchesUserClockQuery,
+} from '../shared/user-clock.util';
 
 const LINK_CODE = /^[a-f0-9]{8}$/i;
 const TYPING_MS = 4000;
@@ -50,6 +54,14 @@ export class InboundMessagePipeline {
 
       if (text.trim().toUpperCase() === MANUAL_DIGEST_TRIGGER) {
         await this.handleDigest(user.id, transport, origin);
+        return;
+      }
+
+      if (matchesUserClockQuery(text)) {
+        const reply = formatUserClockReply(
+          (user as { timezone?: string | null }).timezone,
+        );
+        await transport.send(reply, origin);
         return;
       }
 

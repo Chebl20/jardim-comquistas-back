@@ -6,6 +6,7 @@ import {
 import { GoalStatusMetaBuilder } from './goal-status-meta.builder';
 import { GoalProgressMetaBuilder } from './goal-progress-meta.builder';
 import { WorldsService } from '../../../worlds/worlds.service';
+import { buildUserClockSnapshot } from '../../../shared/user-clock.util';
 
 @Injectable()
 export class NucleusMetaFactory {
@@ -31,10 +32,11 @@ export class NucleusMetaFactory {
 
     return {
       supports: () => true,
-      build: async ({ sessionPayload, worldId }) => {
+      build: async ({ sessionPayload, worldId, timezone }) => {
         const recent = Array.isArray(sessionPayload.recentMessages)
           ? sessionPayload.recentMessages
           : [];
+        const clock = buildUserClockSnapshot(timezone);
         let worldName: string | undefined;
         try {
           const world = await this.worldsService.getWorldById(worldId);
@@ -50,6 +52,12 @@ export class NucleusMetaFactory {
           worldId,
           worldName: worldName || worldId,
           recentMessages: recent.slice(-3),
+          timezone: clock.timezone,
+          userTimezone: clock.timezone,
+          nowISO: clock.nowISO,
+          nowFormatted: clock.nowFormatted,
+          localISO: clock.localISO,
+          civilDate: clock.civilDate,
         };
       },
     };

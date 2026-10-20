@@ -25,3 +25,11 @@ export function resolveUserTimezone(
   }
   return trimmed;
 }
+
+/** true quando o usuário tem IANA gravado (não vazio nem UTC legado). */
+export function isConfiguredUserTimezone(
+  value: string | null | undefined,
+): boolean {
+  const trimmed = value != null ? String(value).trim() : '';
+  return Boolean(trimmed) && !UNCONFIGURED_TIMEZONES.has(trimmed);
+}
