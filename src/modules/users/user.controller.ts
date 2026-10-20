@@ -19,6 +19,9 @@ import {
 import { UserService } from './user.service';
 import { signJwt } from '../../auth/auth.guard';
 import { AuthGuard } from '../../auth/auth.guard';
+import { readTimezoneFromRequest } from '../shared/request-timezone.util';
+import { buildUserClockSnapshot } from '../shared/user-clock.util';
+import { resolveUserTimezone } from '../shared/app-timezone';
 
 @ApiTags('Usuários')
 @Controller('api/users')
@@ -48,8 +51,7 @@ export class UserController {
     body: { name: string; email: string; password: string; timezone?: string },
     @Req() req: any,
   ) {
-    const headerTz = req?.headers?.['x-timezone'] || req?.headers?.timezone;
-    const tz = body.timezone || headerTz;
+    const tz = readTimezoneFromRequest(req, body.timezone);
     return this.userService.createUser(
       body.name,
       body.email,
@@ -109,7 +111,11 @@ export class UserController {
     schema: {
       type: 'object',
       required: ['email', 'password'],
-      properties: { email: { type: 'string' }, password: { type: 'string' } },
+      properties: {
+        email: { type: 'string' },
+        password: { type: 'string' },
+        timezone: { type: 'string', example: 'America/Sao_Paulo' },
+      },
     },
   })
   @ApiResponse({
@@ -121,13 +127,25 @@ export class UserController {
         message: { type: 'string' },
         userId: { type: 'string' },
         token: { type: 'string' },
+        timezone: { type: 'string' },
       },
     },
   })
-  async login(@Body() body: { email: string; password: string }) {
+  async login(
+    @Body() body: { email: string; password: string; timezone?: string },
+    @Req() req: any,
+  ) {
     const user = await this.userService.validateUser(body.email, body.password);
+    const tz = readTimezoneFromRequest(req, body.timezone);
+    await this.userService.applyTimezoneIfPresent(user.id, tz);
+    const refreshed = await this.userService.getUserById(user.id);
     const token = signJwt({ userId: user.id, email: user.email });
-    return { message: 'Login ok', userId: user.id, token };
+    return {
+      message: 'Login ok',
+      userId: user.id,
+      token,
+      timezone: resolveUserTimezone(refreshed?.timezone ?? user.timezone),
+    };
   }
 
   @Patch('me/current-world')
@@ -152,6 +170,36 @@ export class UserController {
     const userId = req.user.userId;
     await this.userService.updateCurrentWorld(userId, body.currentWorldId);
     return { message: 'Mundo atualizado' };
+  }
+
+  @Get('me/now')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Horário atual do usuário',
+    description:
+      'Retorna data e hora no fuso IANA do usuário (não no fuso do servidor Node).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Instante atual interpretado no fuso do usuário.',
+    schema: {
+      type: 'object',
+      properties: {
+        timezone: { type: 'string' },
+        timezoneSource: { type: 'string', enum: ['user', 'app_default'] },
+        nowISO: { type: 'string' },
+        localISO: { type: 'string' },
+        nowFormatted: { type: 'string' },
+        civilDate: { type: 'string' },
+        weekday: { type: 'string' },
+      },
+    },
+  })
+  async getMeNow(@Req() req: any) {
+    const user = await this.userService.getUserById(req.user.userId);
+    if (!user) throw new UnauthorizedException('User not found');
+    return buildUserClockSnapshot(user.timezone);
   }
 
   @Get('me')

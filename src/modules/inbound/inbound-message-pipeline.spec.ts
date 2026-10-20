@@ -128,6 +128,23 @@ describe('InboundMessagePipeline', () => {
     expect(transport.sent[0].text).toContain('código de acesso');
   });
 
+  it('responde que horas são sem chamar orchestrator', async () => {
+    link.getUserByTelegramId.mockResolvedValue({
+      ...user,
+      timezone: 'America/Sao_Paulo',
+    });
+    const transport = fakeTransport();
+    await pipeline.handleInbound({
+      channel: 'TELEGRAM',
+      channelUserId: '1',
+      text: 'que horas são',
+      transport,
+    });
+    expect(orch.handle).not.toHaveBeenCalled();
+    expect(transport.sent[0].text).toContain('Agora são');
+    expect(transport.sent[0].text).toContain('America/Sao_Paulo');
+  });
+
   it('dispara digest manual e avisa se falhar', async () => {
     link.getUserByTelegramId.mockResolvedValue(user);
     digest.sendDigestForUser.mockResolvedValue(null);

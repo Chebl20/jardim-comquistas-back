@@ -1,6 +1,7 @@
 import {
   DEFAULT_APP_TIMEZONE,
   getAppTimezone,
+  isConfiguredUserTimezone,
   resolveUserTimezone,
 } from './app-timezone';
 
@@ -32,5 +33,11 @@ describe('app-timezone', () => {
 
   it('resolveUserTimezone preserva IANA configurado', () => {
     expect(resolveUserTimezone('America/Recife')).toBe('America/Recife');
+  });
+
+  it('isConfiguredUserTimezone distingue legado de IANA', () => {
+    expect(isConfiguredUserTimezone('America/Recife')).toBe(true);
+    expect(isConfiguredUserTimezone('UTC')).toBe(false);
+    expect(isConfiguredUserTimezone(null)).toBe(false);
   });
 });
