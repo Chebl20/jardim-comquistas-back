@@ -46,8 +46,9 @@ export function expectedSlotCountForGoalOnDate(
   const dayStart = day.setZone(tz).startOf('day');
 
   if (sc.type === 'once') {
-    const userAt = DateTime.fromJSDate(new Date(sc.at)).setZone(tz);
-    return userAt.hasSame(dayStart, 'day') ? 1 : 0;
+    const userAt = parseInstantInTimezone(sc.at, tz);
+    if (!userAt?.isValid) return 0;
+    return userAt.setZone(tz).hasSame(dayStart, 'day') ? 1 : 0;
   }
 
   if (sc.type === 'daily') {
@@ -252,8 +253,9 @@ export function scheduledTimesForGoalOnDate(
   if (!sc || typeof sc !== 'object') return [];
 
   if (sc.type === 'once') {
-    const userAt = DateTime.fromJSDate(new Date(sc.at)).setZone(tz);
-    return [userAt.toFormat('HH:mm')];
+    const userAt = parseInstantInTimezone(sc.at, tz);
+    if (!userAt?.isValid) return [];
+    return [userAt.setZone(tz).toFormat('HH:mm')];
   }
 
   if (Array.isArray(sc.times) && sc.times.length > 0) {
