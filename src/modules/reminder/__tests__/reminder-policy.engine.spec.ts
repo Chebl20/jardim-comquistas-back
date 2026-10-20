@@ -397,3 +397,57 @@ describe('ReminderPolicyEngine', () => {
     expect(decision.kind).toBe(REMINDER_KINDS.OPERATIONAL);
   });
 });
+
+describe('ReminderPolicyEngine timezone (servidor UTC)', () => {
+  const engine = new ReminderPolicyEngine();
+  const TZ = 'America/Fortaleza';
+
+  const dailyAtNine = () =>
+    makeGoal({
+      goalKind: 'Continua',
+      timezone: TZ,
+      schedule: { type: 'daily', times: ['09:00'] },
+      createdAt: '2026-09-01T12:00:00.000Z',
+      reminder: {
+        dailyStatus: null,
+        lastSentAt: null,
+        slotsToday: [],
+        silenceUntil: null,
+        sentCount: 0,
+        updatedAt: null,
+      },
+    });
+
+  it('09:00 Fortaleza dispara às 12:00 UTC (independente do TZ do processo)', () => {
+    const goal = dailyAtNine();
+    const due = DateTime.fromISO('2026-09-02T12:00:00.000Z');
+    const decision = engine.evaluate({ goal, now: due, timezone: TZ });
+    expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.SEND_OPERATIONAL);
+
+    const early = DateTime.fromISO('2026-09-02T11:59:00.000Z');
+    const wait = engine.evaluate({ goal, now: early, timezone: TZ });
+    expect(wait.action).toBe(REMINDER_POLICY_ACTIONS.WAIT);
+  });
+
+  it('timezone UTC no registro do usuário usa Fortaleza via view (09:00 local)', () => {
+    const goal = makeGoal({
+      goalKind: 'Continua',
+      timezone: 'America/Fortaleza',
+      schedule: { type: 'daily', times: ['09:00'] },
+      createdAt: '2026-09-01T12:00:00.000Z',
+      user: {
+        id: 'user-1',
+        name: 'Gabriel',
+        telegramId: '123',
+        timezone: 'UTC',
+      },
+    });
+    const due = DateTime.fromISO('2026-09-02T12:00:00.000Z');
+    const decision = engine.evaluate({
+      goal,
+      now: due,
+      timezone: TZ,
+    });
+    expect(decision.action).toBe(REMINDER_POLICY_ACTIONS.SEND_OPERATIONAL);
+  });
+});

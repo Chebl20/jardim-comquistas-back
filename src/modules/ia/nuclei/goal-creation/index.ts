@@ -23,6 +23,7 @@ import {
   detectSuspiciousScheduleReduction,
   GoalPayloadGuardResult,
 } from './goal-creation.util';
+import { resolveUserTimezone } from '../../../shared/app-timezone';
 
 @Injectable()
 export class GoalCreationNucleus implements Nucleus<
@@ -39,9 +40,11 @@ export class GoalCreationNucleus implements Nucleus<
   private userTimezone(meta: Record<string, unknown>): string {
     for (const key of ['timezone', 'userTimezone'] as const) {
       const v = meta[key];
-      if (typeof v === 'string' && v.trim()) return v.trim();
+      if (typeof v === 'string' && v.trim()) {
+        return resolveUserTimezone(v.trim());
+      }
     }
-    return 'America/Sao_Paulo';
+    return resolveUserTimezone(null);
   }
 
   private makeConfirmation(payload: ValidatedGoalPayload): string {

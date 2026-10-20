@@ -7,7 +7,7 @@ import {
   type GardenAccentColor,
 } from '../shared/area-visual.util';
 
-const DEFAULT_TIMEZONE = 'America/Sao_Paulo';
+import { resolveUserTimezone } from '../shared/app-timezone';
 
 export type GoalReminderState = {
   dailyStatus: string | null;
@@ -144,7 +144,7 @@ export function toGoalReminderView(row: {
   const userTz = row.user?.timezone && String(row.user.timezone).trim();
   const scheduleTz =
     row.schedule?.timeZone && String(row.schedule.timeZone).trim();
-  const timezone = userTz || scheduleTz || DEFAULT_TIMEZONE;
+  const timezone = resolveUserTimezone(userTz || scheduleTz);
 
   const rem = row.reminder;
   const visual = visualForConquestType(row.conquestType);

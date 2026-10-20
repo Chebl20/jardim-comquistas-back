@@ -87,4 +87,22 @@ describe('toGoalReminderView', () => {
     });
     expect(view.timezone).toBe('America/Recife');
   });
+
+  it('UTC legado no user resolve para fuso da aplicação', () => {
+    const view = toGoalReminderView({
+      id: 'g1',
+      title: 'Água',
+      goalKind: 'Continua',
+      conquestType: 'Corpo',
+      completed: false,
+      createdAt: '2026-09-01T12:00:00.000Z',
+      user: {
+        id: 'u1',
+        name: 'Ana',
+        telegramId: null,
+        timezone: 'UTC',
+      },
+    });
+    expect(view.timezone).toBe('America/Fortaleza');
+  });
 });

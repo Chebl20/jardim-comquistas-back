@@ -18,6 +18,7 @@ import {
   type ClaimSnapshot,
   type ReminderClaimStore,
 } from './claim/claim.store';
+import { resolveUserTimezone } from '../shared/app-timezone';
 
 const GROUP_WINDOW_MINUTES = Number(
   process.env.REMINDER_GROUP_WINDOW_MINUTES || 60,
@@ -67,7 +68,7 @@ export class ReminderService {
     //   - Escalável: BullMQ — cron enfileira jobs, workers processam com retry nativo
     const goals =
       (await this.userGoalService.getActiveGoalsForReminders()) as ReminderGoalRecord[];
-    const now = DateTime.now().toUTC();
+    const now = DateTime.now();
 
     const byUser = new Map<string, ReminderGoalRecord[]>();
     for (const g of goals) {
@@ -77,7 +78,7 @@ export class ReminderService {
     }
 
     for (const [, userGoals] of byUser) {
-      const timezone = userGoals[0]?.timezone || 'America/Sao_Paulo';
+      const timezone = resolveUserTimezone(userGoals[0]?.timezone);
       const cancelledGoalIds = await getCancelledExceptionsForDate(
         userGoals.map((g) => g.id).filter((id): id is string => !!id),
         now,

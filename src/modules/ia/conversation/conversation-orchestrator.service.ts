@@ -12,6 +12,7 @@ import { FlowRoutingPolicyService } from './flow-routing-policy.service';
 import { NucleusMetaFactory } from './meta/nucleus-meta.factory';
 import { prisma } from '../../../prisma/client';
 import { FlowResult, FlowState, DECISIONS, FLOW_STATES } from './flow.types';
+import { resolveUserTimezone } from '../../shared/app-timezone';
 
 const DEFAULT_WORLD_ID = 'mundo1';
 
@@ -76,10 +77,10 @@ export class ConversationOrchestratorService {
       const user = await prisma.user.findUnique({ where: { id: userId } });
       return {
         worldId: user?.currentWorldId || DEFAULT_WORLD_ID,
-        timezone: user?.timezone || 'America/Sao_Paulo',
+        timezone: resolveUserTimezone(user?.timezone),
       };
     } catch {
-      return { worldId: DEFAULT_WORLD_ID, timezone: 'America/Sao_Paulo' };
+      return { worldId: DEFAULT_WORLD_ID, timezone: resolveUserTimezone(null) };
     }
   }
 

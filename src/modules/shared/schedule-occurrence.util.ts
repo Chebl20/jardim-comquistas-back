@@ -4,6 +4,7 @@ import {
   luxonWeekdayToJsDayOfWeek,
   normalizeDaysOfWeekJson,
 } from './weekday.util';
+import { parseInstantInTimezone } from './parse-instant-timezone.util';
 
 export type GoalLike = {
   id?: string;
@@ -83,7 +84,10 @@ function padHHmm(hh: number, mm: number): string | null {
 }
 
 /** Normaliza "8:00" / "08:00:00" / "10h" / "10h00" / ISO para "HH:mm". */
-export function normalizeTimeToHHmm(value: string): string | null {
+export function normalizeTimeToHHmm(
+  value: string,
+  timezone?: string,
+): string | null {
   const trimmed = String(value || '').trim();
   if (!trimmed) return null;
 
@@ -97,7 +101,11 @@ export function normalizeTimeToHHmm(value: string): string | null {
   if (h) return padHHmm(parseInt(h[1], 10), parseInt(h[2] || '0', 10));
 
   if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed) || trimmed.includes('T')) {
-    const iso = DateTime.fromISO(trimmed);
+    if (timezone) {
+      const dt = parseInstantInTimezone(trimmed, timezone);
+      if (dt?.isValid) return dt.setZone(timezone).toFormat('HH:mm');
+    }
+    const iso = DateTime.fromISO(trimmed, { setZone: true });
     if (iso.isValid) return iso.toFormat('HH:mm');
   }
 

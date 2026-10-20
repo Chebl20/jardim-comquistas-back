@@ -19,6 +19,7 @@ import { claimedTimesForCivilDate } from '../claim/claimed-slots.util';
 import { makeOccKey } from '../../shared/occurrence-key.util';
 import { getGroupLastOperationalAt } from '../grouping/reminder-group.util';
 import type { ReminderGroup } from '../grouping/reminder-group.util';
+import { parseInstantInTimezone } from '../../shared/parse-instant-timezone.util';
 
 @Injectable()
 export class ReminderPolicyEngine {
@@ -329,24 +330,7 @@ export class ReminderPolicyEngine {
     value: Date | string | null | undefined,
     timezone: string,
   ) {
-    if (!value) return null;
-    if (value instanceof Date) {
-      return DateTime.fromJSDate(value).setZone(timezone);
-    }
-    const str = String(value).trim();
-    const timeOnly = str.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-    if (timeOnly) {
-      const hh = parseInt(timeOnly[1], 10);
-      const mm = parseInt(timeOnly[2], 10);
-      const ss = parseInt(timeOnly[3] || '0', 10);
-      return DateTime.now()
-        .setZone(timezone)
-        .set({ hour: hh, minute: mm, second: ss, millisecond: 0 });
-    }
-    const iso = DateTime.fromISO(str, { zone: 'utc' });
-    if (iso.isValid) return iso.setZone(timezone);
-    const jsDate = new Date(str);
-    if (Number.isNaN(jsDate.getTime())) return null;
-    return DateTime.fromJSDate(jsDate).setZone(timezone);
+    const dt = parseInstantInTimezone(value, timezone);
+    return dt?.isValid ? dt : null;
   }
 }
