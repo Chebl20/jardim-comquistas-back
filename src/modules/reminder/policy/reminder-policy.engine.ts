@@ -141,6 +141,20 @@ export class ReminderPolicyEngine {
     if (sc.type === 'once') {
       const reminderAt = this.toDateTime(sc.at, timezone);
       if (!reminderAt) return this.wait('invalid_schedule');
+      const userNow = now.setZone(timezone);
+      const reminderDay = reminderAt.setZone(timezone).toISODate();
+      const today = userNow.toISODate();
+      if (reminderDay && today && today < reminderDay) {
+        return this.wait('not_due');
+      }
+      if (
+        reminderDay &&
+        today &&
+        today > reminderDay &&
+        !goal.reminder.lastSentAt
+      ) {
+        return this.wait('once_expired');
+      }
       const diffSec = now.toUTC().diff(reminderAt.toUTC(), 'seconds').seconds;
       const occs = occurrencesOnCivilDate(
         { createdAt: new Date(goal.createdAt as Date), schedule: sc },

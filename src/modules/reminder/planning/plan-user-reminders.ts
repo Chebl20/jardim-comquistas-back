@@ -10,6 +10,7 @@ import {
   filterGoalsForToday,
   type ReminderGroup,
 } from '../grouping/reminder-group.util';
+import { resolveUserTimezone } from '../../shared/app-timezone';
 
 export type PlannedSend = {
   goal: ReminderGoalRecord;
@@ -85,10 +86,11 @@ export function planUserReminders(
 
     if (groupKey && processedGroupKeys.has(groupKey)) continue;
 
+    const goalTimezone = resolveUserTimezone(goal.timezone ?? timezone);
     const decision = policyEngine.evaluate({
       goal,
       now,
-      timezone,
+      timezone: goalTimezone,
       group,
       cancelledGoalIds,
     });

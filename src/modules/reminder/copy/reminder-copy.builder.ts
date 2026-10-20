@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { ReminderNucleus } from '../../ia/nuclei/reminder';
 import { pickGoalEmoji } from '../../shared/goal-emoji.util';
@@ -21,6 +21,7 @@ export type ComposedReminder = {
 
 @Injectable()
 export class ReminderCopyBuilder {
+  private readonly logger = new Logger(ReminderCopyBuilder.name);
   private readonly reminderSessionTtlMinutes = Number(
     process.env.REMINDER_SESSION_TTL_MINUTES || 180,
   );
@@ -193,33 +194,39 @@ export class ReminderCopyBuilder {
     const totalCount = goalsWithStatus.length;
     const pendingCount = totalCount - doneCount;
 
-    const result = await this.reminderNucleus.analyze({
-      userId: goal.userId,
-      currentSession: FLOW_STATES.REMINDER,
-      text: '',
-      meta: {
-        userName: goal.user?.name,
-        goalId: goal.id,
-        goalTitle: goal.title,
-        goalDescription: goal.description || '',
-        goalType: goal.goalKind as 'Pontual' | 'Continua',
-        reminderTime:
-          goal.schedule?.type === 'once' ? goal.schedule.at : undefined,
-        reminderCount: goal.reminder.sentCount || 0,
-        reminderKind: kind,
-        inactivityDays,
-        lastProgressAt: latestProgress
-          ? new Date(latestProgress).toISOString()
-          : undefined,
-        goalCreatedAt: new Date(goal.createdAt).toISOString(),
-        pendingCount,
-        doneCount,
-        totalCount,
-      },
-    });
-
-    const fraseMotivadora =
-      (result.actions[0] as { text?: string } | undefined)?.text || goal.title;
+    let fraseMotivadora = goal.title;
+    try {
+      const result = await this.reminderNucleus.analyze({
+        userId: goal.userId,
+        currentSession: FLOW_STATES.REMINDER,
+        text: '',
+        meta: {
+          userName: goal.user?.name,
+          goalId: goal.id,
+          goalTitle: goal.title,
+          goalDescription: goal.description || '',
+          goalType: goal.goalKind as 'Pontual' | 'Continua',
+          reminderTime:
+            goal.schedule?.type === 'once' ? goal.schedule.at : undefined,
+          reminderCount: goal.reminder.sentCount || 0,
+          reminderKind: kind,
+          inactivityDays,
+          lastProgressAt: latestProgress
+            ? new Date(latestProgress).toISOString()
+            : undefined,
+          goalCreatedAt: new Date(goal.createdAt).toISOString(),
+          pendingCount,
+          doneCount,
+          totalCount,
+        },
+      });
+      fraseMotivadora =
+        (result.actions[0] as { text?: string } | undefined)?.text ||
+        goal.title;
+    } catch (e) {
+      this.logger.warn('Reminder copy LLM failed; using fallback phrase', e);
+      fraseMotivadora = 'Hora de cuidar de você!';
+    }
     const emoji = pickGoalEmoji(goal.conquestType, goal.title);
     const userName = goal.user?.name || '';
 

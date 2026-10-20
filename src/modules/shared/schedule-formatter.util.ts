@@ -3,6 +3,7 @@ import {
   isValidScheduleConfig,
   type ScheduleConfig,
 } from '../../domain/types/schedule-config.type';
+import { parseInstantInTimezone } from './parse-instant-timezone.util';
 
 /** 0=Dom … 6=Sáb — mesma convenção de weekday.util / GoalSchedule. */
 const TABLE_DAY_ORDER = [0, 1, 2, 3, 4, 5, 6] as const;
@@ -35,7 +36,10 @@ function formatDateForDisplay(
   }
 
   try {
-    const date = new Date(iso);
+    const parsed = parseInstantInTimezone(iso, timezone);
+    const date = parsed?.isValid
+      ? parsed.toJSDate()
+      : new Date(iso);
     if (Number.isNaN(date.getTime())) return iso;
     const formatter = new Intl.DateTimeFormat('pt-BR', {
       timeZone: timezone,

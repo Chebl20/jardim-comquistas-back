@@ -8,6 +8,8 @@ import {
 } from '../shared/area-visual.util';
 
 import { resolveUserTimezone } from '../shared/app-timezone';
+import { parseInstantInTimezone } from '../shared/parse-instant-timezone.util';
+import { DateTime } from 'luxon';
 
 export type GoalReminderState = {
   dailyStatus: string | null;
@@ -76,8 +78,18 @@ function scheduleFromPrismaRow(sc: PrismaScheduleRow): unknown {
   if (!sc) return null;
   const timesJson = timesFromPrisma(sc.times);
   if (sc.frequency === 'ONCE' && sc.at) {
+    const tz = resolveUserTimezone(sc.timeZone);
+    if (sc.at instanceof Date) {
+      const at =
+        DateTime.fromJSDate(sc.at, { zone: 'utc' }).toUTC().toISO() ??
+        sc.at.toISOString();
+      return { type: 'once', at };
+    }
+    const parsed = parseInstantInTimezone(String(sc.at), tz);
     const at =
-      sc.at instanceof Date ? sc.at.toISOString() : String(sc.at);
+      parsed?.isValid && parsed.toISO()
+        ? parsed.toISO()!
+        : String(sc.at);
     return { type: 'once', at };
   }
   if (sc.frequency === 'DAILY') {

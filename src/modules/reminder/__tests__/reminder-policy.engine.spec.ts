@@ -97,6 +97,24 @@ describe('ReminderPolicyEngine', () => {
     expect(decision.kind).toBe(REMINDER_KINDS.OPERATIONAL);
   });
 
+  it('once HH:MM aguarda até o horário no fuso do usuário (Fortaleza)', () => {
+    const tz = 'America/Fortaleza';
+    const goal = makeGoal({
+      timezone: tz,
+      schedule: { type: 'once', at: '16:47' },
+      createdAt: '2026-10-20T16:45:00.000-03:00',
+    });
+    const before = DateTime.fromISO('2026-10-20T16:46:00', { zone: tz });
+    const atDue = DateTime.fromISO('2026-10-20T16:47:00', { zone: tz });
+
+    expect(
+      engine.evaluate({ goal, now: before, timezone: tz }).action,
+    ).toBe(REMINDER_POLICY_ACTIONS.WAIT);
+    expect(
+      engine.evaluate({ goal, now: atDue, timezone: tz }).action,
+    ).toBe(REMINDER_POLICY_ACTIONS.SEND_OPERATIONAL);
+  });
+
   it('DONE de ontem não bloqueia lembrete no dia seguinte', async () => {
     const goal = makeGoal({
       goalKind: 'Continua',
