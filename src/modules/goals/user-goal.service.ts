@@ -25,8 +25,12 @@ export type { ResolvedScheduleFields } from '../shared/schedule-fields.util';
 export { resolveScheduleFields };
 import { getCancelledExceptionsForDate } from '../shared/cancelled-exceptions.query';
 import { parseGoalInstanceId } from './goal-instance-id';
+import {
+  getAppTimezone,
+  resolveUserTimezone,
+} from '../shared/app-timezone';
 
-const DEFAULT_USER_TIMEZONE = 'America/Sao_Paulo';
+const DEFAULT_USER_TIMEZONE = getAppTimezone();
 
 // ---------------------------------------------------------------------------
 // Tipos auxiliares
@@ -734,7 +738,7 @@ export class UserGoalService {
 
   async getIgnoredGoalsForToday(
     userId: string,
-    timezone = 'America/Sao_Paulo',
+    timezone = DEFAULT_USER_TIMEZONE,
     excludeGoalIds: string[] = [],
   ) {
     const todayGoals = await this.getGoalsForTodayForUser(userId, timezone);
@@ -779,7 +783,7 @@ export class UserGoalService {
 
   async getGoalsForTodayWithStatus(
     userId: string,
-    timezone = 'America/Sao_Paulo',
+    timezone = DEFAULT_USER_TIMEZONE,
   ) {
     const todayGoals = await this.getGoalsForTodayForUser(userId, timezone);
     const now = DateTime.now().setZone(timezone).toJSDate();
@@ -818,7 +822,7 @@ export class UserGoalService {
   async getGoalsForDateForUser(
     userId: string,
     targetDate: DateTime,
-    timezone = 'America/Sao_Paulo',
+    timezone = DEFAULT_USER_TIMEZONE,
     options?: { includeCompleted?: boolean },
   ) {
     const all = await this.getGoalsForUser(userId);
@@ -845,7 +849,7 @@ export class UserGoalService {
 
   async getGoalsForTodayForUser(
     userId: string,
-    timezone = 'America/Sao_Paulo',
+    timezone = DEFAULT_USER_TIMEZONE,
   ) {
     const now = DateTime.now().setZone(timezone);
     return this.getGoalsForDateForUser(userId, now, timezone, {
@@ -855,7 +859,7 @@ export class UserGoalService {
 
   async getGoalsForTomorrowForUser(
     userId: string,
-    timezone = 'America/Sao_Paulo',
+    timezone = DEFAULT_USER_TIMEZONE,
   ) {
     const now = DateTime.now().setZone(timezone);
     const tomorrow = now.plus({ days: 1 });
@@ -873,9 +877,9 @@ export class UserGoalService {
         where: { id: userId },
         select: { timezone: true },
       });
-      return user?.timezone || 'America/Sao_Paulo';
+      return resolveUserTimezone(user?.timezone);
     } catch {
-      return 'America/Sao_Paulo';
+      return DEFAULT_USER_TIMEZONE;
     }
   }
 

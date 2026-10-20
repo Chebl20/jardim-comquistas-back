@@ -16,7 +16,7 @@ model User {
   telegramId         String?  @unique // id do usuário no Telegram
   whatsappId         String?  @unique // telefone DDI sem +, ex: 5511999999999
   preferredChannel   String? // 'TELEGRAM' | 'WHATSAPP'
-  timezone           String   @default("UTC") // IANA timezone, ex: 'America/Sao_Paulo'
+  timezone           String   @default("America/Fortaleza") // IANA timezone
   currentWorldId String? // mundo atual do usuário
   digestEnabled  Boolean  @default(false) // mensagem diária ativa
   digestTime     String? // "HH:MM" horário do resumo diário (timezone do usuário)

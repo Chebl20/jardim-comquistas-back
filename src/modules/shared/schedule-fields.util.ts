@@ -12,8 +12,8 @@ import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
 import { normalizeGoalType } from '../ia/goal-type.util';
 import { coerceScheduleConfig } from './schedule-occurrence.util';
 import { normalizeDaysOfWeekJson } from './weekday.util';
-
-const DEFAULT_USER_TIMEZONE = 'America/Sao_Paulo';
+import { resolveUserTimezone } from './app-timezone';
+import { parseInstantInTimezone } from './parse-instant-timezone.util';
 
 export type ResolvedScheduleFields = {
   scheduleFrequency: string | null;
@@ -33,7 +33,7 @@ export function resolveScheduleFields(params: {
 }): ResolvedScheduleFields {
   const { reminderTime, goalType, userTimezone } = params;
   const normalizedGoalType = normalizeGoalType(goalType) ?? 'Pontual';
-  const zone = userTimezone || DEFAULT_USER_TIMEZONE;
+  const zone = resolveUserTimezone(userTimezone);
   const nowLocal = DateTime.now().setZone(zone);
   const sc = coerceScheduleConfig(params.scheduleConfig, {
     reminderTime,
@@ -73,13 +73,11 @@ export function resolveScheduleFields(params: {
           true,
         );
       } else {
-        let dt = DateTime.fromISO(atStr, { zone });
-        if (!dt.isValid) dt = DateTime.fromISO(atStr, { zone: 'utc' });
-        if (dt.isValid) {
-          if (dt <= nowLocal) dt = dt.plus({ days: 1 });
-          scheduleAt = dt.toUTC().toJSDate();
-        } else {
-          scheduleAt = new Date(atStr);
+        const dt = parseInstantInTimezone(atStr, zone);
+        if (dt?.isValid) {
+          let at = dt;
+          if (at <= nowLocal) at = at.plus({ days: 1 });
+          scheduleAt = at.toUTC().toJSDate();
         }
       }
     } else if (
@@ -134,12 +132,12 @@ export function resolveScheduleFields(params: {
               `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
             ];
         } else {
-          let dt = DateTime.fromISO(s, { zone });
-          if (!dt.isValid) dt = DateTime.fromISO(s, { zone: 'utc' });
-          if (dt.isValid) {
+          const dt = parseInstantInTimezone(s, zone);
+          if (dt?.isValid) {
             if (scheduleFrequency === 'ONCE') {
-              if (dt <= nowLocal) dt = dt.plus({ days: 1 });
-              scheduleAt = dt.toUTC().toJSDate();
+              let at = dt;
+              if (at <= nowLocal) at = at.plus({ days: 1 });
+              scheduleAt = at.toUTC().toJSDate();
             } else {
               scheduleTimes = [
                 `${String(dt.setZone(zone).hour).padStart(2, '0')}:${String(dt.setZone(zone).minute).padStart(2, '0')}`,
@@ -148,15 +146,17 @@ export function resolveScheduleFields(params: {
           }
         }
       } else if (reminderTime instanceof Date) {
-        const dt = DateTime.fromJSDate(reminderTime).setZone(zone);
-        if (scheduleFrequency === 'ONCE') {
-          let at = dt;
-          if (at <= nowLocal) at = at.plus({ days: 1 });
-          scheduleAt = at.toUTC().toJSDate();
-        } else {
-          scheduleTimes = [
-            `${String(dt.hour).padStart(2, '0')}:${String(dt.minute).padStart(2, '0')}`,
-          ];
+        const dt = parseInstantInTimezone(reminderTime, zone);
+        if (dt?.isValid) {
+          if (scheduleFrequency === 'ONCE') {
+            let at = dt;
+            if (at <= nowLocal) at = at.plus({ days: 1 });
+            scheduleAt = at.toUTC().toJSDate();
+          } else {
+            scheduleTimes = [
+              `${String(dt.setZone(zone).hour).padStart(2, '0')}:${String(dt.setZone(zone).minute).padStart(2, '0')}`,
+            ];
+          }
         }
       }
     } catch {

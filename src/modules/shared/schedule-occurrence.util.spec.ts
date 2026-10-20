@@ -139,6 +139,12 @@ describe('normalizeTimeToHHmm', () => {
   it('retorna null para valor inválido', () => {
     expect(normalizeTimeToHHmm('invalid')).toBeNull();
   });
+
+  it('ISO sem offset usa timezone do usuário para HH:mm', () => {
+    expect(
+      normalizeTimeToHHmm('2026-09-02T09:00:00', 'America/Fortaleza'),
+    ).toBe('09:00');
+  });
 });
 
 describe('coerceScheduleConfig', () => {
