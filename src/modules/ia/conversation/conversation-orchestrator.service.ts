@@ -13,6 +13,7 @@ import { NucleusMetaFactory } from './meta/nucleus-meta.factory';
 import { prisma } from '../../../prisma/client';
 import { FlowResult, FlowState, DECISIONS, FLOW_STATES } from './flow.types';
 import { resolveUserTimezone } from '../../shared/app-timezone';
+import { looksLikeNewReminderOrGoalRequest } from '../../shared/new-reminder-intent.util';
 
 const DEFAULT_WORLD_ID = 'mundo1';
 
@@ -193,26 +194,39 @@ export class ConversationOrchestratorService {
 
       // 6. NOT_MY_JOB → consultar router (rejectedBy: núcleo que recusou — Router não deve retorná-lo)
       const previousState = currentState;
-      const routerInput: NucleusInput = {
-        userId,
-        currentSession: currentState,
-        text: incomingText,
-        meta: {
-          ...sessionPayload,
-          worldId,
-          ...(firstResult.extracted?.payload || {}),
-          rejectedBy: previousState,
-        },
-      };
-      const routerRes = await this.router.analyze(routerInput);
-      this.logger.debug(
-        `Router: target=${String(routerRes.target)} confidence=${routerRes.confidence}`,
-      );
+      let routerTarget: FlowState | null = null;
+      let routerConfidence = 0;
+
+      if (looksLikeNewReminderOrGoalRequest(incomingText)) {
+        routerTarget = FLOW_STATES.GOAL_CREATION;
+        routerConfidence = 0.95;
+        this.logger.debug(
+          'Orchestrator: novo lembrete detectado — roteando para GOAL_CREATION',
+        );
+      } else {
+        const routerInput: NucleusInput = {
+          userId,
+          currentSession: currentState,
+          text: incomingText,
+          meta: {
+            ...sessionPayload,
+            worldId,
+            ...(firstResult.extracted?.payload || {}),
+            rejectedBy: previousState,
+          },
+        };
+        const routerRes = await this.router.analyze(routerInput);
+        routerTarget = routerRes.target;
+        routerConfidence = routerRes.confidence;
+        this.logger.debug(
+          `Router: target=${String(routerRes.target)} confidence=${routerRes.confidence}`,
+        );
+      }
 
       const routingDecision = this.routingPolicy.resolve({
         currentState,
-        routerTarget: routerRes.target,
-        routerConfidence: routerRes.confidence,
+        routerTarget,
+        routerConfidence,
         availableFlows: this.flows,
       });
       currentState = routingDecision.nextState;

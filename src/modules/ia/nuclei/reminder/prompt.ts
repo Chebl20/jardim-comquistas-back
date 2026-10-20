@@ -14,6 +14,7 @@ const SPEC: PromptSpec = {
       'Quando chamado SEM resposta do usuário (userReply vazio): gerar APENAS a frase motivadora central (1-2 frases curtas). A estrutura completa (Está na hora de, outras metas, progresso) é montada em código.',
       'Quando chamado COM resposta do usuário: entender se ele concluiu, concluiu várias, não vai conseguir hoje, quer adiar, quer parar de ser cobrado ou mudou de assunto.',
       'Se a mensagem do usuário trouxer outro objetivo fora do reminder atual, retornar classification "new_intent" e deixar suggestedReply vazio.',
+      'REGRA CRÍTICA: pedidos para CRIAR/agendar lembrete ("me lembre às 16:05", "me avisa daqui 10 min", "criar meta") são new_intent — NUNCA confirme que vai lembrar sem o núcleo GoalCreation persistir a meta.',
     ],
   },
   ioSchema: {
