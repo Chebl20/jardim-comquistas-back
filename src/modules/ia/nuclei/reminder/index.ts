@@ -20,6 +20,7 @@ import {
 } from '../../../reminder/reminder.types';
 import { ReminderObservabilityService } from '../../../reminder/observability/reminder-observability.service';
 import { UserGoalService } from '../../../goals/user-goal.service';
+import { looksLikeNewReminderOrGoalRequest } from '../../../shared/new-reminder-intent.util';
 
 @Injectable()
 export class ReminderNucleus implements Nucleus<Action> {
@@ -42,6 +43,17 @@ export class ReminderNucleus implements Nucleus<Action> {
   ): Promise<FlowResult<Action>> {
     const text = (input.text || '').trim();
     let meta = this.normalizeMeta((input.meta as ReminderMeta) || {}, text);
+
+    if (text && looksLikeNewReminderOrGoalRequest(text)) {
+      this.logger.debug(
+        'ReminderNucleus: pedido de novo agendamento — NOT_MY_JOB para GOAL_CREATION',
+      );
+      return {
+        actions: [],
+        decision: DECISIONS.NOT_MY_JOB,
+        confidence: 0.95,
+      };
+    }
 
     // 🔴 IMPORTANTE: Garantir que temos timezone (para carregar otherGoals)
     // Se vem de CLARIFICATION, timezone pode ser undefined
