@@ -22,6 +22,24 @@ describe('toGoalReminderView', () => {
     expect(view.accentColor).toBe('garden-green');
   });
 
+  it('devolve o ícone e a cor gravados, sem recalcular pelo tipo', () => {
+    expect(
+      toGoalReminderView({
+        id: 'g4',
+        title: 'Leitura',
+        goalKind: 'Continua',
+        conquestType: 'Mente',
+        icon: 'palette',
+        accentColor: 'accent-autumn',
+        completed: false,
+        createdAt: '2026-09-01T12:00:00.000Z',
+      }),
+    ).toMatchObject({
+      icon: 'palette',
+      accentColor: 'accent-autumn',
+    });
+  });
+
   it('Familia e Hobby_Lazer recebem o mesmo token do day', () => {
     expect(
       toGoalReminderView({

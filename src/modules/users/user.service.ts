@@ -80,6 +80,17 @@ export class UserService {
     });
   }
 
+  async updateName(userId: string, rawName: unknown) {
+    const name = typeof rawName === 'string' ? rawName.trim() : '';
+    if (!name) {
+      throw new BadRequestException('O nome não pode ficar vazio.');
+    }
+    return prisma.user.update({
+      where: { id: userId },
+      data: { name },
+    });
+  }
+
   async deleteUser(userId: string) {
     return prisma.user.delete({ where: { id: userId } });
   }

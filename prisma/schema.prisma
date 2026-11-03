@@ -25,6 +25,21 @@ model User {
 
   goals                Goal[]
   conversationSessions ConversationSession[]
+  dailyNotes           DailyNote[]
+}
+
+model DailyNote {
+  id         String   @id @default(uuid())
+  userId     String
+  civilDate  String
+  reflection String
+  care       String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, civilDate])
+  @@index([userId, civilDate])
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +51,8 @@ model Goal {
   title         String
   description   String?
   conquestType  String // 'Corpo', 'Mente', 'Família', 'Trabalho', etc.
+  icon          String   @default("eco")
+  accentColor   String   @default("garden-green")
   goalKind      String // 'PONTUAL' | 'CONTINUA'
   status        String   @default("ACTIVE") // 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'COMPLETED'
   plantedTreeId String?  @unique // FK opcional para PlantedTree (1:1)

@@ -187,16 +187,13 @@ export class GoalCreationNucleus implements Nucleus<
 
         const userId = String(input.userId || '');
 
-        if (userId && (!finalPayload.title || !finalPayload.description)) {
+        if (userId && !finalPayload.title) {
           try {
             const md = await this.comm.generateProgressMetadata(userId, {
-              goalTitle: String(finalPayload.title || text || ''),
+              goalTitle: String(text || ''),
             });
 
             if (!finalPayload.title) finalPayload.title = md.title;
-
-            if (!finalPayload.description)
-              finalPayload.description = md.description;
           } catch (e) {
             this.logger.warn('metadata generation failed', e);
           }

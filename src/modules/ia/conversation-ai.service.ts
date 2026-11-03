@@ -144,6 +144,42 @@ Payload atual: ${JSON.stringify(payload || {})}`;
           : undefined,
     };
   }
+
+  /** JSON livre, sem classification/confidence. O prompt do chamador define o formato. */
+  async completeJson(input: {
+    system: string;
+    user: string;
+    temperature?: number;
+  }): Promise<unknown> {
+    const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
+    const messages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: input.system },
+      { role: 'user', content: input.user },
+    ];
+
+    this.logger.debug(`ConversationAIService.completeJson: model=${model}`);
+    const start = Date.now();
+    const completion = await this.client.chat.completions.create({
+      model,
+      temperature: input.temperature ?? 0.4,
+      response_format: { type: 'json_object' },
+      messages,
+    });
+    this.callCount += 1;
+    this.logger.log(
+      `LLM call #${this.callCount} took ${Date.now() - start}ms`,
+    );
+
+    const raw = completion.choices?.[0]?.message?.content;
+    if (!raw) {
+      throw new LLMFormatError('Empty response from LLM');
+    }
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new LLMFormatError('Invalid JSON returned by LLM');
+    }
+  }
 }
 
 export default ConversationAIService;

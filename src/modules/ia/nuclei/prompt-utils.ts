@@ -65,6 +65,11 @@ export function makePrompt(spec: PromptSpec): PromptBuilder {
   return (state: string, payload: any) => withContext(base, state, payload);
 }
 
+/** Só as seções do spec, sem estado de conversa nem classification. */
+export function makeStandalonePrompt(spec: PromptSpec): string {
+  return buildPrompt(spec);
+}
+
 // Utilitário padrão: mapeia classification retornada pelo LLM para a Decision
 // de domínio. Garante que todos os núcleos sigam o mesmo contrato.
 export function decisionFromClassification(classification: string): Decision {

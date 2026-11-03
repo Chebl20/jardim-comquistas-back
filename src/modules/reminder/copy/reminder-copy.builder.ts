@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { ReminderNucleus } from '../../ia/nuclei/reminder';
-import { pickGoalEmoji } from '../../shared/goal-emoji.util';
+import { emojiForIcon } from '../../shared/area-visual.util';
 import { ConversationSessionService } from '../../shared/conversation-session.service';
 import { FLOW_STATES } from '../../ia/conversation/flow.types';
 import { UserGoalService } from '../../goals/user-goal.service';
@@ -227,7 +227,7 @@ export class ReminderCopyBuilder {
       this.logger.warn('Reminder copy LLM failed; using fallback phrase', e);
       fraseMotivadora = 'Hora de cuidar de você!';
     }
-    const emoji = pickGoalEmoji(goal.conquestType, goal.title);
+    const emoji = emojiForIcon(goal.icon);
     const userName = goal.user?.name || '';
 
     const ignoredGoals = await this.userGoalService.getIgnoredGoalsForToday(

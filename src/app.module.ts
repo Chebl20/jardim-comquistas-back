@@ -23,6 +23,7 @@ import { AreasModule } from './modules/areas/areas.module';
 import { EventsModule } from './modules/events/events.module';
 import { StorageModule } from './storage/storage.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { DailyNoteModule } from './modules/daily-note/daily-note.module';
 import { envValidationSchema } from './config/env.validation';
 
 @Module({
@@ -48,6 +49,7 @@ import { envValidationSchema } from './config/env.validation';
     ProgressModule,
     AreasModule,
     EventsModule,
+    DailyNoteModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -21,6 +21,7 @@ import {
 import { UserGoalService } from './user-goal.service';
 import { AuthGuard } from '../../auth/auth.guard';
 import { DateTime } from 'luxon';
+import { listGoalVisuals } from '../shared/area-visual.util';
 
 @ApiTags('Metas')
 @Controller('api/goals')
@@ -38,6 +39,15 @@ export class UserGoalController {
   @ApiResponse({ status: 200, description: 'Lista de metas' })
   async getGoals(@Req() req: any) {
     return this.userGoalService.getGoalsForUser(req.user.userId);
+  }
+
+  @Get('visuals')
+  @ApiOperation({
+    summary: 'Ícones e cores que uma meta pode usar',
+  })
+  @ApiResponse({ status: 200, description: 'Catálogo visual' })
+  getGoalVisuals() {
+    return listGoalVisuals();
   }
 
   @Get(':id')
@@ -72,7 +82,16 @@ export class UserGoalController {
   @Patch(':id')
   @ApiOperation({ summary: 'Atualizar meta' })
   @ApiBody({
-    schema: { type: 'object', properties: { title: { type: 'string' } } },
+    schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        description: { type: 'string' },
+        icon: { type: 'string', example: 'psychology' },
+        accentColor: { type: 'string', example: 'accent-sky' },
+        scheduleConfig: { type: 'object' },
+      },
+    },
   })
   @ApiResponse({ status: 200, description: 'Meta atualizada' })
   async updateGoal(
