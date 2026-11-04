@@ -49,7 +49,7 @@ Copie as variáveis para um `.env` na raiz (não commitar). O boot valida o sche
 | `EVOLUTION_BASE_URL`, `EVOLUTION_API_KEY` | Cliente Evolution |
 | `EVOLUTION_WEBHOOK_PATH` | Default `/api/evolution/webhook` |
 | `PUBLIC_BASE_URL` | URL pública (webhook / proxy de assets) |
-| `CORS_ALLOWED_ORIGINS` | Origens do front (vírgula); omitir = reflect origin |
+| `CORS_ALLOWED_ORIGINS` | Vírgula-separado: URL(s) do front; `*` ou omitir = qualquer origem (reflect) |
 | `PORT` | Porta HTTP (Coolify define automaticamente) |
 | `WHATSAPP_NUMBER` | Número da instância |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Garage / S3 |

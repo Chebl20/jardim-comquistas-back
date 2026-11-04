@@ -5,6 +5,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { resolveCorsOrigin } from './config/cors.util';
 import { AppLogger } from './logging/app-logger';
 
 // Polyfill para crypto global em Node.js
@@ -20,12 +21,8 @@ async function bootstrap() {
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
 
-  const corsOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
   app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : true,
+    origin: resolveCorsOrigin(process.env.CORS_ALLOWED_ORIGINS),
     credentials: false,
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
