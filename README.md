@@ -69,7 +69,6 @@ npm run build && npm run start:prod   # dist/src/main.js
 
 ```bash
 npm run test
-npm run test:e2e
 npm run test:cov
 npm run typecheck
 ```

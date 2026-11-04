@@ -22,7 +22,6 @@ import { ProgressModule } from './modules/progress/progress.module';
 import { AreasModule } from './modules/areas/areas.module';
 import { EventsModule } from './modules/events/events.module';
 import { StorageModule } from './storage/storage.module';
-import { PrismaModule } from './prisma/prisma.module';
 import { DailyNoteModule } from './modules/daily-note/daily-note.module';
 import { envValidationSchema } from './config/env.validation';
 
@@ -32,7 +31,6 @@ import { envValidationSchema } from './config/env.validation';
       isGlobal: true,
       validationSchema: envValidationSchema.prefs({ abortEarly: false }),
     }),
-    PrismaModule,
     StorageModule,
     ScheduleModule.forRoot(),
     TelegramModule,
