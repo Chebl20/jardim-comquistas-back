@@ -41,7 +41,7 @@ export const envValidationSchema = Joi.object({
   // URLs públicas
   PUBLIC_BASE_URL: Joi.string().uri().optional(),
 
-  // CORS — origens do frontend (vírgula-separado); omitir = reflect origin (dev-friendly)
+  // CORS — vírgula-separado; omitir, vazio ou * = qualquer origem; senão lista de URLs
   CORS_ALLOWED_ORIGINS: Joi.string().optional(),
 
   // Coolify / Docker injetam PORT; local default 3000 em main.ts
