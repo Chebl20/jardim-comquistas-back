@@ -2,7 +2,7 @@
 
 API NestJS do Jardim das Conquistas: metas com agenda, jardim virtual (SVG/árvores), conversa por Telegram e WhatsApp, resumo diário e lembretes no cron.
 
-Sobe na porta **3000**. CORS está ligado. Documentação interativa: **[http://localhost:3000/api/docs](http://localhost:3000/api/docs)** (Swagger).
+Sobe na porta **`PORT`** (Coolify/Docker) ou **3000** local. CORS configurável via `CORS_ALLOWED_ORIGINS`. Documentação interativa: **[http://localhost:3000/api/docs](http://localhost:3000/api/docs)** (Swagger).
 
 ## O que o sistema faz
 
@@ -49,6 +49,8 @@ Copie as variáveis para um `.env` na raiz (não commitar). O boot valida o sche
 | `EVOLUTION_BASE_URL`, `EVOLUTION_API_KEY` | Cliente Evolution |
 | `EVOLUTION_WEBHOOK_PATH` | Default `/api/evolution/webhook` |
 | `PUBLIC_BASE_URL` | URL pública (webhook / proxy de assets) |
+| `CORS_ALLOWED_ORIGINS` | Origens do front (vírgula); omitir = reflect origin |
+| `PORT` | Porta HTTP (Coolify define automaticamente) |
 | `WHATSAPP_NUMBER` | Número da instância |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Garage / S3 |
 | `REDIS_URL` | Redis |
@@ -64,6 +66,24 @@ npm run start          # uma vez
 npm run start:dev      # watch
 npm run build && npm run start:prod   # dist/src/main.js
 ```
+
+## Deploy (Coolify)
+
+**Build command:**
+
+```bash
+npm ci
+npx prisma generate
+npm run build
+```
+
+**Start command:** `npm run start:prod`
+
+Após release com migrations novas: `npx prisma migrate deploy` (one-off ou step de release).
+
+Confirme no painel: `DATABASE_URL`, `JWT_SECRET` (≥ 16), `OPENAI_API_KEY` e `CORS_ALLOWED_ORIGINS` com a URL do frontend.
+
+Health check: `GET /health` → `{ "status": "ok", ... }`.
 
 ## Testes
 
