@@ -28,6 +28,8 @@ npx prisma generate
 npx prisma migrate deploy   # local: npx prisma migrate dev
 ```
 
+Migrations recentes da PR de recados/visual de meta (aplicar antes do deploy do código novo): `20261103160000_daily_note`, `20261103180000_goal_icon_accent`.
+
 Copie as variáveis para um `.env` na raiz (não commitar). O boot valida o schema em `src/config/env.validation.ts` e falha se o obrigatório faltar.
 
 **Obrigatórias**
@@ -79,9 +81,9 @@ Bearer JWT na maioria das rotas autenticadas. Lista completa e DTOs: `/api/docs`
 | Área | Rotas |
 | --- | --- |
 | Health | `GET /health` |
-| Usuários | `POST /api/users`, `POST /api/users/login`, `GET /api/users/me`, `PATCH /api/users/me/current-world`, `GET /api/users/:id/telegram-linked`, `GET /api/users/:id/channels-linked` |
+| Usuários | `POST /api/users`, `POST /api/users/login`, `GET /api/users/me`, `PATCH /api/users/me` (nome), `PATCH /api/users/me/current-world`, `GET /api/users/me/daily-note`, `GET /api/users/me/reminders`, `GET /api/users/:id/telegram-linked`, `GET /api/users/:id/channels-linked` |
 | Vínculo | `POST /api/users/link/generate`, `POST /api/users/link/telegram`, `POST /api/users/link/whatsapp`, `GET /api/users/link/bot-info` |
-| Metas | `GET/POST /api/goals`, `GET/PATCH/DELETE /api/goals/:id` |
+| Metas | `GET/POST /api/goals`, `GET /api/goals/visuals`, `GET/PATCH/DELETE /api/goals/:id` (`PATCH` aceita `icon`, `accentColor`, `scheduleConfig`) |
 | Instâncias | `GET /api/goal-instances`, `POST /api/goal-instances/:id/complete` |
 | Dashboard | `GET /api/dashboard?period=day\|week\|month&date=...` |
 | Progresso | `GET /api/progress/week`, `/month`, `/streaks` |
