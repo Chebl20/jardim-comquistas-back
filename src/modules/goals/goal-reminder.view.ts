@@ -3,7 +3,7 @@ import { isValidScheduleConfig } from '../../domain/types/schedule-config.type';
 import { coerceScheduleConfig } from '../shared/schedule-occurrence.util';
 import { normalizeDaysOfWeekJson } from '../shared/weekday.util';
 import {
-  visualForConquestType,
+  resolveStoredGoalVisual,
   type GardenAccentColor,
 } from '../shared/area-visual.util';
 
@@ -31,6 +31,7 @@ export type GoalReminderView = {
   accentColor: GardenAccentColor;
   completed: boolean;
   createdAt: Date | string;
+  completedAt: Date | string | null;
   timezone: string;
   schedule: ScheduleConfig | null;
   reminder: GoalReminderState;
@@ -132,8 +133,11 @@ export function toGoalReminderView(row: {
   description?: string | null;
   goalKind: string;
   conquestType: string;
+  icon?: string | null;
+  accentColor?: string | null;
   completed: boolean;
   createdAt: Date | string;
+  updatedAt?: Date | string | null;
   schedule?: PrismaScheduleRow;
   reminder?: {
     dailyStatus?: string | null;
@@ -159,7 +163,7 @@ export function toGoalReminderView(row: {
   const timezone = resolveUserTimezone(userTz || scheduleTz);
 
   const rem = row.reminder;
-  const visual = visualForConquestType(row.conquestType);
+  const visual = resolveStoredGoalVisual(row);
   return {
     id: row.id,
     userId: row.userId ?? row.user?.id ?? '',
@@ -171,6 +175,7 @@ export function toGoalReminderView(row: {
     accentColor: visual.accentColor,
     completed: row.completed,
     createdAt: row.createdAt,
+    completedAt: row.completed ? row.updatedAt ?? null : null,
     timezone,
     schedule,
     reminder: {

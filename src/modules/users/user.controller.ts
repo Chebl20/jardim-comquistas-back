@@ -216,4 +216,29 @@ export class UserController {
     const { password, ...userWithoutPassword } = user;
     return userWithoutPassword;
   }
+
+  @Patch('me')
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Atualizar nome',
+    description:
+      'Altera o nome do usuário autenticado. Nome vazio ou só espaço é recusado.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name'],
+      properties: { name: { type: 'string' } },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Perfil atualizado. Mesmo corpo de GET /api/users/me.',
+  })
+  @ApiResponse({ status: 400, description: 'Nome vazio ou só espaço.' })
+  async updateMe(@Body() body: { name?: string }, @Req() req: any) {
+    await this.userService.updateName(req.user.userId, body?.name);
+    return this.getMe(req);
+  }
 }

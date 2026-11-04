@@ -16,7 +16,15 @@ import type {
 } from '../ia/conversation/flow.types';
 import { filterGoalsOnCivilDate } from '../shared/schedule-occurrence.util';
 import { toGoalReminderView } from './goal-reminder.view';
-import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
+import {
+  isGardenAccentColor,
+  isSelectableGoalIcon,
+  visualForConquestType,
+} from '../shared/area-visual.util';
+import {
+  isValidScheduleConfig,
+  type ScheduleConfig,
+} from '../../domain/types/schedule-config.type';
 import {
   resolveScheduleFields,
   type ResolvedScheduleFields,
@@ -69,6 +77,15 @@ export interface GoalScheduleRecord {
   dtStart?: Date | null;
   dtEnd?: Date | null;
   extra?: unknown;
+}
+
+export interface ReceivedReminder {
+  id: string;
+  title: string;
+  status: string | null;
+  sentAt: string;
+  icon: string;
+  accentColor: string;
 }
 
 export interface GoalReminderRecord {
@@ -155,6 +172,7 @@ export class UserGoalService {
         `conquestType inválido: '${data.conquestType}'. Opções válidas: ${CONQUEST_TYPES.join(', ')}`,
       );
     }
+    const visual = visualForConquestType(normalizedConquest);
 
     // 1b. Mapear conquestType → family da árvore
     const conquest = String(normalizedConquest).toLowerCase();
@@ -319,17 +337,15 @@ export class UserGoalService {
       );
     }
 
-    // 3c. Título/descrição (gera via IA se vazio)
+    // 3c. Título (gera via IA se vazio). A descrição da meta nasce vazia.
     let title = data.title || '';
-    let description = data.description || '';
-    if ((!title || !description) && data.userId) {
+    if (!title && data.userId) {
       try {
         const md = await this.communicationService.generateProgressMetadata(
           data.userId,
           { goalTitle: title },
         );
-        title = title || md.title;
-        description = description || md.description;
+        title = md.title || title;
       } catch {
         /* ignore */
       }
@@ -352,7 +368,7 @@ export class UserGoalService {
           stage: 1,
           progressIndex: 1,
           title,
-          description,
+          description: title,
         },
       });
 
@@ -360,8 +376,10 @@ export class UserGoalService {
         data: {
           userId: data.userId,
           title,
-          description,
+          description: null,
           conquestType: normalizedConquest,
+          icon: visual.icon,
+          accentColor: visual.accentColor,
           goalKind: normalizedGoalType,
           plantedTreeId: planted.id,
         },
@@ -663,7 +681,45 @@ export class UserGoalService {
   }
 
   async getGoalForUser(goalId: string, userId: string) {
-    return prisma.goal.findFirst({ where: { id: goalId, userId } });
+    const row = await prisma.goal.findFirst({
+      where: { id: goalId, userId },
+      select: {
+        id: true,
+        userId: true,
+        title: true,
+        description: true,
+        goalKind: true,
+        conquestType: true,
+        icon: true,
+        accentColor: true,
+        completed: true,
+        createdAt: true,
+        updatedAt: true,
+        schedule: true,
+        reminder: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            telegramId: true,
+            whatsappId: true,
+            preferredChannel: true,
+            timezone: true,
+          },
+        },
+        plantedTree: {
+          select: {
+            growthEvents: {
+              select: { createdAt: true, progressIndex: true },
+              orderBy: { createdAt: 'desc' },
+              take: 30,
+            },
+          },
+        },
+      },
+    });
+    if (!row) return null;
+    return toGoalReminderView(row);
   }
 
   async updateGoalForUser(
@@ -672,15 +728,57 @@ export class UserGoalService {
     data: Record<string, unknown>,
   ) {
     await this.requireGoalOwnedByUser(goalId, userId);
-    const allowed: Record<string, unknown> = {};
-    if (typeof data.title === 'string') allowed.title = data.title;
-    if (typeof data.description === 'string')
-      allowed.description = data.description;
-    await prisma.goal.updateMany({
-      where: { id: goalId, userId },
-      data: allowed,
-    });
-    return prisma.goal.findFirst({ where: { id: goalId, userId } });
+    const allowed: Prisma.GoalUpdateManyMutationInput = {};
+
+    if (typeof data.title === 'string') {
+      const title = data.title.trim();
+      if (!title) throw new BadRequestException('O nome da meta é obrigatório');
+      allowed.title = title;
+    }
+    if (typeof data.description === 'string') {
+      const description = data.description.trim();
+      allowed.description = description || null;
+    }
+    if (data.icon !== undefined) {
+      const icon = String(data.icon).trim();
+      if (!isSelectableGoalIcon(icon)) {
+        throw new BadRequestException(`Ícone inválido: '${icon}'`);
+      }
+      allowed.icon = icon;
+    }
+    if (data.accentColor !== undefined) {
+      const accentColor = String(data.accentColor).trim();
+      if (!isGardenAccentColor(accentColor)) {
+        throw new BadRequestException(`Cor inválida: '${accentColor}'`);
+      }
+      allowed.accentColor = accentColor;
+    }
+    if (data.scheduleConfig !== undefined) {
+      if (!isValidScheduleConfig(data.scheduleConfig)) {
+        throw new BadRequestException('Agenda inválida');
+      }
+      const goalKind =
+        data.scheduleConfig.type === 'once' ? 'Pontual' : 'Continua';
+      allowed.goalKind = goalKind;
+      const timezone = await this.getUserTimezone(userId);
+      const fields = resolveScheduleFields({
+        scheduleConfig: data.scheduleConfig,
+        goalType: goalKind,
+        userTimezone: timezone,
+      });
+      if (!fields.scheduleFrequency) {
+        throw new BadRequestException('Agenda inválida');
+      }
+      await this.applyScheduleFieldsToGoal(goalId, userId, fields, timezone);
+    }
+
+    if (Object.keys(allowed).length > 0) {
+      await prisma.goal.updateMany({
+        where: { id: goalId, userId },
+        data: allowed,
+      });
+    }
+    return this.getGoalForUser(goalId, userId);
   }
 
   async deleteGoalForUser(goalId: string, userId: string) {
@@ -775,16 +873,16 @@ export class UserGoalService {
           times:
             fields.scheduleTimes != null
               ? (fields.scheduleTimes as Prisma.InputJsonValue)
-              : undefined,
+              : Prisma.DbNull,
           daysOfWeek:
             fields.scheduleDaysOfWeek != null
               ? (fields.scheduleDaysOfWeek as Prisma.InputJsonValue)
-              : undefined,
+              : Prisma.DbNull,
           durationDays: fields.scheduleDurationDays,
           timeZone: userTimezone,
           extra: fields.scheduleExtra
             ? (fields.scheduleExtra as Prisma.InputJsonValue)
-            : undefined,
+            : Prisma.DbNull,
         },
       });
 
@@ -852,6 +950,8 @@ export class UserGoalService {
         description: true,
         goalKind: true,
         conquestType: true,
+        icon: true,
+        accentColor: true,
         completed: true,
         createdAt: true,
         schedule: {
@@ -1050,6 +1150,55 @@ export class UserGoalService {
   }
 
   /**
+   * Último lembrete de cada meta, se o envio foi nos últimos 7 dias.
+   * A janela é corrida: o card some sozinho quando lastSentAt completa 7 dias.
+   * O texto do WhatsApp/Telegram não fica salvo; o status é o ciclo atual.
+   */
+  async getReceivedReminders(userId: string): Promise<ReceivedReminder[]> {
+    const timezone = await this.getUserTimezone(userId);
+    const now = DateTime.now().setZone(timezone);
+    const windowStart = now.minus({ days: 7 }).toJSDate();
+
+    const goals = await prisma.goal.findMany({
+      where: {
+        userId,
+        reminder: {
+          lastSentAt: { gte: windowStart },
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        icon: true,
+        accentColor: true,
+        reminder: {
+          select: {
+            lastSentAt: true,
+            dailyStatus: true,
+          },
+        },
+      },
+    });
+
+    return goals
+      .flatMap((goal) => {
+        const sentAt = goal.reminder?.lastSentAt;
+        if (!sentAt) return [];
+        return [
+          {
+            id: goal.id,
+            title: goal.title,
+            status: goal.reminder?.dailyStatus ?? null,
+            sentAt: sentAt.toISOString(),
+            icon: goal.icon,
+            accentColor: goal.accentColor,
+          },
+        ];
+      })
+      .sort((a, b) => (a.sentAt < b.sentAt ? 1 : a.sentAt > b.sentAt ? -1 : 0));
+  }
+
+  /**
    * Carrega apenas o timezone do usuário
    */
   async getUserTimezone(userId: string): Promise<string> {
@@ -1074,8 +1223,11 @@ export class UserGoalService {
         description: true,
         goalKind: true,
         conquestType: true,
+        icon: true,
+        accentColor: true,
         completed: true,
         createdAt: true,
+        updatedAt: true,
         schedule: {
           select: {
             id: true,

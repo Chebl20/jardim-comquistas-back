@@ -6,10 +6,15 @@ import {
   UserGoalController,
   GoalInstanceController,
 } from './user-goal.controller';
+import { ReceivedRemindersController } from './received-reminders.controller';
 
 @Module({
   imports: [forwardRef(() => WorldsModule), forwardRef(() => SharedModule)],
-  controllers: [UserGoalController, GoalInstanceController],
+  controllers: [
+    UserGoalController,
+    GoalInstanceController,
+    ReceivedRemindersController,
+  ],
   providers: [UserGoalService],
   exports: [UserGoalService],
 })

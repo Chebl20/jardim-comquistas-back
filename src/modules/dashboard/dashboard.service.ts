@@ -10,7 +10,7 @@ import {
   weekRangeContainingDate,
   type OccurrenceStatus,
 } from '../shared/schedule-occurrence.util';
-import { visualForConquestType } from '../shared/area-visual.util';
+import { resolveStoredGoalVisual } from '../shared/area-visual.util';
 import { buildGoalInstanceId } from '../goals/goal-instance-id';
 import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
 
@@ -63,7 +63,7 @@ function toTimelineOccurrence(
   const times = scheduledTimesForGoalOnDate(goal, civilDate, tz);
   const startTime = times[0] || FALLBACK_START_TIME;
   const status = resolveOccurrenceStatus(goal, civilDate, tz, now);
-  const visual = visualForConquestType(goal.conquestType);
+  const visual = resolveStoredGoalVisual(goal);
   const schedule = (goal.schedule ?? null) as ScheduleConfig | null;
 
   return {

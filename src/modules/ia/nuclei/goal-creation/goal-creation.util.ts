@@ -254,7 +254,7 @@ export function sanitizeGoalPayload(
 
   const payload: ValidatedGoalPayload = {
     title,
-    description: description ?? 'Primeiro gesto que deu vida ao crescimento',
+    description: description ?? '',
     goalType: normalizedGoalType,
     conquestType: normalizedConquest,
     timeToken: timeToken ?? null,

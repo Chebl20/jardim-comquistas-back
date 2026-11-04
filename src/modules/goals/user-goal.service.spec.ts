@@ -26,6 +26,9 @@ jest.mock('../../prisma/client', () => ({
       findMany: jest.fn().mockResolvedValue([]),
     },
     $transaction: jest.fn(),
+    user: {
+      findUnique: jest.fn(),
+    },
   },
 }));
 
@@ -180,6 +183,69 @@ describe('UserGoalService', () => {
         },
       }),
     );
+  });
+
+  describe('getReceivedReminders', () => {
+    it('devolve um item por meta lembrada nos últimos 7 dias, do mais recente ao mais antigo', async () => {
+      const zone = 'America/Fortaleza';
+      const now = DateTime.fromISO('2026-11-03T16:10:00', { zone });
+      jest.spyOn(DateTime, 'now').mockReturnValue(now as DateTime<true>);
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue({ timezone: zone });
+
+      const earlier = now.minus({ hours: 2 }).toJSDate();
+      const later = now.minus({ minutes: 20 }).toJSDate();
+      mockGoalFindMany.mockResolvedValue([
+        {
+          id: 'goal-old',
+          title: 'Meditar',
+          icon: 'psychology',
+          accentColor: 'accent-sky',
+          reminder: { lastSentAt: earlier, dailyStatus: 'DONE' },
+        },
+        {
+          id: 'goal-new',
+          title: 'Beber água',
+          icon: 'fitness_center',
+          accentColor: 'garden-green',
+          reminder: { lastSentAt: later, dailyStatus: 'WAITING_OPERATIONAL_REPLY' },
+        },
+      ]);
+
+      const result = await service.getReceivedReminders('user-1');
+
+      expect(mockGoalFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: 'user-1',
+            reminder: {
+              lastSentAt: {
+                gte: now.minus({ days: 7 }).toJSDate(),
+              },
+            },
+          },
+        }),
+      );
+      expect(result).toEqual([
+        {
+          id: 'goal-new',
+          title: 'Beber água',
+          status: 'WAITING_OPERATIONAL_REPLY',
+          sentAt: later.toISOString(),
+          icon: 'fitness_center',
+          accentColor: 'garden-green',
+        },
+        {
+          id: 'goal-old',
+          title: 'Meditar',
+          status: 'DONE',
+          sentAt: earlier.toISOString(),
+          icon: 'psychology',
+          accentColor: 'accent-sky',
+        },
+      ]);
+
+      jest.restoreAllMocks();
+    });
   });
 
   describe('getIgnoredGoalsForToday', () => {

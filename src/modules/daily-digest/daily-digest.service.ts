@@ -3,7 +3,7 @@ import { DateTime } from 'luxon';
 import { prisma } from '../../prisma/client';
 import { UserGoalService } from '../goals/user-goal.service';
 import { formatScheduleSummary } from '../shared/schedule-formatter.util';
-import { pickGoalEmoji } from '../shared/goal-emoji.util';
+import { emojiForIcon } from '../shared/area-visual.util';
 import type { ScheduleConfig } from '../../domain/types/schedule-config.type';
 import { MessagingService } from '../messaging/messaging.service';
 
@@ -125,7 +125,7 @@ export class DailyDigestService {
       lines.push('Nenhuma meta com lembrete hoje. Aproveite o dia! 🌱');
     } else {
       for (const g of goals) {
-        const emoji = pickGoalEmoji(g.conquestType, g.title);
+        const emoji = emojiForIcon(g.icon);
         const when = formatDigestScheduleLabel(g, timezone) || '';
         const suffix = when ? ` — ${when}` : '';
         lines.push(`${emoji} ${g.title}${suffix}`);
