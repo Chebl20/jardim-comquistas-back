@@ -8,17 +8,33 @@ import * as bcrypt from 'bcryptjs';
 import { resolveUserTimezone } from '../shared/app-timezone';
 import { normalizeTimezoneFromRequest } from '../shared/user-clock.util';
 
+export const MAX_USER_NAME_LENGTH = 80;
+
 @Injectable()
 export class UserService {
+  private normalizeName(raw: string): string {
+    const name = raw.trim();
+    if (!name) {
+      throw new BadRequestException('O nome não pode ficar vazio.');
+    }
+    if (name.length > MAX_USER_NAME_LENGTH) {
+      throw new BadRequestException(
+        `O nome pode ter no máximo ${MAX_USER_NAME_LENGTH} caracteres.`,
+      );
+    }
+    return name;
+  }
+
   async createUser(
     name: string,
     email: string,
     password: string,
     timezone?: string,
   ) {
+    const normalizedName = this.normalizeName(name);
     const hashedPassword = await bcrypt.hash(password, 10);
     const data: any = {
-      name,
+      name: normalizedName,
       email,
       password: hashedPassword,
       currentWorldId: 'mundo2',
@@ -81,10 +97,10 @@ export class UserService {
   }
 
   async updateName(userId: string, rawName: unknown) {
-    const name = typeof rawName === 'string' ? rawName.trim() : '';
-    if (!name) {
+    if (typeof rawName !== 'string') {
       throw new BadRequestException('O nome não pode ficar vazio.');
     }
+    const name = this.normalizeName(rawName);
     return prisma.user.update({
       where: { id: userId },
       data: { name },

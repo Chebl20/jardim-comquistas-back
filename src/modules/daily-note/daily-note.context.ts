@@ -68,9 +68,11 @@ export async function buildDailyNoteFacts(
   }));
 
   const weekday = day.setLocale('pt-BR').toFormat('cccc');
+  const name =
+    input.name.length > 40 ? `${input.name.slice(0, 40).trim()}…` : input.name;
 
   return {
-    name: input.name,
+    name,
     civilDate: day.toISODate() || input.civilDate,
     weekday,
     goalsToday,

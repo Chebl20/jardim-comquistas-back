@@ -19,6 +19,7 @@ import { toGoalReminderView } from './goal-reminder.view';
 import {
   isGardenAccentColor,
   isSelectableGoalIcon,
+  resolveStoredGoalVisual,
   visualForConquestType,
 } from '../shared/area-visual.util';
 import {
@@ -1169,6 +1170,7 @@ export class UserGoalService {
       select: {
         id: true,
         title: true,
+        conquestType: true,
         icon: true,
         accentColor: true,
         reminder: {
@@ -1184,14 +1186,15 @@ export class UserGoalService {
       .flatMap((goal) => {
         const sentAt = goal.reminder?.lastSentAt;
         if (!sentAt) return [];
+        const visual = resolveStoredGoalVisual(goal);
         return [
           {
             id: goal.id,
             title: goal.title,
             status: goal.reminder?.dailyStatus ?? null,
             sentAt: sentAt.toISOString(),
-            icon: goal.icon,
-            accentColor: goal.accentColor,
+            icon: visual.icon,
+            accentColor: visual.accentColor,
           },
         ];
       })
