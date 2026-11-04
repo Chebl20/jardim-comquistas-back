@@ -1,20 +1,16 @@
-import { ConversationOrchestratorService } from '../src/modules/ia/conversation/conversation-orchestrator.service';
-import { ConversationActionExecutorService } from '../src/modules/ia/conversation/conversation-action-executor.service';
-import { ConversationStateService } from '../src/modules/ia/conversation/conversation-state.service';
-import { FlowRoutingPolicyService } from '../src/modules/ia/conversation/flow-routing-policy.service';
-import { NucleusMetaFactory } from '../src/modules/ia/conversation/meta/nucleus-meta.factory';
-import { GoalStatusMetaBuilder } from '../src/modules/ia/conversation/meta/goal-status-meta.builder';
-import { GoalProgressMetaBuilder } from '../src/modules/ia/conversation/meta/goal-progress-meta.builder';
-import {
-  FlowResult,
-  FlowState,
-  FLOW_STATES,
-} from '../src/modules/ia/conversation/flow.types';
+import { ConversationOrchestratorService } from './conversation-orchestrator.service';
+import { ConversationActionExecutorService } from './conversation-action-executor.service';
+import { ConversationStateService } from './conversation-state.service';
+import { FlowRoutingPolicyService } from './flow-routing-policy.service';
+import { NucleusMetaFactory } from './meta/nucleus-meta.factory';
+import { GoalStatusMetaBuilder } from './meta/goal-status-meta.builder';
+import { GoalProgressMetaBuilder } from './meta/goal-progress-meta.builder';
+import { FlowState, FLOW_STATES } from './flow.types';
 import {
   NucleusInput,
   Nucleus,
-} from '../src/modules/ia/nuclei/nucleus.interface';
-import { RouterResult } from '../src/modules/ia/nuclei/router/index';
+} from '../nuclei/nucleus.interface';
+import { RouterResult } from '../nuclei/router/index';
 
 // simple in-memory session service fulfilling needed interface
 class InMemorySessionService {
@@ -98,7 +94,7 @@ const mockUserGoalService: any = {
 const mockWorldsEvents: any = { progressPlantedTree: async () => {} };
 
 // patch prisma.user.findUnique
-jest.mock('../src/prisma/client', () => ({
+jest.mock('../../../prisma/client', () => ({
   prisma: {
     user: {
       findUnique: jest.fn(async ({ where }) => ({
