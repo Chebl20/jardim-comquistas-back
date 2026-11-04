@@ -19,11 +19,20 @@ async function bootstrap() {
   });
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '10mb' });
-  // Habilita CORS em desenvolvimento para o frontend consumir o SVG
-  app.enableCors();
 
-  // Habilita validação automática de DTOs
-  app.useGlobalPipes(new ValidationPipe());
+  const corsOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: corsOrigins.length > 0 ? corsOrigins : true,
+    credentials: false,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, transform: true }),
+  );
 
   // Swagger
   const config = new DocumentBuilder()
@@ -37,6 +46,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  await app.listen(3000);
+  const port = Number(process.env.PORT) || 3000;
+  await app.listen(port, '0.0.0.0');
 }
 bootstrap();
